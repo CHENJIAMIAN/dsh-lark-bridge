@@ -186,7 +186,7 @@ export function scheduleRestartNotice(
       inFlight = false
       if (result === 'retry' && attempts < maxAttempts) return
       stop()
-    }, () => { inFlight = false })
+    }, () => { inFlight = false; stop() })
   }
   timer = setInterval(tick, intervalMs)
   timer.unref?.()

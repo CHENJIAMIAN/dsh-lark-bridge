@@ -116,8 +116,11 @@ function labelLine(label: string, limit = 80): string {
   const lines = label.split('\n').map((line) => line.trim()).filter((line) => line !== '')
   const first = lines[0] ?? ''
   if (first === '') return ''
-  const clipped = first.length > limit ? first.slice(0, limit) : first
-  return lines.length > 1 || first.length > limit ? `${clipped}…` : clipped
+  // Count in code points, not UTF-16 units: slicing mid-astral-character
+  // leaves a lone surrogate, which renders as a replacement glyph.
+  const chars = Array.from(first)
+  const clipped = chars.length > limit ? chars.slice(0, limit).join('') : first
+  return lines.length > 1 || chars.length > limit ? `${clipped}…` : clipped
 }
 
 /**

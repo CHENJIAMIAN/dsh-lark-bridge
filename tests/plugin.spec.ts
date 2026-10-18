@@ -1818,3 +1818,52 @@ describe('dsh-lark-bridge', () => {
     await removeService()
   })
 })
+
+describe('background job completion notices', () => {
+  it('reads the settled output with a bare session id and reports it', async () => {
+    let listener: ((event: unknown) => void) | undefined
+    const readAtCalls: unknown[][] = []
+    const jobs = {
+      events: {
+        subscribe: (_filter: unknown, fn: (event: unknown) => void) => {
+          listener = fn
+          return () => {}
+        },
+      },
+      readAt: (...args: unknown[]) => {
+        readAtCalls.push(args)
+        return { chunks: [{ at: 0, text: 'src/a.ts:1: hit\n' }], next: 1, lossy: false }
+      },
+    }
+    const harness = await mountChannel({}, { commands: createFakeCommands().service, jobs })
+    await harness.fake.emitMessage(fakeMessage({ content: 'hi' }))
+    await vi.waitFor(() => { expect(harness.agents.created).toHaveLength(1) })
+    const sessionId = harness.agents.created[0]!.sessionId
+    await vi.waitFor(() => { expect(listener).toBeDefined() })
+    listener!({
+      type: 'settled',
+      awaited: false,
+      job: {
+        id: 'bash-9',
+        kind: 'bash',
+        label: 'grep -rn hit',
+        status: 'completed',
+        startedAt: Date.now() - 5000,
+        output: { total: 10, earliest: 0 },
+      },
+    })
+    await vi.waitFor(() => {
+      const done = harness.fake.sent.some((m) => 'markdown' in m.input && (m.input as { markdown: string }).markdown.includes('后台任务完成'))
+      expect(done).toBe(true)
+    })
+    const transcript = harness.fake.sent
+      .map((m) => (m.input as { markdown?: string }).markdown ?? '')
+      .join('\n')
+    expect(transcript).toContain('src/a.ts:1: hit')
+    expect(transcript).toContain('耗时 5 秒')
+    // The engine checks the caller by bare session-id string; an object here
+    // silently empties the tail (the bug this test pins).
+    expect(readAtCalls[0]?.[2]).toBe(sessionId)
+    await harness.dispose()
+  })
+})

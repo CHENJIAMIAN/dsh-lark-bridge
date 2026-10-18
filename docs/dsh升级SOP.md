@@ -26,7 +26,7 @@ npm run contract-drift      # 对照上游 master 检查契约签名
 npm run typecheck           # 桥接镜像的 host.ts 若对不上，这里会报
 
 # 步骤 4｜全量测试
-npm test                    # 431 项；覆盖会话创建、命令、后台任务通知等
+npm test                    # 全量（条数随版本变化，以实测为准）；覆盖会话创建、命令、后台任务通知等
 
 # 步骤 5｜重建 + 重启 + 真实验证
 npm run build

@@ -371,6 +371,87 @@ describe('session rotation', () => {
     expect(map.get('oc_chat_r4')).toBe(rotated.handle.agent.session.id)
     expect(host.reports.some(line => line.includes('pre-rotation'))).toBe(true)
   })
+
+  /** Make `create` slow so a rotation can be observed mid-flight. */
+  function slowCreate(host: ReturnType<typeof createFakeLadder>, delayMs = 25): void {
+    const original = host.ladder.create.bind(host.ladder)
+    host.ladder.create = async (sessionId: string): Promise<HostAgentHandle> => {
+      await new Promise(resolve => setTimeout(resolve, delayMs))
+      return original(sessionId)
+    }
+  }
+
+  it('refuses a second /new while the first is still rotating', async () => {
+    const host = createFakeLadder()
+    const { store } = memoryStore()
+    const sessions = new ConversationSessions('chat', host.ladder, store)
+    const msg = fakeMessage({ chatId: 'oc_chat_r5' })
+    await sessions.acquire(msg)
+
+    slowCreate(host)
+    const first = sessions.rotate(msg)
+    await expect(sessions.rotate(msg)).rejects.toThrow('还在进行中')
+    const rotated = await first
+    // The first rotation is the one that binds.
+    expect(rotated.handle.agent.session.id).toContain(':r')
+  })
+
+  it('a message landing mid-rotation waits and lands on the new session', async () => {
+    const host = createFakeLadder()
+    const { store } = memoryStore()
+    const sessions = new ConversationSessions('chat', host.ladder, store)
+    const msg = fakeMessage({ chatId: 'oc_chat_r6' })
+    await sessions.acquire(msg)
+
+    slowCreate(host)
+    const rotating = sessions.rotate(msg)
+    const arriving = sessions.acquire(msg)
+    const [rotated, opened] = await Promise.all([rotating, arriving])
+    expect(opened.handle.agent.session.id).toBe(rotated.handle.agent.session.id)
+  })
+
+  it('a message landing on a failing rotation falls back to the old session', async () => {
+    const host = createFakeLadder()
+    const { store } = memoryStore()
+    const sessions = new ConversationSessions('chat', host.ladder, store)
+    const msg = fakeMessage({ chatId: 'oc_chat_r7' })
+    await sessions.acquire(msg)
+
+    // Only the ROTATION's create fails; the first bind above needed a working one.
+    host.behavior.failCreate = true
+    slowCreate(host)
+    const rotating = sessions.rotate(msg)
+    const opened = await sessions.acquire(msg)
+    expect(opened.handle.agent.session.id).toBe(sessionIdFor('oc_chat_r7'))
+    await expect(rotating).rejects.toThrow('create rejected')
+  })
+
+  it('reports a failed rotation record to the caller', async () => {
+    const host = createFakeLadder()
+    const store = { current: () => undefined, record: () => false }
+    const sessions = new ConversationSessions('chat', host.ladder, store)
+    const msg = fakeMessage({ chatId: 'oc_chat_r8' })
+    await sessions.acquire(msg)
+
+    const rotated = await sessions.rotate(msg)
+    expect(rotated.persisted).toBe(false)
+  })
+
+  it('rotate racing close() leaves no stranded agent', async () => {
+    const host = createFakeLadder()
+    const { store } = memoryStore()
+    const sessions = new ConversationSessions('chat', host.ladder, store)
+    const msg = fakeMessage({ chatId: 'oc_chat_r9' })
+    await sessions.acquire(msg)
+
+    slowCreate(host)
+    const rotating = sessions.rotate(msg)
+    await sessions.close()
+    await expect(rotating).rejects.toThrow('closed')
+    // The agent the rotation created went down with it.
+    const created = host.asked('create').at(-1)!
+    expect(host.disposals).toContain(created)
+  })
 })
 
 describe('rotation store (file-backed)', () => {

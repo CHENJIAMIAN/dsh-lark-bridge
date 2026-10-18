@@ -71,8 +71,8 @@ export interface SavedFiles {
 }
 /**
  * Download and save non-image resources from one chat message into the agent's
- * workspace so the agent can read them with its own tools. Audio and video
- * ride the same download path (`type: 'file'` — the SDK fetches any
+ * workspace so the agent can read them with its own tools. Audio, video and
+ * stickers ride the same download path (`type: 'file'` — the SDK fetches any
  * non-image resource by key); before this they were dropped silently and the
  * model only ever saw a placeholder tag.
  */

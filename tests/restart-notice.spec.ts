@@ -106,4 +106,25 @@ describe('restart notice', () => {
       stop()
     }
   })
+
+  it('never double-posts when a send hangs across ticks', async () => {
+    writeRestartRequest('oc_chat', home)
+    const sent: string[] = []
+    const port = {
+      send: async (_chatId: string, message: { markdown: string }): Promise<void> => {
+        await new Promise(resolve => setTimeout(resolve, 40))
+        sent.push(message.markdown)
+      },
+    }
+    const stop = scheduleRestartNotice(port, () => {}, { home, intervalMs: 5, maxAttempts: 5 })
+    try {
+      await vi.waitFor(() => expect(sent).toHaveLength(1))
+      // Several more 5ms ticks elapse while nothing is in flight; the guard
+      // must keep the count at one (the bug re-sent on every overlapping tick).
+      await new Promise(resolve => setTimeout(resolve, 60))
+      expect(sent).toHaveLength(1)
+    } finally {
+      stop()
+    }
+  })
 })

@@ -13,6 +13,7 @@
  */
 
 import { promises as fs } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { OutboundPort } from './outbound.ts'
 
@@ -162,12 +163,26 @@ const INBOUND_KINDS = {
   file: { label: '文件', icon: '📎' },
   audio: { label: '语音', icon: '🎤' },
   video: { label: '视频', icon: '🎬' },
+  sticker: { label: '贴纸', icon: '🏷️' },
 } as const
+
+/** A destination that does not overwrite an earlier arrival with the same name. */
+function uniqueDest(base: string): string {
+  if (!existsSync(base)) return base
+  const dot = base.lastIndexOf('.')
+  const cut = dot > base.lastIndexOf('/') ? dot : base.length
+  const stem = base.slice(0, cut)
+  const ext = base.slice(cut)
+  for (let n = 2; ; n += 1) {
+    const candidate = `${stem}-${n}${ext}`
+    if (!existsSync(candidate)) return candidate
+  }
+}
 
 /**
  * Download and save non-image resources from one chat message into the agent's
- * workspace so the agent can read them with its own tools. Audio and video
- * ride the same download path (`type: 'file'` — the SDK fetches any
+ * workspace so the agent can read them with its own tools. Audio, video and
+ * stickers ride the same download path (`type: 'file'` — the SDK fetches any
  * non-image resource by key); before this they were dropped silently and the
  * model only ever saw a placeholder tag.
  */
@@ -176,21 +191,25 @@ export async function saveInboundFiles(
   download: (messageId: string, fileKey: string, type: 'image' | 'file') => Promise<{ buffer: Uint8Array }>,
   workDir: string,
 ): Promise<SavedFiles> {
-  const files = msg.resources.filter((r) => r.type in INBOUND_KINDS)
+  const files = msg.resources.filter((r) => Object.hasOwn(INBOUND_KINDS, r.type))
   if (files.length === 0) return { notes: [], paths: [] }
   const notes: string[] = []
   const paths: string[] = []
   for (const file of files) {
     const flavour = INBOUND_KINDS[file.type as keyof typeof INBOUND_KINDS]
-    const name = (file.fileName || `${file.type}_${file.fileKey.slice(0, 12)}`).replace(/[/\\]/g, '_')
+    // Control characters would inject line breaks into the note the model reads.
+    const cleaned = (file.fileName || `${file.type}_${file.fileKey.slice(0, 12)}`)
+      .replace(/[/\\]/g, '_')
+      .replace(/[\u0000-\u001f\u007f]/g, '_')
     try {
       const { buffer } = await download(msg.messageId, file.fileKey, 'file')
-      const dest = _join(workDir, name)
+      const dest = uniqueDest(_join(workDir, cleaned))
       _wf(dest, buffer)
       paths.push(dest)
-      notes.push(`${flavour.icon} 用户发送了${flavour.label}「${name}」，已保存到工作区`)
+      const savedName = dest.split(/[/\\]/).pop() ?? cleaned
+      notes.push(`${flavour.icon} 用户发送了${flavour.label}「${savedName}」，已保存到工作区`)
     } catch (e: unknown) {
-      notes.push(`${flavour.icon} ${flavour.label} ${name} 保存失败：${String(e).slice(0, 80)}`)
+      notes.push(`${flavour.icon} ${flavour.label} ${cleaned} 保存失败：${String(e).slice(0, 80)}`)
     }
   }
   return { notes, paths }

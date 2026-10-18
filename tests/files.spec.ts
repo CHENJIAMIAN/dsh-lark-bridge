@@ -171,4 +171,35 @@ describe('saveInboundFiles', () => {
     expect(saved.notes).toHaveLength(0)
     expect(saved.paths).toHaveLength(0)
   })
+
+  it('saves a sticker instead of dropping it silently', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-bridge-inbound-'))
+    const saved = await saveInboundFiles(
+      { messageId: 'om_4', resources: [{ type: 'sticker', fileKey: 'fk5' }] },
+      fakeDownload as never,
+      dir,
+    )
+    expect(saved.notes[0]).toContain('用户发送了贴纸')
+    expect(saved.paths).toHaveLength(1)
+  })
+
+  it('never overwrites an earlier arrival with the same name', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-bridge-inbound-'))
+    const msg = { messageId: 'om_5', resources: [{ type: 'file', fileKey: 'fk6', fileName: 'report.pdf' }] }
+    const first = await saveInboundFiles(msg, fakeDownload as never, dir)
+    const second = await saveInboundFiles(msg, fakeDownload as never, dir)
+    expect(first.paths[0]).not.toBe(second.paths[0])
+    expect(second.paths[0]).toContain('report-2.pdf')
+  })
+
+  it('strips control characters from a file name', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-bridge-inbound-'))
+    const saved = await saveInboundFiles(
+      { messageId: 'om_6', resources: [{ type: 'file', fileKey: 'fk7', fileName: 'a\nb.txt' }] },
+      fakeDownload as never,
+      dir,
+    )
+    expect(saved.notes[0]).not.toContain('a\nb')
+    expect(saved.notes[0]).toContain('a_b.txt')
+  })
 })

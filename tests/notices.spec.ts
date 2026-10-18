@@ -86,6 +86,12 @@ describe('notice lines', () => {
     expect(jobDoneLine(base)).not.toContain('耗时')
   })
 
+  it('clips by code points so an emoji is never split', () => {
+    const line = jobDoneLine({ id: 'bash-12', kind: 'bash', label: '🎯'.repeat(100), status: 'completed' })
+    expect(line).not.toContain('\ufffd')
+    expect(line).toContain(`${'🎯'.repeat(80)}…`)
+  })
+
   it('carries the job output into the completion notice', () => {
     // The command alone told the reader nothing they did not already know when
     // the job started — the answer is the output.
