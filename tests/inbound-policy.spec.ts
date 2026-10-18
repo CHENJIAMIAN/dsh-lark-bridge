@@ -216,13 +216,16 @@ describe('durable sessions', () => {
       await harness.fake.emitMessage(fakeMessage({ messageId: 'om_b', threadId: 'omt_b' }))
       await vi.waitFor(() => { expect(harness.agents.created).toHaveLength(2) })
       // Parallel topics would otherwise overwrite each other's context.
-      expect(harness.agents.created.map(record => record.sessionId)).toEqual([
+      // Creation order is scheduler-dependent, so compare the two sessions as
+      // a set — this assertion used to flake under full-suite parallelism.
+      expect(harness.agents.created.map(record => record.sessionId).sort()).toEqual([
         'feishu-oc_chat_1:omt_a',
         'feishu-oc_chat_1:omt_b',
       ])
       await harness.fake.emitMessage(fakeMessage({ messageId: 'om_c', threadId: 'omt_a' }))
+      const firstTopic = harness.agents.created.find(record => record.sessionId.endsWith(':omt_a'))!
       await vi.waitFor(() => {
-        expect(harness.agents.created[0]!.agent.followup).toHaveBeenCalledTimes(2)
+        expect(firstTopic.agent.followup).toHaveBeenCalledTimes(2)
       })
       expect(harness.agents.created).toHaveLength(2)
     } finally {

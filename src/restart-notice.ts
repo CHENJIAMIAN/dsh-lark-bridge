@@ -8,7 +8,7 @@
  * @module dsh-lark-bridge/restart-notice
  */
 
-import { readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 
@@ -62,7 +62,11 @@ export function restartNoticePath(home?: string): string {
  */
 export function writeRestartRequest(chatId: string, home?: string): boolean {
   try {
-    writeFileSync(restartNoticePath(home), JSON.stringify({ chatId, requestedAt: Date.now() }), 'utf8')
+    const file = restartNoticePath(home)
+    // The home directory usually exists on a live deployment, but a first run
+    // (or a moved DSH_HOME) must not silently lose the restored notice.
+    mkdirSync(path.dirname(file), { recursive: true })
+    writeFileSync(file, JSON.stringify({ chatId, requestedAt: Date.now() }), 'utf8')
     return true
   } catch {
     return false
@@ -120,7 +124,7 @@ export function restartNoticeLine(request: RestartRequest, now = Date.now()): st
   const at = new Date(now).toLocaleTimeString('zh-CN', { hour12: false })
   const seconds = Math.max(0, Math.round((now - request.requestedAt) / 1000))
   const duration = seconds >= 60 ? `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒` : `${seconds} 秒`
-  return `✅ 重启完成：服务于 ${at} 恢复，本次重启共约 ${duration}（自 /restart 起算）。`
+  return `✅ 重启完成：服务已于 ${at} 恢复，本次重启共约 ${duration}（自 /restart 起算）。`
 }
 
 /**
@@ -166,18 +170,23 @@ export function scheduleRestartNotice(
   const maxAttempts = options.maxAttempts ?? 20
   let attempts = 0
   let stopped = false
+  let inFlight = false
   let timer: ReturnType<typeof setInterval> | undefined
   const stop = (): void => {
     stopped = true
     if (timer !== undefined) clearInterval(timer)
   }
   const tick = (): void => {
-    if (stopped) return
+    // A slow send must not overlap the next tick: without this guard an
+    // interval shorter than one delivery posted the notice several times.
+    if (stopped || inFlight) return
+    inFlight = true
     attempts += 1
     void deliverRestartNotice(port, report, options.home === undefined ? {} : { home: options.home }).then((result) => {
+      inFlight = false
       if (result === 'retry' && attempts < maxAttempts) return
       stop()
-    })
+    }, () => { inFlight = false })
   }
   timer = setInterval(tick, intervalMs)
   timer.unref?.()

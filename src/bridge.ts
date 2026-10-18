@@ -1022,7 +1022,10 @@ export function installBridge(
           const coords = job.output
           if (jobs === undefined || coords === undefined || coords.total <= coords.earliest) return ''
           try {
-            return jobs.readAt(job.id, coords.earliest, { id: sessionId })
+            // The engine's owner check takes a bare session-id string; the old
+            // object form failed it and the catch below ate the throw — the
+            // notice's tail was silently empty ever since the feature landed.
+            return jobs.readAt(job.id, coords.earliest, sessionId)
               .chunks.map((chunk) => chunk.text).join('')
           } catch {
             return ''
@@ -1414,7 +1417,7 @@ export function installBridge(
 
       // ── Preemptive commands (owner request 08-25): these bypass the normal
       // pipeline and act IMMEDIATELY on the agent, even mid-turn.
-      const preemptive = msg.content.trim()
+      const preemptive = msg.content.trim().toLowerCase()
       if (preemptive === '/stop') {
         opened.handle.agent.cancel('user-requested')
         notify(`dsh-lark-bridge: preemptive /stop for session ${opened.handle.agent.session.id}`)
@@ -1433,7 +1436,8 @@ export function installBridge(
         try {
           const rotated = await sessions.rotate(msg)
           notify(`dsh-lark-bridge: /new rotated ${msg.chatId} to session ${rotated.handle.agent.session.id}`)
-          await port.send(msg.chatId, { markdown: '🆕 已开新会话。下一条消息起就是新话题；旧会话保留在历史里（`/sessions` 可查）。' }).catch(reportSendFailure)
+          const warn = rotated.persisted ? '' : '\n⚠️ 但轮换记忆写入失败：重启后这条对话会退回旧历史，重要话题先别开。'
+          await port.send(msg.chatId, { markdown: '🆕 已开新会话。下一条消息起就是新话题；旧会话保留在历史里（`/sessions` 可查）。' + warn }).catch(reportSendFailure)
         } catch (error) {
           await port.send(msg.chatId, { markdown: `⚠️ 开新会话失败：${error instanceof Error ? error.message : String(error)}` }).catch(reportSendFailure)
         }
@@ -1548,7 +1552,9 @@ export function installBridge(
         // stall then names its stage instead of freezing the loop silently.
         const prefix = await stage(msg.messageId, 'briefing', async () => briefingPrefix(config.briefingFile, opened.handle.agent.session.id, notify))
       // Append file notes to the user's text so the agent knows what arrived.
-      const allNotes = [...images.notes, ...fileNotes]
+      // (`chatUserMessage` folds `images.notes` into the text itself — adding
+      // them here as well made every image note reach the model twice.)
+      const allNotes = [...fileNotes]
       const spoken = allNotes.length > 0
         ? msg.content + '\n' + allNotes.join('\n')
         : msg.content

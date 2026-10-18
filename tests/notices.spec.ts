@@ -53,6 +53,30 @@ describe('notice lines', () => {
     expect(jobDoneLine({ id: 'subagent-3', kind: 'subagent', label: '调研', status: 'failed', detail: 'exit code: 3' })).toContain('exit code: 3')
   })
 
+  it('keeps only the first line of a multi-line command label', () => {
+    // `tool-bash` uses the whole command as the label; a notice that opens
+    // with every line of a script buries its own answer.
+    const line = jobDoneLine({
+      id: 'bash-9',
+      kind: 'bash',
+      label: 'cd /srv/app && cp config.yaml x\nsleep 2\necho done',
+      status: 'completed',
+    })
+    expect(line).toContain('cd /srv/app && cp config.yaml x…')
+    expect(line).not.toContain('sleep 2')
+  })
+
+  it('caps an overlong single-line label', () => {
+    const line = jobDoneLine({ id: 'bash-10', kind: 'bash', label: 'a'.repeat(200), status: 'completed' })
+    expect(line).toContain(`${'a'.repeat(80)}…`)
+    expect(line).not.toContain('a'.repeat(81))
+  })
+
+  it('falls back to the job kind when the label is blank', () => {
+    const line = jobDoneLine({ id: 'bash-11', kind: 'bash', label: '  \n ', status: 'completed' })
+    expect(line).toContain('后台任务完成：bash')
+  })
+
   it('carries the job output into the completion notice', () => {
     // The command alone told the reader nothing they did not already know when
     // the job started — the answer is the output.

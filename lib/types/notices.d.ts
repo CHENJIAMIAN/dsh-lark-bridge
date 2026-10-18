@@ -40,13 +40,6 @@ export declare function subagentEndLine(info: {
  * it dropped, rather than being truncated from the back into uselessness.
  */
 export declare function outputTail(output: string | undefined): string;
-/**
- * A background job's terminal line (from the registry's `settled` event).
- *
- * Naming only the command tells the reader nothing they did not already know
- * when it started — the answer is the job's OUTPUT. The caller reads the
- * retained tail off the ring and hands it in here.
- */
 export declare function jobDoneLine(job: {
     readonly id: string;
     readonly kind: string;

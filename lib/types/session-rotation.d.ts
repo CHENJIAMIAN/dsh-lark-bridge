@@ -17,8 +17,10 @@ export interface RotationStore {
      * Persist the conversation's new session id.
      * @param key - a conversation key.
      * @param sessionId - the freshly created session id.
+     * @returns false when the mapping could not reach disk (the in-process
+     * rotation still holds — only a restart-time fallback is at risk).
      */
-    record(key: string, sessionId: string): void;
+    record(key: string, sessionId: string): boolean;
 }
 /**
  * The harness home the rotation file lives in: `DSH_HOME` when set, else
@@ -35,13 +37,15 @@ export declare function rotationHome(home?: string): string;
 export declare function rotationPath(home?: string): string;
 /**
  * The next rotated session id for one conversation: the derived id plus a
- * sortable stamp, so every rotation is a fresh id and the original remains
+ * sortable stamp and a random tail, so every rotation is a fresh id (two
+ * /new in the same millisecond must not collide) and the original stays
  * addressable for history lookups.
  * @param baseSessionId - the conversation's derived id (from `sessionIdFor`).
  * @param now - clock override for tests.
+ * @param suffix - randomness override for tests.
  * @returns the new session id.
  */
-export declare function rotatedSessionId(baseSessionId: string, now?: number): string;
+export declare function rotatedSessionId(baseSessionId: string, now?: number, suffix?: string): string;
 /**
  * A JSON-backed {@link RotationStore}, cached in memory. A missing or
  * unparsable file reads as "no rotations"; writes go through a rename so a

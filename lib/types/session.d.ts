@@ -89,6 +89,9 @@ export declare class ConversationSessions {
      * @param scope - the conversation facet every session is keyed by.
      * @param ladder - the host operations to walk.
      */
+    /** Rotations in flight, per conversation: a message landing mid-rotate
+     * must wait for it, or it would bind the session being disposed. */
+    private readonly rotating;
     constructor(scope: SessionScope, ladder: SessionLadder, rotation?: RotationStore | undefined);
     /** Session ids currently bound, in insertion order. */
     get sessionIds(): string[];
@@ -115,7 +118,15 @@ export declare class ConversationSessions {
      * @throws when this store is closed, or when creating the fresh session
      * fails — the previous binding then survives untouched.
      */
-    rotate(msg: NormalizedMessage): Promise<OpenedSession>;
+    rotate(msg: NormalizedMessage): Promise<OpenedSession & {
+        readonly persisted: boolean;
+    }>;
+    /**
+     * The body of {@link rotate}, serialized per conversation by its caller.
+     * @param key - the conversation key to rotate.
+     * @returns the fresh session plus whether the mapping reached disk.
+     */
+    private performRotate;
     /**
      * Stop accepting new work and dispose every owned agent. The bindings are
      * dropped before the first await, so a second call disposes nothing twice.

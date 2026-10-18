@@ -107,6 +107,19 @@ export function outputTail(output: string | undefined): string {
  * when it started — the answer is the job's OUTPUT. The caller reads the
  * retained tail off the ring and hands it in here.
  */
+/**
+ * A one-line form of a job label. `tool-bash` labels carry the command line
+ * verbatim — often several lines — and a notice that opens with all of it
+ * buries the one line a reader needs.
+ */
+function labelLine(label: string, limit = 80): string {
+  const lines = label.split('\n').map((line) => line.trim()).filter((line) => line !== '')
+  const first = lines[0] ?? ''
+  if (first === '') return ''
+  const clipped = first.length > limit ? first.slice(0, limit) : first
+  return lines.length > 1 || first.length > limit ? `${clipped}…` : clipped
+}
+
 export function jobDoneLine(job: {
   readonly id: string
   readonly kind: string
@@ -117,7 +130,8 @@ export function jobDoneLine(job: {
 }): string {
   const mark = job.status === 'completed' ? '✅' : job.status === 'killed' ? '⏹️' : '❌'
   const detail = job.detail === undefined || job.detail === '' ? '' : `（${job.detail}）`
-  const head = `${mark} 后台任务完成：${job.label}${detail} [${job.id}]`
+  const label = labelLine(job.label)
+  const head = `${mark} 后台任务完成：${label === '' ? job.kind : label}${detail} [${job.id}]`
   const tail = outputTail(job.output)
   return tail === '' ? head : `${head}\n\`\`\`\n${tail}\n\`\`\``
 }

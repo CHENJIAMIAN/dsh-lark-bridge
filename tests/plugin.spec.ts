@@ -813,16 +813,16 @@ describe('dsh-lark-bridge', () => {
 
   describe('slash commands', () => {
     it('runs a host command instead of prompting the model', async () => {
-      const commands = createFakeCommands([{ name: 'clear', description: '开始新的对话' }])
+      const commands = createFakeCommands([{ name: 'digest', description: '汇总近况' }])
       const harness = await mountChannel({}, { commands: commands.service })
-      await harness.fake.emitMessage(fakeMessage({ content: '/clear' }))
-      await vi.waitFor(() => { expect(commands.executed).toEqual(['/clear']) })
+      await harness.fake.emitMessage(fakeMessage({ content: '/digest' }))
+      await vi.waitFor(() => { expect(commands.executed).toEqual(['/digest']) })
 
       // The model never sees the line: a command is a control, not a prompt.
       const created = harness.agents.created[0]!
       expect(created.agent.followup).not.toHaveBeenCalled()
       await vi.waitFor(() => {
-        expect(harness.fake.sent.some((m) => 'markdown' in m.input && m.input.markdown === 'ran clear')).toBe(true)
+        expect(harness.fake.sent.some((m) => 'markdown' in m.input && m.input.markdown === 'ran digest')).toBe(true)
       })
       await harness.dispose()
     })
@@ -889,9 +889,34 @@ describe('dsh-lark-bridge', () => {
 
     it('says so when no command runtime is composed', async () => {
       const harness = await mountChannel()
-      await harness.fake.emitMessage(fakeMessage({ content: '/clear' }))
+      await harness.fake.emitMessage(fakeMessage({ content: '/digest' }))
       await vi.waitFor(() => { expect(harness.fake.sent).toHaveLength(1) })
       expect((harness.fake.sent[0]!.input as { markdown: string }).markdown).toContain('没有组合命令运行时')
+      await harness.dispose()
+    })
+
+    it('rotates the conversation on /new and keeps the old session stored', async () => {
+      const harness = await mountChannel({}, { commands: createFakeCommands().service })
+      await harness.fake.emitMessage(fakeMessage({ content: 'hi' }))
+      await vi.waitFor(() => { expect(harness.agents.created).toHaveLength(1) })
+      await harness.fake.emitMessage(fakeMessage({ content: '/new' }))
+      await vi.waitFor(() => {
+        expect(harness.fake.sent.some((m) => 'markdown' in m.input && m.input.markdown.includes('已开新会话'))).toBe(true)
+      })
+      expect(harness.agents.created).toHaveLength(2)
+      await harness.dispose()
+    })
+
+    it('refuses /new while a turn is running', async () => {
+      const harness = await mountChannel({}, { commands: createFakeCommands().service })
+      await harness.fake.emitMessage(fakeMessage({ content: 'do something long' }))
+      await vi.waitFor(() => { expect(harness.agents.created).toHaveLength(1) })
+      ;(harness.agents.created[0]!.agent as { status?: string }).status = 'running'
+      await harness.fake.emitMessage(fakeMessage({ content: '/NEW' }))
+      await vi.waitFor(() => {
+        expect(harness.fake.sent.some((m) => 'markdown' in m.input && m.input.markdown.includes('还在跑'))).toBe(true)
+      })
+      expect(harness.agents.created).toHaveLength(1)
       await harness.dispose()
     })
 
@@ -957,10 +982,10 @@ describe('dsh-lark-bridge', () => {
       const harness = await mountChannel({}, { commands: createFakeCommands().service })
       // A command dropped from the channel used to stay in the menu and answer
       // "unknown command" for everyone who picked it.
-      harness.fake.panelCommands.push('new')
+      harness.fake.panelCommands.push('retired')
       await harness.fake.emitMessage(fakeMessage())
-      await vi.waitFor(() => { expect(harness.fake.panelDeleted).toContain('new') })
-      expect(harness.fake.panelCreated).not.toContain('new')
+      await vi.waitFor(() => { expect(harness.fake.panelDeleted).toContain('retired') })
+      expect(harness.fake.panelCreated).not.toContain('retired')
       await harness.dispose()
     })
 
@@ -992,12 +1017,12 @@ describe('dsh-lark-bridge', () => {
     })
 
     it('keeps working when the panel cannot be synced', async () => {
-      const harness = await mountChannel({}, { commands: createFakeCommands().service })
+      const harness = await mountChannel({}, { commands: createFakeCommands([{ name: 'digest', description: '汇总近况' }]).service })
       harness.fake.state.failPanelList = true
-      await harness.fake.emitMessage(fakeMessage({ content: '/clear' }))
+      await harness.fake.emitMessage(fakeMessage({ content: '/digest' }))
       // Discovery is a convenience; the command still runs typed by hand.
       await vi.waitFor(() => {
-        expect(harness.fake.sent.some((m) => 'markdown' in m.input && m.input.markdown === 'ran clear')).toBe(true)
+        expect(harness.fake.sent.some((m) => 'markdown' in m.input && m.input.markdown === 'ran digest')).toBe(true)
       })
       expect(harness.notices.some((line) => line.includes('panel not synced'))).toBe(true)
       await harness.dispose()

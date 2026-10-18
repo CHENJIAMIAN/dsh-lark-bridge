@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { createSendFileTool, deliverFile, renderSendFileResult, SEND_FILE_TOOL_NAME } from '../src/files.ts'
+import { createSendFileTool, deliverFile, renderSendFileResult, saveInboundFiles, SEND_FILE_TOOL_NAME } from '../src/files.ts'
 import type { SendFileArgs, SendFileResult } from '../src/files.ts'
 
 /** A fake outbound port recording file sends. */
@@ -123,5 +123,52 @@ describe('deliverFile', () => {
     expect(sent).toHaveLength(1)
     expect('markdown' in sent[0]!.input).toBe(false)
     expect((sent[0]!.input as { file: { fileName: string } }).file.fileName).toBe('r.csv')
+  })
+})
+
+describe('saveInboundFiles', () => {
+  const fakeDownload = vi.fn(async () => ({ buffer: new Uint8Array([1, 2, 3]) }))
+
+  it('saves documents, audio and video, and notes each kind', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-bridge-inbound-'))
+    const saved = await saveInboundFiles(
+      {
+        messageId: 'om_1',
+        resources: [
+          { type: 'file', fileKey: 'fk1', fileName: '报告.pdf' },
+          { type: 'audio', fileKey: 'fk2', fileName: 'voice.opus' },
+          { type: 'video', fileKey: 'fk3' },
+        ],
+      },
+      fakeDownload as never,
+      dir,
+    )
+    expect(saved.paths).toHaveLength(3)
+    expect(saved.notes[0]).toContain('📎 用户发送了文件「报告.pdf」')
+    expect(saved.notes[1]).toContain('🎤 用户发送了语音「voice.opus」')
+    expect(saved.notes[2]).toContain('🎬 用户发送了视频「video_fk3」')
+    expect(fakeDownload).toHaveBeenCalledWith('om_1', 'fk2', 'file')
+  })
+
+  it('notes a failed download instead of throwing', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-bridge-inbound-'))
+    const saved = await saveInboundFiles(
+      { messageId: 'om_2', resources: [{ type: 'audio', fileKey: 'fk9', fileName: 'v.opus' }] },
+      (async () => { throw new Error('boom') }) as never,
+      dir,
+    )
+    expect(saved.notes[0]).toContain('保存失败')
+    expect(saved.paths).toHaveLength(0)
+  })
+
+  it('ignores image resources (handled by the image path)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-bridge-inbound-'))
+    const saved = await saveInboundFiles(
+      { messageId: 'om_3', resources: [{ type: 'image', fileKey: 'fk0' }] },
+      fakeDownload as never,
+      dir,
+    )
+    expect(saved.notes).toHaveLength(0)
+    expect(saved.paths).toHaveLength(0)
   })
 })

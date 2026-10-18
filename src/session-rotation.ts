@@ -6,6 +6,7 @@
  * @module dsh-lark-bridge/session-rotation
  */
 
+import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
@@ -22,8 +23,10 @@ export interface RotationStore {
    * Persist the conversation's new session id.
    * @param key - a conversation key.
    * @param sessionId - the freshly created session id.
+   * @returns false when the mapping could not reach disk (the in-process
+   * rotation still holds — only a restart-time fallback is at risk).
    */
-  record(key: string, sessionId: string): void
+  record(key: string, sessionId: string): boolean
 }
 
 /**
@@ -47,14 +50,20 @@ export function rotationPath(home?: string): string {
 
 /**
  * The next rotated session id for one conversation: the derived id plus a
- * sortable stamp, so every rotation is a fresh id and the original remains
+ * sortable stamp and a random tail, so every rotation is a fresh id (two
+ * /new in the same millisecond must not collide) and the original stays
  * addressable for history lookups.
  * @param baseSessionId - the conversation's derived id (from `sessionIdFor`).
  * @param now - clock override for tests.
+ * @param suffix - randomness override for tests.
  * @returns the new session id.
  */
-export function rotatedSessionId(baseSessionId: string, now = Date.now()): string {
-  return `${baseSessionId}:r${now.toString(36)}`
+export function rotatedSessionId(
+  baseSessionId: string,
+  now = Date.now(),
+  suffix = randomUUID().replaceAll('-', '').slice(0, 4),
+): string {
+  return `${baseSessionId}:r${now.toString(36)}${suffix}`
 }
 
 /**
@@ -90,9 +99,11 @@ export function createRotationStore(home?: string): RotationStore {
         const tmp = `${file}.tmp`
         writeFileSync(tmp, JSON.stringify(next), 'utf8')
         renameSync(tmp, file)
+        return true
       } catch {
-        // Best effort: this process still rotates; the next boot would fall
-        // back to the pre-rotation id, which is reported by the caller anyway.
+        // Best effort: this process still rotates, but the mapping is lost on
+        // restart — the boolean lets the caller say so instead of pretending.
+        return false
       }
     },
   }

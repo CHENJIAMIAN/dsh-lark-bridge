@@ -157,29 +157,40 @@ export interface SavedFiles {
   readonly paths: string[]
 }
 
+/** Inbound resource kinds the bridge persists, with their note flavour. */
+const INBOUND_KINDS = {
+  file: { label: '文件', icon: '📎' },
+  audio: { label: '语音', icon: '🎤' },
+  video: { label: '视频', icon: '🎬' },
+} as const
+
 /**
- * Download and save non-image files from one chat message into the agent's
- * workspace so the agent can read them with its own tools.
+ * Download and save non-image resources from one chat message into the agent's
+ * workspace so the agent can read them with its own tools. Audio and video
+ * ride the same download path (`type: 'file'` — the SDK fetches any
+ * non-image resource by key); before this they were dropped silently and the
+ * model only ever saw a placeholder tag.
  */
 export async function saveInboundFiles(
   msg: { messageId: string; resources: ReadonlyArray<{ type: string; fileKey: string; fileName?: string }> },
   download: (messageId: string, fileKey: string, type: 'image' | 'file') => Promise<{ buffer: Uint8Array }>,
   workDir: string,
 ): Promise<SavedFiles> {
-  const files = msg.resources.filter((r) => r.type === 'file')
+  const files = msg.resources.filter((r) => r.type in INBOUND_KINDS)
   if (files.length === 0) return { notes: [], paths: [] }
   const notes: string[] = []
   const paths: string[] = []
   for (const file of files) {
-    const name = (file.fileName || `file_${file.fileKey.slice(0, 12)}`).replace(/[/\\]/g, '_')
+    const flavour = INBOUND_KINDS[file.type as keyof typeof INBOUND_KINDS]
+    const name = (file.fileName || `${file.type}_${file.fileKey.slice(0, 12)}`).replace(/[/\\]/g, '_')
     try {
       const { buffer } = await download(msg.messageId, file.fileKey, 'file')
       const dest = _join(workDir, name)
       _wf(dest, buffer)
       paths.push(dest)
-      notes.push(`📎 用户发送了文件「${name}」，已保存到工作区`)
+      notes.push(`${flavour.icon} 用户发送了${flavour.label}「${name}」，已保存到工作区`)
     } catch (e: unknown) {
-      notes.push(`📎 文件 ${name} 保存失败：${String(e).slice(0, 80)}`)
+      notes.push(`${flavour.icon} ${flavour.label} ${name} 保存失败：${String(e).slice(0, 80)}`)
     }
   }
   return { notes, paths }

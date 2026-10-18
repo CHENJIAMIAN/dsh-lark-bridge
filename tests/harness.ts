@@ -1,3 +1,6 @@
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { vi } from 'vitest'
 import type {
@@ -493,6 +496,10 @@ export async function mountChannel(
     goals?: object
   } = {},
 ) {
+  // The rotation store persists under DSH_HOME, and the live service shares
+  // this machine's real ~/.dsh — a test must never write there. A fresh home
+  // per mount keeps files isolated and makes leaked state impossible.
+  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-test-home-'))
   const ctx = new Context()
   const logs: LoggedLine[] = []
   // Cordis buffers log messages and prints nothing without an exporter, and its

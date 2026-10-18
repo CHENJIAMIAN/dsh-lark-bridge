@@ -864,9 +864,7 @@ export interface HostJobs {
      */
     readonly events: HostJobEvents;
     /** List caller-owned and unowned jobs in registration order. */
-    list(caller?: {
-        readonly id: string;
-    }): readonly HostJobSnapshot[];
+    list(caller?: string): readonly HostJobSnapshot[];
     /**
      * Read retained ring output WITHOUT moving the model's cursor.
      *
@@ -878,9 +876,7 @@ export interface HostJobs {
      * @param from - absolute byte offset (0, or the projection's `earliest`).
      * @param caller - reading session, checked against the job's owner.
      */
-    readAt(id: string, from: number, caller?: {
-        readonly id: string;
-    }): HostJobOutputRead;
+    readAt(id: string, from: number, caller?: string): HostJobOutputRead;
 }
 /** The `messageFeedback` service (subset of the host `MessageFeedback`). */
 export interface HostMessageFeedback {

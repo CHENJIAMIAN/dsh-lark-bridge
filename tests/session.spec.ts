@@ -1,6 +1,10 @@
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { HostAgentHandle } from '../src/host.ts'
 import { ConversationSessions, conversationKey, sessionIdFor } from '../src/session.ts'
+import { createRotationStore, rotatedSessionId, rotationPath } from '../src/session-rotation.ts'
 import type { SessionLadder, SessionScope } from '../src/session.ts'
 import { fakeMessage } from './harness.ts'
 
@@ -308,7 +312,7 @@ describe('session rotation', () => {
       map,
       store: {
         current: (key: string): string | undefined => map.get(key),
-        record: (key: string, sessionId: string): void => { map.set(key, sessionId) },
+        record: (key: string, sessionId: string): boolean => { map.set(key, sessionId); return true },
       },
     }
   }
@@ -366,5 +370,34 @@ describe('session rotation', () => {
     const rotated = await sessions.rotate(msg)
     expect(map.get('oc_chat_r4')).toBe(rotated.handle.agent.session.id)
     expect(host.reports.some(line => line.includes('pre-rotation'))).toBe(true)
+  })
+})
+
+describe('rotation store (file-backed)', () => {
+  it('round-trips a mapping through the file, surviving a restart', () => {
+    const home = mkdtempSync(join(tmpdir(), 'dsh-rot-'))
+    const store = createRotationStore(home)
+    expect(store.current('oc_x')).toBeUndefined()
+    expect(store.record('oc_x', 'feishu-oc_x:rabc')).toBe(true)
+    // A fresh store reads it back — the mapping outlives the process.
+    expect(createRotationStore(home).current('oc_x')).toBe('feishu-oc_x:rabc')
+  })
+
+  it('reads a corrupt file as no rotations', () => {
+    const home = mkdtempSync(join(tmpdir(), 'dsh-rot-'))
+    writeFileSync(rotationPath(home), '{oops')
+    expect(createRotationStore(home).current('oc_x')).toBeUndefined()
+  })
+
+  it('reports a failed write instead of pretending', () => {
+    const home = mkdtempSync(join(tmpdir(), 'dsh-rot-'))
+    // Occupy the home path with a file: mkdir under it must fail.
+    const blocked = join(home, 'blocked')
+    writeFileSync(blocked, 'x')
+    expect(createRotationStore(blocked).record('oc_x', 'id')).toBe(false)
+  })
+
+  it('gives every rotation a distinct id even in the same millisecond', () => {
+    expect(rotatedSessionId('base', 123)).not.toBe(rotatedSessionId('base', 123))
   })
 })
