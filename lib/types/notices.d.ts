@@ -46,6 +46,7 @@ export declare function jobDoneLine(job: {
     readonly label: string;
     readonly status: 'completed' | 'killed' | 'failed';
     readonly detail?: string;
+    readonly durationMs?: number;
     readonly output?: string;
 }): string;
 /**
