@@ -1044,12 +1044,16 @@ export function installBridge(
           const binding = bySession.get(sessionId)
           if (binding === undefined) return
           const output = jobOutput(snapshot)
+          // The projection carries only `startedAt`; the notice wants the
+          // elapsed time, so measure it here, at settlement.
+          const durationMs = Number.isFinite(snapshot.startedAt) && snapshot.startedAt > 0 ? Math.max(0, Date.now() - snapshot.startedAt) : undefined
           const terminal: {
             readonly id: string
             readonly kind: string
             readonly label: string
             readonly status: 'completed' | 'killed' | 'failed'
             readonly detail?: string
+            readonly durationMs?: number
             readonly output?: string
           } = {
             id: snapshot.id,
@@ -1057,6 +1061,7 @@ export function installBridge(
             label: snapshot.label,
             status: snapshot.status,
             ...snapshot.detail === undefined ? {} : { detail: snapshot.detail },
+            ...durationMs === undefined ? {} : { durationMs },
             ...output === '' ? {} : { output },
           }
           void replay.send(binding.chatId, { markdown: jobDoneLine(terminal) }).catch(reportSendFailure)

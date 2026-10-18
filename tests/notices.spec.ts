@@ -77,6 +77,15 @@ describe('notice lines', () => {
     expect(line).toContain('后台任务完成：bash')
   })
 
+  it('states how long the job ran', () => {
+    const base = { id: 'bash-1', kind: 'bash', label: 'x', status: 'completed' as const }
+    expect(jobDoneLine({ ...base, durationMs: 154_000 })).toContain('耗时 2 分 34 秒')
+    expect(jobDoneLine({ ...base, durationMs: 42_000 })).toContain('耗时 42 秒')
+    expect(jobDoneLine({ ...base, durationMs: 7_200_000 })).toContain('耗时 2 小时 0 分')
+    // No measurement, no claim.
+    expect(jobDoneLine(base)).not.toContain('耗时')
+  })
+
   it('carries the job output into the completion notice', () => {
     // The command alone told the reader nothing they did not already know when
     // the job started — the answer is the output.

@@ -102,3 +102,6 @@ node scripts/audit-host-contract.mjs   # 需 DSH_HOME 或默认定位 0.1.7 目�
    结果写进台账；随后实发一条飞书消息确认端到端。缺一不可。
 4. **工作区整洁纪律**：当天产生的改动要么当场提交、要么明确丢弃，禁止让未提交改动过夜
    （9/30 悬挂事故的教训）。部署配置（persona、restartCommand 等）的修改同样留一行记录。
+5. **重启前先查活动（2026-10-19 增补）**：`systemctl restart` 会掐断正在跑的 turn——用户的任务会停在半路、最终汇报永远发不出来。
+   重启（含为部署而重启）前必须查：会话文件 mtime（`ls -l ~/.dsh/sessions/.../session.v*.jsonl.zstd`）、`journalctl` 近几分钟有无活动。
+   活跃则等它跑完或先问用户；这比"马上部署"重要。

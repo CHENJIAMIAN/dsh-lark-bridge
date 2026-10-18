@@ -120,18 +120,34 @@ function labelLine(label: string, limit = 80): string {
   return lines.length > 1 || first.length > limit ? `${clipped}…` : clipped
 }
 
+/**
+ * How long the job ran, for the completion notice. The snapshot carries only
+ * `startedAt`, so the caller passes the milliseconds it measured at
+ * settlement — the one number a reader always wants and never had.
+ */
+function durationLine(durationMs?: number): string {
+  if (durationMs === undefined || !Number.isFinite(durationMs) || durationMs < 0) return ''
+  const seconds = Math.round(durationMs / 1000)
+  if (seconds < 60) return `（耗时 ${seconds} 秒）`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `（耗时 ${minutes} 分 ${seconds % 60} 秒）`
+  return `（耗时 ${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分）`
+}
+
 export function jobDoneLine(job: {
   readonly id: string
   readonly kind: string
   readonly label: string
   readonly status: 'completed' | 'killed' | 'failed'
   readonly detail?: string
+  readonly durationMs?: number
   readonly output?: string
 }): string {
   const mark = job.status === 'completed' ? '✅' : job.status === 'killed' ? '⏹️' : '❌'
   const detail = job.detail === undefined || job.detail === '' ? '' : `（${job.detail}）`
   const label = labelLine(job.label)
-  const head = `${mark} 后台任务完成：${label === '' ? job.kind : label}${detail} [${job.id}]`
+  const took = durationLine(job.durationMs)
+  const head = `${mark} 后台任务完成：${label === '' ? job.kind : label}${detail}${took} [${job.id}]`
   const tail = outputTail(job.output)
   return tail === '' ? head : `${head}\n\`\`\`\n${tail}\n\`\`\``
 }
