@@ -66,6 +66,7 @@ import {
   JOBS_COMMAND,
   MANUAL_COMMAND,
   MODEL_COMMAND,
+  NEW_COMMAND,
   PLUGINS_COMMAND,
   PRESET_COMMAND,
   RESTART_COMMAND,
@@ -87,6 +88,7 @@ import type { SlashPanelPort } from './slash-panel.ts'
 import { describeCommand } from './i18n.ts'
 import { ConversationSessions } from './session.ts'
 import type { SessionLadder } from './session.ts'
+import { createRotationStore } from './session-rotation.ts'
 import { createReactionTracker } from './reaction.ts'
 import type { ReactionTracker } from './reaction.ts'
 import { createQuestionProvider } from './questions.ts'
@@ -530,6 +532,20 @@ function composeChatAgent(
     prompt?.section({ name: 'dsh-lark-bridge:feishu-tools', order: 121, text: feishuToolsPromptSection() })
   }
   prompt?.section({ name: 'dsh-lark-bridge:pricing', order: 122, text: pricingPromptLine() })
+  prompt?.section({
+    name: 'dsh-lark-bridge:background-tasks',
+    order: 130,
+    text: 'Long-running commands (builds, installs, setup scripts, anything that may take '
+      + 'minutes): ALWAYS pass run_in_background=true to the shell/exec tool. '
+      + 'The host JobRegistry tracks the job and the bridge automatically sends a '
+      + 'completion notice with the output tail into this chat when it settles — '
+      + 'you do NOT need to poll. '
+      + 'NEVER wrap a command in `while pgrep ...; do sleep N; done; tail ...` or '
+      + 'similar polling loops: the wrapper itself becomes the process that gets '
+      + 'killed by the turn timeout, and the tail/echo after the loop never runs. '
+      + 'If you need to check on a background job later, use `/jobs` or read the '
+      + 'log file the command was told to write to — do not block a turn waiting.',
+  })
 }
 
 /**
@@ -1124,7 +1140,7 @@ export function installBridge(
     report: (line) => { ctx.logger.info(line) },
   }
 
-  const sessions = new ConversationSessions(config.sessionScope, ladder)
+  const sessions = new ConversationSessions(config.sessionScope, ladder, createRotationStore())
 
   /**
    * The renderer for one session, opened on first use and kept until the fiber
@@ -1230,6 +1246,7 @@ export function installBridge(
     // unconfigured restart must not sit on the panel answering with an error.
     ...(config.restartCommand === '' ? [] : [{ name: RESTART_COMMAND, description: describeCommand(RESTART_COMMAND, locale, 'Restart the host process') }]),
     { name: STOP_COMMAND, description: describeCommand(STOP_COMMAND, locale, 'Stop the current task') },
+    { name: NEW_COMMAND, description: describeCommand(NEW_COMMAND, locale, 'Start a new session') },
     { name: HELP_COMMAND, description: describeCommand(HELP_COMMAND, locale, 'Show available commands') },
   ]
 
@@ -1402,6 +1419,24 @@ export function installBridge(
         opened.handle.agent.cancel('user-requested')
         notify(`dsh-lark-bridge: preemptive /stop for session ${opened.handle.agent.session.id}`)
         await port.send(msg.chatId, { markdown: '⏹ 已停止当前任务' }).catch(reportSendFailure)
+        return
+      }
+      // `/new` (and its alias `/clear`) rotates the conversation onto a fresh
+      // session, leaving the old one stored for history (`/sessions`). Refused
+      // mid-turn: disposing the old agent would kill work the chat never asked
+      // to abandon.
+      if (preemptive === '/new' || preemptive === '/clear') {
+        if (opened.handle.agent.status === 'running') {
+          await port.send(msg.chatId, { markdown: '⏳ 当前任务还在跑：先 /stop 或等它结束，再 /new 开新会话。' }).catch(reportSendFailure)
+          return
+        }
+        try {
+          const rotated = await sessions.rotate(msg)
+          notify(`dsh-lark-bridge: /new rotated ${msg.chatId} to session ${rotated.handle.agent.session.id}`)
+          await port.send(msg.chatId, { markdown: '🆕 已开新会话。下一条消息起就是新话题；旧会话保留在历史里（`/sessions` 可查）。' }).catch(reportSendFailure)
+        } catch (error) {
+          await port.send(msg.chatId, { markdown: `⚠️ 开新会话失败：${error instanceof Error ? error.message : String(error)}` }).catch(reportSendFailure)
+        }
         return
       }
       // A slash line is a control, not a prompt: the host runs it without a

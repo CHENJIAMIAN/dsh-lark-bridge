@@ -12,6 +12,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { Config, resolveConfig } from './config.ts'
 import type { ResolvedConfig } from './config.ts'
 import { installBridge, type ChannelPort } from './bridge.ts'
+import { scheduleRestartNotice } from './restart-notice.ts'
 import type { CotEvent, CotHandle } from './cot.ts'
 import type { PanelCommand } from './slash-panel.ts'
 import { beginOnboarding } from './onboarding.ts'
@@ -253,7 +254,11 @@ export function apply(ctx: Context, config: Config): void {
     started = true
     const authorization = resolveAuthorization(resolved)
     internals.notify(describeAuthorization(authorization))
-    installBridge(ctx, resolved, internals.createPort(resolved, authorization), internals.notify, authorization)
+    const port = internals.createPort(resolved, authorization)
+    installBridge(ctx, resolved, port, internals.notify, authorization)
+    // A restart requested from a chat reports itself here, on the way back up
+    // (src/restart-notice.ts). No pending record means this is a no-op.
+    scheduleRestartNotice(port, internals.notify)
   }
 
   /**

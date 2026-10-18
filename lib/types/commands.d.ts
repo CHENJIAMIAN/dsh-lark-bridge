@@ -30,12 +30,21 @@ export declare const RESTART_COMMAND = "restart";
 export declare let scheduleRestart: (shell: string) => void;
 /** Test seam: replace the restart scheduler. Returns the previous one. */
 export declare function setRestartScheduler(fn: (shell: string) => void): (shell: string) => void;
+/**
+ * Records the chat that asked for a restart so the next boot can report when
+ * the service came back (src/restart-notice.ts). Exported for tests to stub.
+ */
+export declare let recordRestartRequest: (chatId: string) => boolean;
+/** Test seam: replace the restart recorder. Returns the previous one. */
+export declare function setRestartRequestRecorder(fn: (chatId: string) => boolean): (chatId: string) => boolean;
 /** List what this chat accepts. Not a host command: the list is per surface. */
 export declare const HELP_COMMAND = "help";
 /** Switch the agent's preset (standard / code / minimal / cordis). */
 export declare const PRESET_COMMAND = "preset";
 /** List this chat's stored sessions. */
 export declare const SESSIONS_COMMAND = "sessions";
+/** Start a fresh session for this conversation; `/clear` is an alias. */
+export declare const NEW_COMMAND = "new";
 /** Bridge dual-end status, settings, and plugin sync. */
 export declare const BOT_COMMAND = "bot";
 /** Query the DeepSeek platform balance the deployment bills through. */

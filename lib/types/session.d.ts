@@ -8,6 +8,7 @@
  */
 import type { NormalizedMessage } from '@larksuite/channel';
 import type { HostAgentHandle } from './host.ts';
+import { type RotationStore } from './session-rotation.ts';
 /** Which conversation facet owns one agent session. */
 export type SessionScope = 'chat' | 'chat-thread' | 'chat-sender';
 /**
@@ -76,6 +77,7 @@ export interface SessionLadder {
 export declare class ConversationSessions {
     private readonly scope;
     private readonly ladder;
+    private readonly rotation?;
     /** Resolved sessions by conversation key. */
     private readonly opened;
     /** Conversation key per live session id, in binding order. */
@@ -87,7 +89,7 @@ export declare class ConversationSessions {
      * @param scope - the conversation facet every session is keyed by.
      * @param ladder - the host operations to walk.
      */
-    constructor(scope: SessionScope, ladder: SessionLadder);
+    constructor(scope: SessionScope, ladder: SessionLadder, rotation?: RotationStore | undefined);
     /** Session ids currently bound, in insertion order. */
     get sessionIds(): string[];
     /**
@@ -103,6 +105,17 @@ export declare class ConversationSessions {
      * @throws {Error} when this store is closed, or when no ladder rung yielded an agent.
      */
     acquire(msg: NormalizedMessage): Promise<OpenedSession>;
+    /**
+     * Move one conversation to a fresh session: the engine behind `/new`. The
+     * previous session stays stored — it remains visible to `/sessions` and can
+     * be looked up by id — while this store rebinds the key to a newly created
+     * session and, when it owns the old agent, takes that agent down.
+     * @param msg - the message that asked for the rotation.
+     * @returns the fresh session, already bound to the conversation key.
+     * @throws when this store is closed, or when creating the fresh session
+     * fails — the previous binding then survives untouched.
+     */
+    rotate(msg: NormalizedMessage): Promise<OpenedSession>;
     /**
      * Stop accepting new work and dispose every owned agent. The bindings are
      * dropped before the first await, so a second call disposes nothing twice.

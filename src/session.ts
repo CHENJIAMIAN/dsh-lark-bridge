@@ -10,6 +10,7 @@
 import { appendFileSync } from 'node:fs'
 import type { NormalizedMessage } from '@larksuite/channel'
 import type { HostAgentHandle } from './host.ts'
+import { rotatedSessionId, type RotationStore } from './session-rotation.ts'
 
 /** Which conversation facet owns one agent session. */
 export type SessionScope = 'chat' | 'chat-thread' | 'chat-sender'
@@ -134,6 +135,7 @@ export class ConversationSessions {
   constructor(
     private readonly scope: SessionScope,
     private readonly ladder: SessionLadder,
+    private readonly rotation?: RotationStore,
   ) {}
 
   /** Session ids currently bound, in insertion order. */
@@ -169,6 +171,40 @@ export class ConversationSessions {
       opening.catch(() => { this.opening.delete(key) })
     }
     return opening
+  }
+
+  /**
+   * Move one conversation to a fresh session: the engine behind `/new`. The
+   * previous session stays stored — it remains visible to `/sessions` and can
+   * be looked up by id — while this store rebinds the key to a newly created
+   * session and, when it owns the old agent, takes that agent down.
+   * @param msg - the message that asked for the rotation.
+   * @returns the fresh session, already bound to the conversation key.
+   * @throws when this store is closed, or when creating the fresh session
+   * fails — the previous binding then survives untouched.
+   */
+  async rotate(msg: NormalizedMessage): Promise<OpenedSession> {
+    if (this.closed) throw new Error('dsh-lark-bridge: sessions are closed')
+    const key = conversationKey(this.scope, msg)
+    const newId = rotatedSessionId(sessionIdFor(key))
+    // Create before rebinding: a failed create must leave the conversation on
+    // its previous session rather than stranding it without one.
+    const handle = await this.ladder.create(newId)
+    this.rotation?.record(key, newId)
+    const previous = this.opened.get(key)
+    if (previous !== undefined) {
+      this.opened.delete(key)
+      this.keys.delete(previous.handle.agent.session.id)
+      if (previous.owned) {
+        await previous.handle.dispose().catch((error: unknown) => {
+          this.ladder.report(`dsh-lark-bridge: disposing the pre-rotation session for ${key} failed: ${failureDetail(error)}`)
+        })
+      }
+    }
+    const opened: OpenedSession = { handle, owned: true }
+    this.opened.set(key, opened)
+    this.keys.set(handle.agent.session.id, key)
+    return opened
   }
 
   /**
@@ -220,7 +256,9 @@ export class ConversationSessions {
    * @throws when creation — the last rung — also fails.
    */
   private async reach(key: string): Promise<OpenedSession> {
-    const sessionId = sessionIdFor(key)
+    // A conversation may have been rotated by `/new`: the persisted store is
+    // authoritative across restarts, the derived id is the original home.
+    const sessionId = this.rotation?.current(key) ?? sessionIdFor(key)
     const live = this.ladder.lookup(sessionId)
     // Whoever created a live agent still owns taking it down.
     if (live !== undefined) return { handle: live, owned: false }

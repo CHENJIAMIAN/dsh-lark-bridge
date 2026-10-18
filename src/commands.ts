@@ -17,6 +17,7 @@ import type { SyncCommandContext } from './sync/bot-command.ts'
 import { runBotCommand } from './sync/bot-command.ts'
 import { fetchDeepseekBalance, formatBalanceReply } from './balance.ts'
 import { USER_GUIDE } from './user-guide.ts'
+import { writeRestartRequest } from './restart-notice.ts'
 
 /** Cancel the running turn. Not a host command: cancellation is an agent method. */
 export const STOP_COMMAND = 'stop'
@@ -49,6 +50,19 @@ export function setRestartScheduler(fn: (shell: string) => void): (shell: string
   return prev
 }
 
+/**
+ * Records the chat that asked for a restart so the next boot can report when
+ * the service came back (src/restart-notice.ts). Exported for tests to stub.
+ */
+export let recordRestartRequest = (chatId: string): boolean => writeRestartRequest(chatId)
+
+/** Test seam: replace the restart recorder. Returns the previous one. */
+export function setRestartRequestRecorder(fn: (chatId: string) => boolean): (chatId: string) => boolean {
+  const prev = recordRestartRequest
+  recordRestartRequest = fn
+  return prev
+}
+
 /** List what this chat accepts. Not a host command: the list is per surface. */
 export const HELP_COMMAND = 'help'
 
@@ -57,6 +71,9 @@ export const PRESET_COMMAND = 'preset'
 
 /** List this chat's stored sessions. */
 export const SESSIONS_COMMAND = 'sessions'
+
+/** Start a fresh session for this conversation; `/clear` is an alias. */
+export const NEW_COMMAND = 'new'
 
 /** Bridge dual-end status, settings, and plugin sync. */
 export const BOT_COMMAND = 'bot'
@@ -176,6 +193,7 @@ export function helpText(commands: HostCommands | undefined, agent: HostAgent, l
     `\`/${STOP_COMMAND}\` — ${describeCommand(STOP_COMMAND, locale, 'Stop the current task')}`,
     // Listed only when the deployment wired a restart command, matching the panel.
     ...(config?.restartCommand ? [`\`/${RESTART_COMMAND}\` — ${describeCommand(RESTART_COMMAND, locale, 'Restart the host process')}`] : []),
+    `\`/${NEW_COMMAND}\` — ${describeCommand(NEW_COMMAND, locale, 'Start a new session')}`,
     `\`/${PRESET_COMMAND}\` — ${describeCommand(PRESET_COMMAND, locale, 'View or switch mode')}`,
     `\`/${SESSIONS_COMMAND}\` — ${describeCommand(SESSIONS_COMMAND, locale, 'View session history')}`,
     `\`/${TOOLS_COMMAND}\` — ${describeCommand(TOOLS_COMMAND, locale, 'View, deny, or allow tools')}`,
@@ -259,7 +277,10 @@ export async function runCommandLine(
     // Detached + delayed: the reply below must reach the chat before this
     // process dies, so the restart fires from a child that outlives us.
     scheduleRestart(shell)
-    return { reply: '🔁 重启已排程，服务将在数秒后重启并自动恢复。', resolved: true }
+    // This process cannot report its own return; leave the requesting chat on
+    // disk and the next boot posts the "restored" line (src/restart-notice.ts).
+    if (chatId !== undefined) recordRestartRequest(chatId)
+    return { reply: '🔁 正在重启：预计 2 分钟内恢复；恢复后我会在这里报一声。', resolved: true }
   }
   if (name === PRESET_COMMAND) {
     return runPresetCommand(trimmed, agent, presets, sessionPresets)
@@ -342,6 +363,28 @@ export async function runCommandLine(
     return { reply: `⚠️ 未知命令 \`/${name}\`。\n\n${helpText(commands, agent, config?.locale ?? 'zh')}`, resolved: false }
   }
   const { result } = execution
+  // /compact answers in terse English lines ("Compacted 8 history items
+  // (~12,345 tokens).", failures included) — translate the cases a chat meets
+  // and keep the numbers, ahead of the generic error echo below.
+  if (name === 'compact' && typeof result.text === 'string') {
+    if (result.kind === 'success') {
+      const compacted = /^Compacted (\d+) history items \(~([\d,]+) tokens\)\.$/.exec(result.text)
+      if (compacted !== null) {
+        const tokens = Number(compacted[2]!.replace(/,/g, ''))
+        return {
+          reply: `📦 压缩完成：${compacted[1]} 条较早历史已换成摘要（释放约 ${tokens.toLocaleString('zh-CN')} tokens）。`,
+          resolved: true,
+        }
+      }
+      if (result.text.startsWith('No compactable history')) {
+        return { reply: '📦 现在没有可压缩的历史（还没积累到可压缩的量，或刚好没有合适的切点）。', resolved: true }
+      }
+    } else if (result.text.includes('not idle') || result.text.includes('already has an active')) {
+      return { reply: '⏳ 现在压不了：会话正在跑任务，或已有一次压缩在进行。等它空闲后再发 `/compact`。', resolved: true }
+    } else if (result.text.includes('cancelled')) {
+      return { reply: '⏹ 压缩已取消。', resolved: true }
+    }
+  }
   if (result.kind === 'error') return { reply: `⚠️ \`/${name}\` 执行失败：${result.text}`, resolved: true }
   // /permission's bare host reply ("preset <name>") says what changed but not
   // what it means downstream: the terminal family refuses to spawn under

@@ -27,6 +27,10 @@
         # syncSlashCommands: true    # publish commands to the bot's `/` panel
         # sessionScope: chat         # chat-thread / chat-sender split it finer
         requireMention: true
+        # /restart: kill this process and let systemd bring it back.
+        # The command runs detached after a 2.5 s delay (the reply reaches
+        # the chat first); systemd's Restart=always is what actually revives it.
+        restartCommand: systemctl restart dsh-feishu-chat.service
         # Authorization narrows; it does not gate. Who can reach the bot at all
         # is the app's visibility scope in the developer console. Unconfigured,
         # this serves any room it is added to (when @-mentioned) and anyone the

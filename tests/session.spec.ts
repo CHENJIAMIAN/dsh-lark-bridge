@@ -299,3 +299,72 @@ describe('conversation sessions', () => {
     })
   })
 })
+
+describe('session rotation', () => {
+  /** An in-memory rotation store, shared across store instances like the file. */
+  function memoryStore() {
+    const map = new Map<string, string>()
+    return {
+      map,
+      store: {
+        current: (key: string): string | undefined => map.get(key),
+        record: (key: string, sessionId: string): void => { map.set(key, sessionId) },
+      },
+    }
+  }
+
+  it('rotates a conversation to a stamped session and takes the old agent down', async () => {
+    const host = createFakeLadder()
+    const { map, store } = memoryStore()
+    const sessions = new ConversationSessions('chat', host.ladder, store)
+    const msg = fakeMessage({ chatId: 'oc_chat_r1' })
+
+    const first = await sessions.acquire(msg)
+    expect(first.handle.agent.session.id).toBe(sessionIdFor('oc_chat_r1'))
+
+    const rotated = await sessions.rotate(msg)
+    expect(rotated.handle.agent.session.id).toMatch(/^feishu-oc_chat_r1:r/)
+    expect(map.get('oc_chat_r1')).toBe(rotated.handle.agent.session.id)
+    expect(host.disposals).toContain(sessionIdFor('oc_chat_r1'))
+
+    const again = await sessions.acquire(msg)
+    expect(again.handle.agent.session.id).toBe(rotated.handle.agent.session.id)
+  })
+
+  it('resumes the rotated session after a restart (store outlives the process)', async () => {
+    const { map, store } = memoryStore()
+    const rotatedId = 'feishu-oc_chat_r2:rstamp'
+    map.set('oc_chat_r2', rotatedId)
+    const host = createFakeLadder({ resumable: [rotatedId] })
+    const sessions = new ConversationSessions('chat', host.ladder, store)
+
+    const opened = await sessions.acquire(fakeMessage({ chatId: 'oc_chat_r2' }))
+    expect(opened.handle.agent.session.id).toBe(rotatedId)
+    expect(host.asked('resume')).toEqual([rotatedId])
+  })
+
+  it('keeps the previous binding when creating the fresh session fails', async () => {
+    const host = createFakeLadder()
+    const { store } = memoryStore()
+    const sessions = new ConversationSessions('chat', host.ladder, store)
+    const msg = fakeMessage({ chatId: 'oc_chat_r3' })
+    await sessions.acquire(msg)
+
+    host.behavior.failCreate = true
+    await expect(sessions.rotate(msg)).rejects.toThrow('create rejected (fake)')
+    const again = await sessions.acquire(msg)
+    expect(again.handle.agent.session.id).toBe(sessionIdFor('oc_chat_r3'))
+  })
+
+  it('records the mapping before disposing, so a dispose failure cannot strand it', async () => {
+    const host = createFakeLadder({ failDispose: true })
+    const { map, store } = memoryStore()
+    const sessions = new ConversationSessions('chat', host.ladder, store)
+    const msg = fakeMessage({ chatId: 'oc_chat_r4' })
+    await sessions.acquire(msg)
+
+    const rotated = await sessions.rotate(msg)
+    expect(map.get('oc_chat_r4')).toBe(rotated.handle.agent.session.id)
+    expect(host.reports.some(line => line.includes('pre-rotation'))).toBe(true)
+  })
+})

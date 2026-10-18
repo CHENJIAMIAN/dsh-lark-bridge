@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   AUDIT_COMMAND,
   setRestartScheduler,
+  setRestartRequestRecorder,
   CONFIG_COMMAND,
   CONTEXT_COMMAND,
   FEEDBACK_COMMAND,
@@ -969,6 +970,44 @@ describe('/model command', () => {
   })
 })
 
+describe('/compact reply translation', () => {
+  /** Run /compact against a host command runtime with one canned result. */
+  async function runCompact(result: { kind: 'success' | 'error'; text: string }) {
+    const hostCommands = {
+      list: () => [],
+      execute: async () => ({ result }),
+    }
+    return runCommandLine('/compact', fakeAgent(), hostCommands as never, new AbortController().signal)
+  }
+
+  it('translates a successful compaction and keeps the numbers', async () => {
+    const outcome = await runCompact({ kind: 'success', text: 'Compacted 8 history items (~12,345 tokens).' })
+    expect(outcome.resolved).toBe(true)
+    expect(outcome.reply).toContain('压缩完成')
+    expect(outcome.reply).toContain('8 条')
+    expect(outcome.reply).toContain('12,345')
+  })
+
+  it('explains an empty compaction instead of echoing English', async () => {
+    const outcome = await runCompact({ kind: 'success', text: 'No compactable history yet.' })
+    expect(outcome.reply).toContain('没有可压缩')
+  })
+
+  it('explains a busy rejection', async () => {
+    const outcome = await runCompact({
+      kind: 'error',
+      text: 'Compaction is unavailable because this process has an active compaction, or the agent is not idle.',
+    })
+    expect(outcome.reply).toContain('现在压不了')
+  })
+
+  it('falls back to the generic error echo for other failures', async () => {
+    const outcome = await runCompact({ kind: 'error', text: 'Compaction could not produce a useful summary.' })
+    expect(outcome.reply).toContain('执行失败')
+    expect(outcome.reply).toContain('useful summary')
+  })
+})
+
 describe('/ws command', () => {
   function fakeRegistry(entries: ReadonlyArray<{ id: string; path: string }>, withList = true) {
     return {
@@ -1084,10 +1123,39 @@ describe('/restart command', () => {
         config({ restartCommand: 'systemctl restart my-dsh.service' }),
       )
       expect(outcome.resolved).toBe(true)
-      expect(outcome.reply).toContain('重启已排程')
+      expect(outcome.reply).toContain('正在重启')
       expect(shells).toEqual(['systemctl restart my-dsh.service'])
     } finally {
       restore()
+    }
+  })
+
+  it('records the requesting chat for the boot-time notice', async () => {
+    const recorded: string[] = []
+    const restoreSchedule = setRestartScheduler(() => {})
+    const restoreRecorder = setRestartRequestRecorder((chatId: string) => {
+      recorded.push(chatId)
+      return true
+    })
+    try {
+      const outcome = await runCommandLine(
+        '/restart',
+        fakeAgent(),
+        undefined,
+        new AbortController().signal,
+        undefined,
+        undefined,
+        'oc_requesting_chat',
+        undefined,
+        undefined,
+        undefined,
+        config({ restartCommand: 'systemctl restart my-dsh.service' }),
+      )
+      expect(outcome.resolved).toBe(true)
+      expect(recorded).toEqual(['oc_requesting_chat'])
+    } finally {
+      restoreSchedule()
+      restoreRecorder()
     }
   })
 })
