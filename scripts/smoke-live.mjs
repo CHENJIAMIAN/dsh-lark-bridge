@@ -31,13 +31,17 @@ const tree = HARNESS_CLI
       { encoding: 'utf8', timeout: 60_000 })
   : ''
 if (!HARNESS_CLI) console.log('· DSH_HARNESS_CLI 未设置，跳过组合树检查')
-for (const pkg of ['dsh-terminal', 'dsh-terminal-bash', 'tool-terminal', 'code-runtime-worker-thread']) {
+// code-runtime-worker-thread: 上游已从组合树移除（0.2.1-alpha.2 起就没有），
+// 留着这一项只会把"包被重命名/移除"误报成部署回归。
+for (const pkg of ['dsh-terminal', 'dsh-terminal-bash', 'tool-terminal']) {
   check(`组合树含 ${pkg}`, tree.includes(pkg))
 }
-if (process.env.SMOKE_EXPECT_MCP === '1') {
-  check('组合树含 dsh-mcp-client', tree.includes('dsh-mcp-client'))
+// mcp-client: 0.2.1-rc.2 起组合树默认带 dsh-mcp-client（MCP 子服务支持），
+// 判据随之上调——要断言"不在"必须显式声明，否则默认按"应当存在"检查。
+if (process.env.SMOKE_EXPECT_MCP === '0') {
+  check('组合树不含 mcp-client（显式声明 SMOKE_EXPECT_MCP=0）', !tree.includes('mcp-client'))
 } else {
-  check('组合树不含 mcp-client（未声明 SMOKE_EXPECT_MCP=1）', !tree.includes('mcp-client'))
+  check('组合树含 dsh-mcp-client', tree.includes('dsh-mcp-client'))
 }
 
 // 3) 飞书面板命令清单

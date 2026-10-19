@@ -29,7 +29,8 @@
 | 0.1.5-rc.2 | `deepseek-harness-0.1.5/` | 保留（回滚目标） |
 | 0.1.7-rc.2 | `deepseek-harness-0.1.7-rc.2/` | 保留（回滚参考） |
 | 0.2.0-rc.2 | `deepseek-harness-0.2.0-rc.2/` | 保留 |
-| **0.2.1-alpha.2** | `deepseek-harness-0.2.1-alpha.2/` | **在用**（2026-10-10 起） |
+| 0.2.1-alpha.2 | `deepseek-harness-0.2.1-alpha.2/` | 保留（回滚目标） |
+| **0.2.1-rc.2** | `deepseek-harness-0.2.1-rc.2/` | **在用**（2026-10-20 起） |
 
 ## 记录格式
 
@@ -44,3 +45,4 @@
 | 2026-10-10 | 0.1.7-rc.2 → **0.2.0-rc.2** | 0.9.0 | 走 dsh-upgrade.sh 切树（当日两次升级之一） | ⚠️ 升级当时未记录验证（2026-10-18 补记） |
 | 2026-10-10 | 0.2.0-rc.2 → **0.2.1-alpha.2** | 0.9.0 | 同上；生产至今运行此版 | ⚠️ 未记录（同上） |
 | 2026-10-18 | 0.2.1-alpha.2（保持） | 0.9.0 | 桥侧补验 + 命令 UX 修复批次 | ✅ contract-drift 无漂移（上游 master）；typecheck ✅；vitest **449 全绿**（39 文件）；实发消息待验 |
+| 2026-10-20 | 0.2.1-alpha.2 → **0.2.1-rc.2** | 0.9.1 | 走 dsh-upgrade.sh 切树（上游最新 rc）。桥侧同步修了 issue #2 的 arity 错位（按运行时实参个数调用，不再写死形状）与 issue #4 的 pnpm 安装说明 | ⚠️ contract-drift 2 项漂移（类型层：host.ts 的 jobs.list/readAt 仍用旧签名，运行时等价）；typecheck ✅；vitest **479 全绿**（39 文件）；试启动 HTTP 401 / 错误行 0；切换后 HTTP 200 / 启动错误行 0；实发飞书消息待验 |
