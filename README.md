@@ -58,7 +58,7 @@ Feishu is the carrier; the work is still done by DeepSeek Harness itself.
 
 ## 🚀 Quick Start in 60 Seconds
 
-**Prerequisites:** Node 18+, [pnpm](https://pnpm.io/installation) (recommended, see note), a DeepSeek API key, and the Feishu app on your phone.
+**Prerequisites:** Node 22.19+ or 24+ (as `engines.node` requires), [pnpm](https://pnpm.io/installation) (recommended, see note), a DeepSeek API key, and the Feishu app on your phone.
 
 **Harness version:** this bridge targets **DeepSeek Harness >= 0.1.5-rc.2**. It talks to the harness through the plugin seam, and 0.1.5 moved the user-questions seam from a provider registry to the `user-questions/request` waterfall — see the CHANGELOG for the one-line compatibility note.
 
@@ -79,13 +79,18 @@ pnpm dlx @deepseek-ai/dsh plugin --profile web add @moyu-good/dsh-lark-bridge \
 > **First-time `plugin add` fails once** with
 > `ERR_PNPM_IGNORED_BUILDS ... protobufjs` — pnpm 11+ blocks dependency build
 > scripts by default and treats an unapproved one as a hard error. The blocked
-> script belongs to `protobufjs` (a Feishu SDK dependency) and only prints a
-> version-scheme warning; it writes no file and reaches no network.
+> script belongs to `protobufjs` (a Feishu SDK dependency); it only prints a
+> version-scheme warning, writes no file and reaches no network.
 > Open `<your-home>/.dsh/profiles/web/pnpm-workspace.yaml` and set
-> `protobufjs: false` under `allowBuilds` (the file ships with a placeholder
-> line), then re-run the same command. `false` is the right value: it declines
-> the script, and the script has nothing to do. This is a one-time step per
+> `protobufjs: false` under `allowBuilds` — the file ships with a placeholder
+> line whose value is the literal text `set this to true or false`, which is
+> not a boolean, so replace it. `false` is the right value: it declines the
+> script, and the script has nothing to do. This is a one-time step per
 > profile.
+>
+> **Re-run the same command after editing.** The failed install leaves the
+> profile half-configured — the plugin's bundles are not merged when the
+> install exits non-zero — so the file edit alone does not finish the job.
 >
 > `allowBuilds` is the only key pnpm 11+ reads for this — `onlyBuiltDependencies`
 > and the other legacy build keys were removed in pnpm 11. It lives in the

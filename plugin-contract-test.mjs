@@ -165,10 +165,16 @@ check('tokenMeter measure 载荷镜像 dsh', () => {
   assert(/measure\(session: \{ readonly id: string \}\)/.test(hostSrc))
   assert(/readonly totalTokens: number/.test(hostSrc))
 })
-check('jobs onJobDone 载荷镜像 dsh', () => {
+check('jobs 事件流载荷镜像 dsh', () => {
   assert(/interface HostJobs/.test(hostSrc))
-  assert(/onJobDone\(listener: HostJobDoneListener\): \(\) => void/.test(hostSrc))
-  assert(/list\(caller\?: \{ readonly id: string \}\): readonly HostJobSnapshot\[\]/.test(hostSrc))
+  // dsh 0.1.7 replaced `onJobDone(listener)` with the `events` stream; the
+  // contract test still asserted the removed shape, so every CI run since
+  // then failed on a check that no longer described the code.
+  assert(/readonly events: HostJobEvents/.test(hostSrc))
+  assert(/subscribe\(\s*filter: \{ readonly owners\?: 'scope' \| 'all' \}/.test(hostSrc))
+  assert(/readonly type: 'settled'/.test(hostSrc))
+  assert(/readonly awaited: boolean/.test(hostSrc))
+  assert(/list\(caller\?: string\): readonly HostJobSnapshot\[\]/.test(hostSrc))
   assert(/readonly startedAt: number/.test(hostSrc))
 })
 

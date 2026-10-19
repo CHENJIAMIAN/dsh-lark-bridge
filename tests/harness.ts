@@ -695,7 +695,11 @@ export function createFakeCommands(
   const executed: string[] = []
   const service: HostCommands = {
     list: () => available,
-    async execute(_agent, line, _signal) {
+    // The four-argument shape is the host's own (dsh 0.1.5+): agent, line,
+    // submittedAttachments, signal. Declaring the real arity here — rather
+    // than the three parameters TypeScript would also accept — is what makes
+    // a host-signature drift visible in tests instead of only in production.
+    async execute(_agent, line, _submittedAttachments, _signal) {
       executed.push(line)
       const name = commandName(line) ?? ''
       if (!available.some(c => c.name === name)) return undefined

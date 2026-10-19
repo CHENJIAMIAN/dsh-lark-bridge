@@ -1175,10 +1175,14 @@ describe('host command execute arity guard (issue #2)', () => {
 
   it('passes the attachments slot when the host takes four parameters', async () => {
     const seen: { args: unknown[] } = { args: [] }
+    // A function expression, not an arrow and not `...args`: `length` must
+    // reflect the DECLARED parameters, which is what the guard reads. The
+    // real host method is proxied by cordis, and a Proxy carrying only an
+    // `apply` trap keeps `length` intact.
     const hostCommands = {
       list: () => [],
-      execute: async (...args: unknown[]) => {
-        seen.args = args
+      execute: async function (_agent: unknown, _line: string, _attachments: readonly unknown[], _signal: AbortSignal) {
+        seen.args = Array.from(arguments)
         return { result: { kind: 'success' as const, text: 'ok' } }
       },
     }
@@ -1193,14 +1197,11 @@ describe('host command execute arity guard (issue #2)', () => {
     const seen: { args: unknown[] } = { args: [] }
     const hostCommands = {
       list: () => [],
-      execute: async (...args: unknown[]) => {
-        seen.args = args
+      execute: async function (_agent: unknown, _line: string, _signal: AbortSignal) {
+        seen.args = Array.from(arguments)
         return { result: { kind: 'success' as const, text: 'ok' } }
       },
     }
-    // A rest-argument mock reports length 0, so declare the arity explicitly
-    // the way a compiled host implementation does.
-    Object.defineProperty(hostCommands.execute, 'length', { value: 3 })
     const outcome = await runCommandLine('/goal', fakeAgent(), hostCommands as never, new AbortController().signal)
     expect(outcome.resolved).toBe(true)
     expect(seen.args).toHaveLength(3)

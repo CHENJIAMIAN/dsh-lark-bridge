@@ -19,6 +19,7 @@ const FILES = {
   jobsTypes: 'packages/jobs/jobs/src/types.ts',
   feedback: 'packages/feedback/message-feedback/src/types.ts',
   presetRegistry: 'packages/preset/agent-preset-registry/src/index.ts',
+  commands: 'packages/interaction/commands/src/index.ts',
 }
 
 const checks = [
@@ -92,6 +93,16 @@ const checks = [
     file: 'feedback',
     pattern: /readonly sessionId: SessionId[\s\S]*readonly messageId: MessageId[\s\S]*readonly rating: MessageFeedbackRating[\s\S]*readonly ifVersion: MessageFeedbackVersion \| null/,
   },
+  {
+    // The commands service is where issue #2 lived: upstream inserted the
+    // `submittedAttachments` slot in front of `signal`, and the bridge's
+    // hard-coded three-argument call put the signal in the attachments slot
+    // (the host then threw on `signal.aborted`). The contract gate had no
+    // entry for this service at all — the exact gap the bug fell through.
+    name: 'commands.execute keeps the attachments slot before signal',
+    file: 'commands',
+    pattern: /async execute\(\s*agent: Agent,\s*line: string,\s*submittedAttachments: readonly CommandSubmitAttachment\[\],\s*signal: AbortSignal,?\s*\): Promise<CommandExecution \| undefined>/,
+  },
 ]
 
 const HOST_PATTERNS = [
@@ -102,8 +113,8 @@ const HOST_PATTERNS = [
   ['workflow/phase declared structurally', /'workflow\/phase'\(info: WorkflowRunInfoData, title: string\): void/],
   ['AgentStatusData mirrors { agent, status }', /readonly agent: \{ readonly id: string \}/],
   ['HostJobs mirrors events.subscribe', /readonly events: HostJobEvents/],
-  ['HostJobs mirrors list(caller)', /list\(caller\?: \{ readonly id: string \}\): readonly HostJobSnapshot\[\]/],
-  ['HostJobs mirrors readAt', /readAt\(id: string, from: number, caller\?: \{ readonly id: string \}\): HostJobOutputRead/],
+  ['HostJobs mirrors list(caller)', /list\(caller\?: string\): readonly HostJobSnapshot\[\]/],
+  ['HostJobs mirrors readAt', /readAt\(id: string, from: number, caller\?: string\): HostJobOutputRead/],
   ['HostJobSnapshot mirrors output coordinates', /readonly output\?: \{[\s\S]*readonly total: number[\s\S]*readonly earliest: number/],
   ['HostMessageFeedback mirrors put', /put\(request: \{[\s\S]*readonly sessionId: string[\s\S]*readonly rating: 'positive' \| 'negative'/],
 ]

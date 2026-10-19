@@ -15,7 +15,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   now reads the runtime's own arity instead of hard-coding a shape — four
   parameters means the attachments slot exists, three means it does not — so
   neither an older nor a newer host can silently mis-align the arguments
-  again. Both arms are pinned by regression tests.
+  again. Both arms are pinned by regression tests, and the regression is
+  proven: restoring the hard-coded three-argument call turns them red.
+- **A failing slash command now says "command execution failed" instead of
+  "cannot start session".** The command path runs on the host, not on the
+  model, so the outer session-creation catch was reporting a session problem
+  for a command problem — which is what sent issue #2's reporter looking in
+  the wrong place. The command path owns its own error surface now, and the
+  stack still lands in the crash log.
+- **The contract gate covers the commands service.** It had entries for a
+  dozen upstream signatures but none for `commands.execute` — the exact gap
+  issue #2 fell through. The gate now asserts the upstream signature
+  directly, against the live upstream branch, so the next slot insertion
+  fails in CI instead of in production.
+- **The pnpm install note now matches the pnpm 11+ reality**: the profile's
+  placeholder line holds the literal text `set this to true or false` (not a
+  boolean) and must be replaced, and the same command has to be re-run
+  afterwards — a failed install leaves the profile half-configured, because
+  the plugin's bundles are not merged when the install exits non-zero.
+- **The documented Node version now matches `engines.node`** (22.19+ or
+  24+); the prerequisites line still said Node 18+.
 - **Audio, video and sticker attachments are no longer dropped silently.**
   They download into the workspace with a typed note, so the model sees that
   something arrived instead of a placeholder tag. A sticker that shares a

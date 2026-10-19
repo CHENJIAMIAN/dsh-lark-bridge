@@ -1454,35 +1454,55 @@ export function installBridge(
       if (isCommandLine(msg.content)) {
         const sessionId = opened.handle.agent.session.id
         const presetBefore = sessionPresets.get(sessionId)
-        const outcome = await runCommandLine(
-          msg.content,
-          opened.handle.agent,
-          ctx.get('commands') as HostCommands | undefined,
-          commandSignal(),
-          ctx.get('agentPresets') as HostAgentPresets | undefined,
-          ctx.get('sessionPersistence') as HostSessionPersistence | undefined,
-          msg.chatId,
-          runtimeDeniedTools,
-          scheduleRegistry,
-          auditStats,
-          config,
-          sessionPresets,
-          ctx.get('sessionQuery') as HostSessionQuery | undefined,
-          ctx.get('jobs') as HostJobs | undefined,
-          ctx.get('messageFeedback') as HostMessageFeedback | undefined,
-          lastAssistantIds.get(sessionId),
-          ctx.get('tokenMeter') as HostTokenMeter | undefined,
-          ctx.get('skills') as HostSkills | undefined,
-          ctx.get('agentDefaultModel') as HostDefaultModel | undefined,
-          {
-            ...config.provider === undefined ? {} : { provider: config.provider },
-            ...config.model === undefined ? {} : { model: config.model },
-          },
-          ctx.get('workspaceRegistry') as HostWorkspaceRegistry | undefined,
-          cwd,
-          loaderEntries(),
-          getSyncContext(),
-        )
+        // A slash command runs on the host, not on the model. When it
+        // throws, the outer catch would report "cannot start session" —
+        // which is not what happened and sent issue #2's reporter looking
+        // for a session problem instead of a command-argument problem.
+        // The command path therefore owns its own error surface.
+        let outcome: Awaited<ReturnType<typeof runCommandLine>>
+        try {
+          outcome = await runCommandLine(
+            msg.content,
+            opened.handle.agent,
+            ctx.get('commands') as HostCommands | undefined,
+            commandSignal(),
+            ctx.get('agentPresets') as HostAgentPresets | undefined,
+            ctx.get('sessionPersistence') as HostSessionPersistence | undefined,
+            msg.chatId,
+            runtimeDeniedTools,
+            scheduleRegistry,
+            auditStats,
+            config,
+            sessionPresets,
+            ctx.get('sessionQuery') as HostSessionQuery | undefined,
+            ctx.get('jobs') as HostJobs | undefined,
+            ctx.get('messageFeedback') as HostMessageFeedback | undefined,
+            lastAssistantIds.get(sessionId),
+            ctx.get('tokenMeter') as HostTokenMeter | undefined,
+            ctx.get('skills') as HostSkills | undefined,
+            ctx.get('agentDefaultModel') as HostDefaultModel | undefined,
+            {
+              ...config.provider === undefined ? {} : { provider: config.provider },
+              ...config.model === undefined ? {} : { model: config.model },
+            },
+            ctx.get('workspaceRegistry') as HostWorkspaceRegistry | undefined,
+            cwd,
+            loaderEntries(),
+            getSyncContext(),
+          )
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error)
+          notify(`dsh-lark-bridge: command execution failed for chat ${msg.chatId}: ${detail}`)
+          ctx.logger.warn('command execution failed for chat %s: %s', msg.chatId, error)
+          try {
+            const stack = error instanceof Error ? (error.stack ?? error.message) : String(error)
+            appendFileSync('/tmp/dsh-session-crash.log', `[${new Date().toISOString()}] chat=${msg.chatId} command=${msg.content}\n${stack}\n\n`)
+          } catch { /* diagnostics must never mask the original failure */ }
+          await port
+            .send(msg.chatId, { text: `⚠️ 命令执行失败：${detail}` })
+            .catch(reportSendFailure)
+          return
+        }
         // A /preset switch changed this session's composition contract; the
         // cached composition would resume the OLD preset, so drop it and let
         // the next acquire compose from the remembered choice.

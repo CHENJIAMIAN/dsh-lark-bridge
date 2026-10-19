@@ -50,7 +50,7 @@
 
 ## 🚀 60 秒上手
 
-**准备**：Node 18+、[pnpm](https://pnpm.io/installation)（推荐）、一个 DeepSeek API Key、手机上有飞书。
+**准备**：Node 22.19+ 或 24+（与 `engines.node` 一致）、[pnpm](https://pnpm.io/installation)（推荐）、一个 DeepSeek API Key、手机上有飞书。
 
 ```sh
 # 1. 把插件装进 dsh profile 并启动（pnpm —— 并行安装，实测约 20 秒）
@@ -75,9 +75,13 @@ pnpm dlx @deepseek-ai/dsh plugin --profile web add @moyu-good/dsh-lark-bridge \
 > 未放行时直接当硬错误。被拦的是 `protobufjs`（飞书 SDK 的依赖）的 postinstall，
 > 它只打印一行版本方案警告：不写文件、不联网。
 > 打开 `<你的home>/.dsh/profiles/web/pnpm-workspace.yaml`，在 `allowBuilds` 下把
-> `protobufjs` 设为 `false`（文件里自带占位行），再重跑同一条命令即可。
+> `protobufjs` 设为 `false`——文件里自带占位行，其值是字面文本
+> `set this to true or false`（不是布尔值），要整行替换掉。
 > 用 `false` 是对的：拒绝执行这个脚本，而该脚本本来就没有非做不可的事。
 > 每个 profile 仅需一次。
+>
+> **改完必须重跑同一条命令。** 安装失败会让 profile 停在半配置状态——安装以非零
+> 退出码结束时，插件的 bundles 不会被合并，只改文件不算装完。
 >
 > `allowBuilds` 是 pnpm 11+ 唯一认的键——`onlyBuiltDependencies` 等旧构建键
 > 在 pnpm 11 已被移除。它写在**安装方** profile 的 `pnpm-workspace.yaml` 里，
