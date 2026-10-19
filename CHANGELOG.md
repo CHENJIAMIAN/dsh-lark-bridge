@@ -58,6 +58,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   indistinguishable from a timeout. Now an empty version is an error, the
   lookup retries with backoff, and only a 404 means "not published" —
   anything else is reported as unknown.
+- **The context-pressure sweep has a behaviour test.** It drives the real
+  bridge main loop over the fake channel, a fake token meter and a fake
+  clock, and asserts that the meter receives the host's session object —
+  with its `seq` and `eventAt()` — rather than the session id alone, that
+  a session over the threshold warns once per crossing, and that dropping
+  back below re-arms the warning. The fake meter prices a context by
+  replaying the session's event log the way the host does, so handing it
+  the id alone yields a silent zero — the failure the test is built to
+  catch.
 - **An unknown command-service arity now warns instead of guessing.**
   Reading the host method's arity fell back to the four-argument call for
   every shape that was not three — so a host that gives `signal` a
