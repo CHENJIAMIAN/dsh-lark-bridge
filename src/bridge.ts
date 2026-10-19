@@ -44,7 +44,7 @@ import type {
   AuditStats,
   ScheduleEntry,
 } from './host.ts'
-import type { HostJobs, HostJobSnapshot, HostLoaderEntry, HostMessageFeedback, HostSessionQuery, HostSkills, HostTokenMeter, SubagentEndData, WorkflowRunInfoData } from './host.ts'
+import type { HostJobs, HostJobSnapshot, HostLoaderEntry, HostMessageFeedback, HostSession, HostSessionQuery, HostSkills, HostTokenMeter, SubagentEndData, WorkflowRunInfoData } from './host.ts'
 import { isAssistantMessageEvent, isCompactionEndEvent, isCompactionPruneEvent, isCompactionStartEvent, isCompactionSummaryEvent, isGoalChangeEvent, isLlmRetryEvent, isScheduleChangeEvent, isStepStartEvent, isSubagentCatalogEvent, isSubagentDescriptorEvent, isTodoWriteEvent, isToolCallEvent, isTurnEndEvent, isWebSearchRequestEvent, isWorkflowAgentEndEvent, isWorkflowAgentStartEvent, isWorkflowRunEndEvent, isWorkflowRunStartEvent } from './host.ts'
 import { createCotRenderer } from './cot.ts'
 import type { CotPort } from './cot.ts'
@@ -207,6 +207,16 @@ interface ChatBinding {
   readonly renderer: OutboundRenderer
   /** The triggering message this session is currently answering, for reaction feedback. */
   currentMessageId: string | undefined
+  /**
+   * The host's live session object.
+   *
+   * The token meter prices a context by replaying the session's own event
+   * log, so it needs the session itself — its `seq` and `eventAt()` — not
+   * just the id. Handing it the id makes the replay read nothing and the
+   * meter report zero tokens forever, so the context-pressure warning
+   * would never fire.
+   */
+  readonly session: HostSession
 }
 
 /**
@@ -814,7 +824,12 @@ export function installBridge(
       let total: number
       let surface: number
       try {
-        const measure = tokenMeter.measure({ id: sessionId })
+        // The meter replays the session's own event log, so it gets the
+        // session object. Passing the id alone makes the replay read
+        // nothing and the meter report zero tokens for every session —
+        // silently, with no error to catch — and the context-pressure
+        // warning below would then never fire.
+        const measure = tokenMeter.measure(binding.session)
         total = measure.totalTokens
         surface = measure.surfaceTokens
       } catch (error) {
@@ -1158,7 +1173,7 @@ export function installBridge(
    * @returns the binding, the same object for every later message of the session.
    * @throws when the session's composition cannot be resolved.
    */
-  const bindingFor = async (sessionId: string, msg: NormalizedMessage): Promise<ChatBinding> => {
+  const bindingFor = async (sessionId: string, msg: NormalizedMessage, session: HostSession): Promise<ChatBinding> => {
     const existing = bySession.get(sessionId)
     if (existing !== undefined) return existing
     const { presentCall } = await compositionFor(sessionId)
@@ -1170,6 +1185,7 @@ export function installBridge(
       chatType: msg.chatType,
       renderer: renderFor(msg.chatId, presentCall),
       currentMessageId: undefined,
+      session,
     }
     bySession.set(sessionId, binding)
     // First contact this boot: send the one-time guide. Best-effort — a send
@@ -1416,7 +1432,7 @@ export function installBridge(
     postChronicle(config.chronicleEndpoint, { source: config.chronicleSource, text: msg.content, chatId: msg.chatId }, notify)
     try {
       const opened = await stage(msg.messageId, 'session-acquire', () => sessions.acquire(msg))
-      const binding = await stage(msg.messageId, 'session-bind', () => bindingFor(opened.handle.agent.session.id, msg))
+      const binding = await stage(msg.messageId, 'session-bind', () => bindingFor(opened.handle.agent.session.id, msg, opened.handle.agent.session))
       // The reaction lifecycle follows this session's current trigger.
       binding.currentMessageId = msg.messageId
 

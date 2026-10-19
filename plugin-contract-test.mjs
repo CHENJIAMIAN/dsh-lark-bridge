@@ -160,9 +160,23 @@ check('messageFeedback put 载荷镜像 dsh', () => {
   assert(/readonly rating: 'positive' \| 'negative'/.test(hostSrc))
   assert(/readonly ifVersion: unknown/.test(hostSrc))
 })
-check('tokenMeter measure 载荷镜像 dsh', () => {
+check('tokenMeter measure 载荷形状自洽（形状快照；上游校验见 verify-dsh-contract.mjs）', () => {
   assert(/interface HostTokenMeter/.test(hostSrc))
-  assert(/measure\(session: \{ readonly id: string \}\)/.test(hostSrc))
+  // The upstream signature is `measure(session: Session, …)`: the meter
+  // replays the session's own event log, so it needs the session object —
+  // its `seq` and `eventAt()`. This assertion used to REQUIRE the id-only
+  // shape, which certified a silent bug: the meter read no events, reported
+  // zero tokens for every session, and the context-pressure warning never
+  // fired.
+  //
+  // This check reads the bridge's own declaration, so it can only catch the
+  // bridge changing its own mind — it cannot see upstream drift. The real
+  // upstream check lives in scripts/verify-dsh-contract.mjs, which compares
+  // against the live upstream branch. Keep both, and keep the roles clear.
+  assert(/measure\(session: HostSession\)/.test(hostSrc))
+  assert(!/measure\(session: \{ readonly id: string \}\)/.test(hostSrc))
+  assert(/readonly seq: number/.test(hostSrc))
+  assert(/eventAt\(seq: number\): unknown/.test(hostSrc))
   assert(/readonly totalTokens: number/.test(hostSrc))
 })
 check('jobs 事件流载荷镜像 dsh', () => {

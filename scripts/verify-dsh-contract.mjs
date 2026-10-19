@@ -20,6 +20,7 @@ const FILES = {
   feedback: 'packages/feedback/message-feedback/src/types.ts',
   presetRegistry: 'packages/preset/agent-preset-registry/src/index.ts',
   commands: 'packages/interaction/commands/src/index.ts',
+  tokenMeter: 'packages/llm/token-meter/src/index.ts',
 }
 
 const checks = [
@@ -102,6 +103,17 @@ const checks = [
     name: 'commands.execute keeps the attachments slot before signal',
     file: 'commands',
     pattern: /async execute\(\s*agent: Agent,\s*line: string,\s*submittedAttachments: readonly CommandSubmitAttachment\[\],\s*signal: AbortSignal,?\s*\): Promise<CommandExecution \| undefined>/,
+  },
+  {
+    // The token meter prices a context by replaying the session's event log,
+    // so it takes the SESSION, not the session id. The bridge once handed it
+    // `{ id }`, and the meter then replayed nothing, reported zero tokens for
+    // every session, and the context-pressure warning never fired — silently,
+    // with no error to catch. Assert the upstream shape so the next change
+    // fails in CI rather than in production.
+    name: 'tokenMeter.measure takes the session, not the session id',
+    file: 'tokenMeter',
+    pattern: /measure\(session: Session, requestHeader\?: EpochHeader\): TokenMeasurement/,
   },
 ]
 

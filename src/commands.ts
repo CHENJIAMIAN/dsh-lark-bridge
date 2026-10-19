@@ -368,10 +368,26 @@ export async function runCommandLine(
   // 硬传四个参数在老版本（三参）上会同样错位——所以这里按运行时实参个数
   // 判定，而不是写死形状：多一个就传四参，少一个就传三参。
   // 判据用 `execute.length`：四参实现 length===4，三参实现 length===3。
+  //
+  // ★★ 未知形状必须响亮（2026-10-20，御史复核的反例）：原先写成
+  // `length === 3 ? 三参 : 四参`——凡是不等于 3 的形状都落四参臂。
+  // 实测：`length===2`（宿主给 signal 写了默认值时，JS 的 length 只数到
+  // 第一个默认值之前）会落四参臂，signal 槽收到 `[]`、真 signal 留
+  // undefined，**issue #2 的同一个失败类原样回来**
+  // （`TypeError: signal.throwIfAborted is not a function`）。
+  // 所以未知形状不猜：记一条告警，并按最可能正确的四参调用，
+  // 但让漂移在日志里留痕，而不是无声地错位。
   const execute = commands.execute as unknown as (
     ...args: unknown[]
   ) => Promise<Awaited<ReturnType<HostCommands['execute']>>>
-  const execution = execute.length === 3
+  const arity = execute.length
+  if (arity !== 3 && arity !== 4) {
+    console.warn(
+      `[dsh-lark-bridge] commands.execute 的参数个数是 ${arity}（预期 3 或 4）——`
+      + '上游命令服务签名可能又变了，按四参调用；若报 signal 相关错误，请核对上游签名。',
+    )
+  }
+  const execution = arity === 3
     ? await execute.call(commands, agent, trimmed, signal)
     : await execute.call(commands, agent, trimmed, [], signal)
   if (execution === undefined) {

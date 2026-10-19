@@ -26,7 +26,10 @@ import type { Context } from '@deepseek-ai/cordis'
 function fakeAgent(ctx: Context | undefined = undefined): HostAgent {
   return {
     id: 'ses_1',
-    session: { id: 'ses_1' },
+    // The session carries what the host's token meter replays the log
+    // through: `seq` and `eventAt()`. A session that only has an id is the
+    // shape that made the meter report zero tokens for every session.
+    session: { id: 'ses_1', seq: 0, eventAt: () => undefined },
     followup: vi.fn(),
     cancel: vi.fn(),
     ...ctx === undefined ? {} : { ctx },
@@ -730,6 +733,43 @@ describe('/context command', () => {
     expect(outcome.reply).not.toContain('偏高')
   })
 
+  it('hands the meter the session object, not the id alone', async () => {
+    // The meter replays the session's event log, so it needs the session:
+    // its `seq` and `eventAt()`. Handing it `{ id }` makes the replay read
+    // nothing and the meter report zero tokens for every session — with no
+    // error raised, which is why this stayed invisible.
+    const seen: { session: unknown } = { session: undefined }
+    const meter = {
+      measure: (session: unknown) => {
+        seen.session = session
+        return { totalTokens: 1, surfaceTokens: 1 }
+      },
+    }
+    const agent = fakeAgent()
+    await runCommandLine(
+      `/${CONTEXT_COMMAND}`,
+      agent,
+      undefined,
+      new AbortController().signal,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      meter as never,
+    )
+    expect(seen.session).toBe(agent.session)
+    expect(typeof (seen.session as { eventAt?: unknown }).eventAt).toBe('function')
+    expect(typeof (seen.session as { seq?: unknown }).seq).toBe('number')
+  })
+
   it('reports when the token meter is absent', async () => {
     const outcome = await runCommandLine(
       `/${CONTEXT_COMMAND}`,
@@ -1206,5 +1246,29 @@ describe('host command execute arity guard (issue #2)', () => {
     expect(outcome.resolved).toBe(true)
     expect(seen.args).toHaveLength(3)
     expect(seen.args[2]).toBeInstanceOf(AbortSignal)
+  })
+
+  it('warns when the host arity is neither three nor four', async () => {
+    // A host that gives `signal` a default value reports length 2 — JS
+    // counts only the parameters before the first default. Such a shape used
+    // to fall through to the four-argument arm, which put the attachments
+    // array in the signal slot and reproduced issue #2's exact failure.
+    // The unknown shape must leave a trace instead of misaligning silently.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const hostCommands = {
+        list: () => [],
+        execute: async function (_agent: unknown, _line: string, _signal: AbortSignal = new AbortController().signal) {
+          return { result: { kind: 'success' as const, text: 'ok' } }
+        },
+      }
+      expect(hostCommands.execute.length).toBe(2)
+      const outcome = await runCommandLine('/goal', fakeAgent(), hostCommands as never, new AbortController().signal)
+      expect(outcome.resolved).toBe(true)
+      expect(warn).toHaveBeenCalled()
+      expect(String(warn.mock.calls[0]?.[0] ?? '')).toContain('参数个数')
+    } finally {
+      warn.mockRestore()
+    }
   })
 })

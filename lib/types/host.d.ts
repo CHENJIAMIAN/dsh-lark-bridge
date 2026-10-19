@@ -10,10 +10,23 @@
  * @module dsh-lark-bridge/host
  */
 import type { Context } from '@deepseek-ai/cordis';
-/** The live session a host agent drives; only the identity is read here. */
+/**
+ * The live session a host agent drives.
+ *
+ * `id` is the identity the agent registry and session log share. `seq` and
+ * `eventAt` are what the host's `tokenMeter` replays the session log through
+ * to price a context — a token meter that is handed only the id cannot read
+ * the log, reports zero for every session, and never raises the context
+ * pressure warning. Upstream `measure(session: Session, …)` reads
+ * `session.seq` and calls `session.eventAt(seq)`.
+ */
 export interface HostSession {
     /** The session id shared by the agent registry and session log. */
     readonly id: string;
+    /** The number of committed events in the session log (the next `eventAt` index). */
+    readonly seq: number;
+    /** The event stored at one exact sequence number, or undefined past the tail. */
+    eventAt(seq: number): unknown;
 }
 /** Durable metadata for one stored image, from {@link HostAttachments.saveImage}. */
 export interface HostImageRef {
@@ -893,11 +906,18 @@ export interface HostMessageFeedback {
         };
     }>;
 }
-/** The `tokenMeter` service (subset of the host `TokenMeter`). */
+/**
+ * The `tokenMeter` service (subset of the host `TokenMeter`).
+ *
+ * The upstream signature is `measure(session: Session, requestHeader?)`: the
+ * meter replays the session's own event log to price the context, so it
+ * needs the session object — its `seq` and `eventAt()`. Handing it the id
+ * alone makes the replay loop read nothing, and the meter then reports zero
+ * tokens for every session without raising, so the context-pressure
+ * warning never fires.
+ */
 export interface HostTokenMeter {
-    measure(session: {
-        readonly id: string;
-    }): {
+    measure(session: HostSession): {
         readonly totalTokens: number;
         readonly surfaceTokens: number;
     };
