@@ -35,6 +35,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the plugin's bundles are not merged when the install exits non-zero.
 - **The documented Node version now matches `engines.node`** (22.19+ or
   24+); the prerequisites line still said Node 18+.
+- **The context-pressure meter was reading nothing.** The host's
+  `tokenMeter.measure` takes the SESSION — it replays the session's own
+  event log through `seq` and `eventAt()` — and the bridge was handing it
+  the session id alone. The upstream replay loop then read nothing, the
+  meter reported zero tokens for every session, and it did so WITHOUT
+  RAISING, so the proactive "your context is getting full" warning could
+  never fire. The `/context` command was unaffected: it already passed
+  the session object. The meter is now handed the session, the contract
+  test no longer certifies the id-only shape (it used to, and making the
+  declaration more correct turned it red), and the upstream signature is
+  asserted against the live upstream branch.
+- **An unknown command-service arity now warns instead of guessing.**
+  Reading the host method's arity fell back to the four-argument call for
+  every shape that was not three — so a host that gives `signal` a
+  default value (length 2) reproduced issue #2's exact failure, quietly.
+  Unknown shapes now leave a trace in the log.
 - **Audio, video and sticker attachments are no longer dropped silently.**
   They download into the workspace with a typed note, so the model sees that
   something arrived instead of a placeholder tag. A sticker that shares a
