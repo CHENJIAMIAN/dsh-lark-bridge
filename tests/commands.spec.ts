@@ -1159,3 +1159,51 @@ describe('/restart command', () => {
     }
   })
 })
+describe('host command execute arity guard (issue #2)', () => {
+  /**
+   * The upstream `execute` gained an `images` slot in front of `signal`.
+   * Passing the old three-argument shape puts the signal where the images
+   * belong, leaves the real signal undefined, and the host throws on
+   * `signal.aborted` — every slash command dies with a generic
+   * "cannot start session" line.
+   *
+   * The bridge therefore reads the runtime's own arity instead of hard-coding
+   * a shape: four parameters means the images slot exists, three means it does
+   * not. These tests pin both arms, because a one-sided guard is exactly the
+   * kind of thing that stays green while the other side is broken.
+   */
+
+  it('passes the attachments slot when the host takes four parameters', async () => {
+    const seen: { args: unknown[] } = { args: [] }
+    const hostCommands = {
+      list: () => [],
+      execute: async (...args: unknown[]) => {
+        seen.args = args
+        return { result: { kind: 'success' as const, text: 'ok' } }
+      },
+    }
+    const outcome = await runCommandLine('/goal', fakeAgent(), hostCommands as never, new AbortController().signal)
+    expect(outcome.resolved).toBe(true)
+    expect(seen.args).toHaveLength(4)
+    expect(seen.args[2]).toEqual([])
+    expect(seen.args[3]).toBeInstanceOf(AbortSignal)
+  })
+
+  it('keeps the three-parameter shape when the host still takes three', async () => {
+    const seen: { args: unknown[] } = { args: [] }
+    const hostCommands = {
+      list: () => [],
+      execute: async (...args: unknown[]) => {
+        seen.args = args
+        return { result: { kind: 'success' as const, text: 'ok' } }
+      },
+    }
+    // A rest-argument mock reports length 0, so declare the arity explicitly
+    // the way a compiled host implementation does.
+    Object.defineProperty(hostCommands.execute, 'length', { value: 3 })
+    const outcome = await runCommandLine('/goal', fakeAgent(), hostCommands as never, new AbortController().signal)
+    expect(outcome.resolved).toBe(true)
+    expect(seen.args).toHaveLength(3)
+    expect(seen.args[2]).toBeInstanceOf(AbortSignal)
+  })
+})

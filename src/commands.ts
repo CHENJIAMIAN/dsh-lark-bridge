@@ -362,7 +362,18 @@ export async function runCommandLine(
   // 附件槽不给空数组会把 signal 挤进附件位、signal 位留 undefined，
   // 核心读 `signal.aborted` 即崩（症状：每条斜杠命令都报"无法启动会话"）。
   // 桥不随命令提交附件（飞书图片走 notes 注入），恒传空。
-  const execution = await commands.execute(agent, trimmed, [], signal)
+  //
+  // ★arity 护栏（issue #2 的建议，2026-10-20）：上游把 `images` 槽位插到
+  // `signal` 之前那一次，正是"传参错位 → 静默崩"而不是"响亮地崩"。
+  // 硬传四个参数在老版本（三参）上会同样错位——所以这里按运行时实参个数
+  // 判定，而不是写死形状：多一个就传四参，少一个就传三参。
+  // 判据用 `execute.length`：四参实现 length===4，三参实现 length===3。
+  const execute = commands.execute as unknown as (
+    ...args: unknown[]
+  ) => Promise<Awaited<ReturnType<HostCommands['execute']>>>
+  const execution = execute.length === 3
+    ? await execute.call(commands, agent, trimmed, signal)
+    : await execute.call(commands, agent, trimmed, [], signal)
   if (execution === undefined) {
     return { reply: `⚠️ 未知命令 \`/${name}\`。\n\n${helpText(commands, agent, config?.locale ?? 'zh')}`, resolved: false }
   }

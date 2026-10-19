@@ -4,6 +4,54 @@ All notable changes to dsh-lark-bridge are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] — 2026-10-20
+
+### Fixed
+- **Every slash command can die with a generic "cannot start session" line
+  (issue #2).** The host's `commands.execute` grew an attachments slot in
+  front of `signal`; the bridge still called the old three-argument shape, so
+  the signal landed in the attachments slot, the real signal stayed
+  `undefined`, and the host threw while reading `signal.aborted`. The bridge
+  now reads the runtime's own arity instead of hard-coding a shape — four
+  parameters means the attachments slot exists, three means it does not — so
+  neither an older nor a newer host can silently mis-align the arguments
+  again. Both arms are pinned by regression tests.
+- **Audio, video and sticker attachments are no longer dropped silently.**
+  They download into the workspace with a typed note, so the model sees that
+  something arrived instead of a placeholder tag. A sticker that shares a
+  filename with an existing one is stored beside it (`name-2.ext`) rather
+  than overwriting it, and names are stripped of control characters.
+- **Image notes no longer reach the model twice** — the note was appended on
+  two paths.
+- **A late session binding no longer clobbers a rotation's rebind** (which
+  stranded routing and leaked the fresh agent); a rotation refuses under
+  `close()` and takes its late agent down. A failed rotation now warns in the
+  reply instead of failing silently.
+- **A job-completion notice keeps its output tail.** The host's `readAt`
+  takes a bare session-id string; the bridge passed an object, so the tail
+  was always empty. The same fix applies to `/jobs` ownership listing.
+
+### Added
+- **`/new` (and its `/clear` alias) rotates the chat onto a fresh session.**
+  The previous one stays available through `/sessions`; the rotation
+  survives restarts via a small on-disk store, is refused mid-turn, and is
+  registered on the slash panel and `/help`.
+- **Job-completion notices name how long the job ran** — measured at
+  settlement from the snapshot's `startedAt`.
+- **`/restart` reports when the service came back and how long it was down**,
+  and the next boot says so in the chat.
+- **`/compact` replies are translated** into the chat's language, keeping the
+  item and token counts.
+
+### Changed
+- **Install note corrected for pnpm 11+ (issue #4).** The build-script gate
+  is `allowBuilds` in the *installing* profile's `pnpm-workspace.yaml`; the
+  legacy `onlyBuiltDependencies` key was removed in pnpm 11, and a package
+  cannot grant the approval on the installer's behalf. The documented value
+  is `protobufjs: false` — the blocked script only prints a version-scheme
+  warning. The upstream CLI prints a pointer to that file for git-hosted
+  plugins only, so an npm-published plugin documents the step itself.
+
 ## [0.9.0] — 2026-09-13
 
 ### Changed

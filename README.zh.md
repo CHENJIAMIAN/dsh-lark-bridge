@@ -71,10 +71,20 @@ pnpm dlx @deepseek-ai/dsh plugin --profile web add @moyu-good/dsh-lark-bridge \
 
 > [!NOTE]
 > **首次 `plugin add` 会失败一次**，报
-> `ERR_PNPM_IGNORED_BUILDS ... protobufjs`——pnpm 11 默认拦截 `protobufjs`
-> （飞书 SDK 的依赖）的 postinstall，而该脚本只是无害提示。打开
-> `<你的home>/.dsh/profiles/web/pnpm-workspace.yaml`，把占位行改成
-> `protobufjs: true`，再重跑同一条命令即可。每个 profile 仅需一次。
+> `ERR_PNPM_IGNORED_BUILDS ... protobufjs`——pnpm 11+ 默认拦截依赖的构建脚本，
+> 未放行时直接当硬错误。被拦的是 `protobufjs`（飞书 SDK 的依赖）的 postinstall，
+> 它只打印一行版本方案警告：不写文件、不联网。
+> 打开 `<你的home>/.dsh/profiles/web/pnpm-workspace.yaml`，在 `allowBuilds` 下把
+> `protobufjs` 设为 `false`（文件里自带占位行），再重跑同一条命令即可。
+> 用 `false` 是对的：拒绝执行这个脚本，而该脚本本来就没有非做不可的事。
+> 每个 profile 仅需一次。
+>
+> `allowBuilds` 是 pnpm 11+ 唯一认的键——`onlyBuiltDependencies` 等旧构建键
+> 在 pnpm 11 已被移除。它写在**安装方** profile 的 `pnpm-workspace.yaml` 里，
+> 不在本包里：批准权属于执行安装的人。
+>
+> 上游 dsh CLI 只会对 git 托管插件打印这个文件路径的提示；像本包这样从 npm
+> 发布的插件拿不到提示，所以这一步骤写在这里。
 
 ## 💬 像用户一样用它
 

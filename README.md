@@ -77,11 +77,24 @@ pnpm dlx @deepseek-ai/dsh plugin --profile web add @moyu-good/dsh-lark-bridge \
 
 > [!NOTE]
 > **First-time `plugin add` fails once** with
-> `ERR_PNPM_IGNORED_BUILDS ... protobufjs` — pnpm 11 blocks the postinstall
-> of `protobufjs` (a Feishu SDK dependency; its script is a harmless no-op).
-> Open `<your-home>/.dsh/profiles/web/pnpm-workspace.yaml` and change the
-> placeholder line to `protobufjs: true`, then re-run the same command. This
-> is a one-time step per profile.
+> `ERR_PNPM_IGNORED_BUILDS ... protobufjs` — pnpm 11+ blocks dependency build
+> scripts by default and treats an unapproved one as a hard error. The blocked
+> script belongs to `protobufjs` (a Feishu SDK dependency) and only prints a
+> version-scheme warning; it writes no file and reaches no network.
+> Open `<your-home>/.dsh/profiles/web/pnpm-workspace.yaml` and set
+> `protobufjs: false` under `allowBuilds` (the file ships with a placeholder
+> line), then re-run the same command. `false` is the right value: it declines
+> the script, and the script has nothing to do. This is a one-time step per
+> profile.
+>
+> `allowBuilds` is the only key pnpm 11+ reads for this — `onlyBuiltDependencies`
+> and the other legacy build keys were removed in pnpm 11. It lives in the
+> **installing** profile's `pnpm-workspace.yaml`, not in this package, because
+> the approval belongs to whoever runs the install.
+>
+> The upstream dsh CLI prints a pointer to this file only for git-hosted
+> plugins; an npm-published plugin like this one gets no such hint, which is
+> why the step is documented here.
 
 > [!TIP]
 > Not sure what the bot can do? Send it **`/manual`** — the full eight-section user
