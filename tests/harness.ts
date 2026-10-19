@@ -284,6 +284,18 @@ export function fakeMessage(overrides: Partial<NormalizedMessage> = {}): Normali
   }
 }
 
+/**
+ * The host session one fake agent drives, with the two fields a token meter
+ * replays the log through. `eventAt` is the only reader; `seq` counts the
+ * committed events, so appending to the log simulates a context that grows
+ * mid-turn.
+ */
+export interface FakeSession {
+  readonly id: string
+  readonly seq: number
+  eventAt(seq: number): unknown
+}
+
 /** One agent creation recorded by the fake registry. */
 export interface CreatedAgent {
   sessionId: string
@@ -297,7 +309,7 @@ export interface CreatedAgent {
   promptSections: { name: string; order: number; text: string }[]
   agent: {
     id: string
-    session: { id: string }
+    session: FakeSession
     followup: ReturnType<typeof vi.fn<(m: HostUserMessage) => void>>
     cancel: ReturnType<typeof vi.fn<(cause: string) => void>>
   }
@@ -313,13 +325,28 @@ export function createFakeAgents(extraServices: { jobs?: object } = {}) {
   const live = new Map<string, CreatedAgent['agent']>()
   const resumed: string[] = []
   const looked: string[] = []
+  /**
+   * The event log behind each fake session, exposed so a test can give a
+   * session a context worth pricing. The host token meter replays exactly this
+   * through `seq` + `eventAt`, so the log is the only input its total has.
+   */
+  const sessionEvents = new Map<string, unknown[]>()
 
-  const makeAgent = (sessionId: string): CreatedAgent['agent'] => ({
-    id: sessionId,
-    session: { id: sessionId },
-    followup: vi.fn<(m: HostUserMessage) => void>(),
-    cancel: vi.fn<(cause: string) => void>(),
-  })
+  const makeAgent = (sessionId: string): CreatedAgent['agent'] => {
+    const events = sessionEvents.get(sessionId) ?? []
+    sessionEvents.set(sessionId, events)
+    const session: FakeSession = {
+      id: sessionId,
+      get seq() { return events.length },
+      eventAt: (seq: number) => events[seq],
+    }
+    return {
+      id: sessionId,
+      session,
+      followup: vi.fn<(m: HostUserMessage) => void>(),
+      cancel: vi.fn<(cause: string) => void>(),
+    }
+  }
 
   /**
    * Run one composition the way the real factory does: on a scoped context
@@ -438,6 +465,8 @@ export function createFakeAgents(extraServices: { jobs?: object } = {}) {
     /** Ids `resume` loads, and agents `get` adopts. */
     resumable,
     live,
+    /** The event log behind each fake session, by session id. */
+    sessionEvents,
     /** Ids handed to `resume` and to `get`, in call order. */
     resumed,
     looked,
@@ -486,6 +515,8 @@ export async function mountChannel(
     jobs?: object
     /** The `messageFeedback` service `/feedback` writes through. */
     messageFeedback?: object
+    /** The `tokenMeter` service context pressure is polled through. */
+    tokenMeter?: object
     /** The root `loader` whose entries /plugins lists. Omitted ⇒ command refuses. */
     loader?: { entries: () => Iterable<unknown> }
     /**
@@ -533,6 +564,7 @@ export async function mountChannel(
   if (services.attachments !== undefined) ctx.provide('attachments', services.attachments)
   if (services.jobs !== undefined) ctx.provide('jobs', services.jobs)
   if (services.messageFeedback !== undefined) ctx.provide('messageFeedback', services.messageFeedback)
+  if (services.tokenMeter !== undefined) ctx.provide('tokenMeter', services.tokenMeter)
   if (services.loader !== undefined) ctx.provide('loader', services.loader)
   const fake = createFakePort()
   const portConfigs: ChannelConfig[] = []
