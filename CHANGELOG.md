@@ -46,6 +46,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   test no longer certifies the id-only shape (it used to, and making the
   declaration more correct turned it red), and the upstream signature is
   asserted against the live upstream branch.
+- **The release workflow can now actually publish, and its registry check can
+  actually fail.** `npm publish --provenance` needs GitHub Actions' OIDC
+  permission (`id-token: write`), which the workflow did not grant — the
+  publish step would have failed with EUSAGE the moment a token was
+  configured, and because the registry check only runs after a successful
+  publish, it would have been skipped and the release would have reported
+  success while nothing shipped. The check itself also told three
+  different stories: an empty version resolved to `latest` and passed; an
+  unreachable registry was reported as "not on npm"; and a 404 was
+  indistinguishable from a timeout. Now an empty version is an error, the
+  lookup retries with backoff, and only a 404 means "not published" —
+  anything else is reported as unknown.
 - **An unknown command-service arity now warns instead of guessing.**
   Reading the host method's arity fell back to the four-argument call for
   every shape that was not three — so a host that gives `signal` a
