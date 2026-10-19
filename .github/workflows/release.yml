@@ -8,6 +8,14 @@ on:
 
 permissions:
   contents: write
+  # npm publish --provenance asks GitHub Actions for an OIDC token to attest
+  # the provenance of the published tarball. Without this permission npm 11
+  # fails with EUSAGE ("Provenance generation in GitHub Actions requires
+  # \"write\" access to the \"id-token\" permission"), which would fail the
+  # release the moment NPM_TOKEN is configured — and, because the verify step
+  # below only runs when the publish step succeeded, the registry check would
+  # be skipped and the release would read as green while nothing shipped.
+  id-token: write
 
 jobs:
   release:
@@ -97,14 +105,59 @@ jobs:
       # reported success but left the registry behind, or a skip that exited
       # 0, both read as "released" to anyone watching the run. So the state
       # is read from the registry itself.
+      #
+      # Three ways this check used to lie, all found by running it against a
+      # live registry:
+      #  - an empty version resolved to `latest` and exited 0, so a malformed
+      #    tag read as "published";
+      #  - an unreachable registry exited 1 with the message "not on npm",
+      #    blaming the release for a network problem;
+      #  - a 404 (genuinely absent) and a timeout (unknown) were the same
+      #    failure, so a transient blip failed the release.
+      # Now: the version must be non-empty, the lookup retries with backoff,
+      # and a 404 is distinguished from every other error.
       - name: Verify the registry carries this version
+        env:
+          # A private userconfig, so the step can point npm at a specific
+          # registry without touching the runner's global npm config — and so
+          # a stale ~/.npmrc on a self-hosted runner cannot answer the check.
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/verify.npmrc
         run: |
           ver="${GITHUB_REF_NAME#v}"
+          if [ -z "$ver" ]; then
+            echo "::error title=empty version::The tag '${GITHUB_REF_NAME}' carries no version number, so there is nothing to look up on the registry."
+            exit 1
+          fi
           echo "checking npm for ${ver}"
-          if npm view "@moyu-good/dsh-lark-bridge@${ver}" version >/dev/null 2>&1; then
+          found=0
+          unknown=0
+          for attempt in 1 2 3 4 5; do
+            out="$(npm view "@moyu-good/dsh-lark-bridge@${ver}" version 2>&1)" && found=1 && break
+            # E404 is the registry's answer "this version does not exist".
+            # Anything else — a timeout, a 5xx, a refused connection, a DNS
+            # failure — is an unknown, not an absence, and must not be
+            # reported as "not published".
+            if printf '%s' "$out" | grep -qE 'E404|404 Not Found'; then
+              found=0
+              unknown=0
+              break
+            fi
+            unknown=1
+            echo "::warning title=registry lookup failed (attempt ${attempt})::${out}"
+            sleep $((attempt * 5))
+          done
+          if [ "$found" = "1" ]; then
             echo "::notice title=registry verified::${ver} is on npm."
             exit 0
           fi
-          latest="$(npm view @moyu-good/dsh-lark-bridge dist-tags.latest 2>/dev/null || echo unknown)"
+          # Only the version string; the raw npm output can be hundreds of
+          # lines of stack trace when the registry is unreachable, and that
+          # noise must not end up in the job log.
+          latest="$(npm view @moyu-good/dsh-lark-bridge dist-tags.latest 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+          [ -n "$latest" ] || latest=unknown
+          if [ "$unknown" = "1" ]; then
+            echo "::error title=registry unreachable::The registry did not answer after 5 attempts, so whether ${ver} is published is UNKNOWN — this is not evidence that it is missing. Re-run this workflow when the registry is reachable. (Latest tag seen: ${latest})"
+            exit 1
+          fi
           echo "::error title=not on npm::${ver} is NOT on the registry (latest is ${latest}). Users installing from npm are still getting ${latest} — the fix in this release does not reach them. Add a repository secret named NPM_TOKEN and re-run this workflow."
           exit 1
