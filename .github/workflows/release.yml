@@ -73,17 +73,38 @@ jobs:
       # 0.6.1 and every reporter was still running the old, broken code.
       #
       # The token lives in the repository's Actions secrets (NPM_TOKEN). When
-      # it is absent the step SKIPS with a notice rather than failing the
-      # release — a GitHub release is still worth having without a registry
-      # publish, and the skip says out loud that the registry was not updated.
+      # it is absent the publish step skips, and the VERIFY step below turns
+      # the whole job red — because a green release that never reached the
+      # registry is the exact failure this was written to end, and a skip
+      # that exits 0 would report success for a fix nobody can install.
       - name: Publish to npm
+        id: publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "::notice title=npm publish skipped::NPM_TOKEN is not set in this repository's Actions secrets. The GitHub release was created, but the npm registry was NOT updated — add a repository secret named NPM_TOKEN (an npm automation token with publish rights on this package) to fix that."
+            echo "::warning title=npm publish skipped::NPM_TOKEN is not set in this repository's Actions secrets. The GitHub release was created, but the npm registry will NOT be updated — add a repository secret named NPM_TOKEN (an npm automation token with publish rights on this package)."
+            echo "published=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > "$RUNNER_TEMP/.npmrc"
           npm publish --provenance --access public --userconfig "$RUNNER_TEMP/.npmrc"
+          echo "published=true" >> "$GITHUB_OUTPUT"
           echo "::notice title=npm published::$GITHUB_REF_NAME is on the registry."
+
+      # The publish step's own exit code is not the question — the question is
+      # whether the registry actually carries this version. A publish that
+      # reported success but left the registry behind, or a skip that exited
+      # 0, both read as "released" to anyone watching the run. So the state
+      # is read from the registry itself.
+      - name: Verify the registry carries this version
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          echo "checking npm for ${ver}"
+          if npm view "@moyu-good/dsh-lark-bridge@${ver}" version >/dev/null 2>&1; then
+            echo "::notice title=registry verified::${ver} is on npm."
+            exit 0
+          fi
+          latest="$(npm view @moyu-good/dsh-lark-bridge dist-tags.latest 2>/dev/null || echo unknown)"
+          echo "::error title=not on npm::${ver} is NOT on the registry (latest is ${latest}). Users installing from npm are still getting ${latest} — the fix in this release does not reach them. Add a repository secret named NPM_TOKEN and re-run this workflow."
+          exit 1
