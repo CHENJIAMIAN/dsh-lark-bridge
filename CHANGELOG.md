@@ -4,73 +4,15 @@ All notable changes to dsh-lark-bridge are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.3] - 2026-10-20
+## [0.9.1] — 2026-10-20
 
 ### Fixed
-- **The bridge no longer guesses the host's argument shape.** 0.9.1 read the
-  host method's argument count and picked a call shape from it. That count
-  cannot tell the two shapes apart: a host that gives its `signal` a default
-  value reports three arguments while still having the attachments slot, and
-  the three-argument shape puts the signal where the attachments belong. That
-  is issue #2's failure again, except silent - the host falls back to its
-  default signal and the abort is lost with nothing to show for it. The third
-  argument is now both: an empty array for the host that wants attachments
-  there, and the signal's own members for the host that wants the signal
-  there. Each host shape is pinned by a regression test, and restoring the
-  argument-count choice turns the default-value case red.
-- **The registry check no longer reads a version number out of an error.**
-  npm's answer for a version that is not published contains the version
-  number ("404 No match found for version 0.9.1"), so the check reported a
-  missing version as published. The 404 is read first now. The check was
-  verified against the real registry in six cases: a missing version, a
-  published one, an empty answer, a refused connection, a version wrapped in
-  colour codes, and the error text that carries the version.
-- **The argument-count check in the contract gate counts the declaration.**
-  It matched the first "async execute(" in the upstream source, so a comment
-  showing an example call was counted instead of the method itself and a
-  legal host was reported as drifted.
+
 - **A bracketed placeholder path is no longer reported as a real one.** The
   leak gate read the Windows user segment with a character class that stopped
   at an angle bracket, so the bracketed stand-ins it exempts were unreachable
   there. Real paths are still reported.
-- **A failing read of a settled job's output leaves a trace.** It degraded
-  to "no tail" silently, which is how a wrong caller shape stayed invisible.
-  It still does not throw into the event stream.
-- **The release step updates a release that already exists.** Creating one
-  failed the job whenever the tag was pushed again - which is what a
-  rewritten history does - and the release had been made all the same.
-- **The install note's pnpm version was wrong.** The gate is
-  `strictDepBuilds`, on by default since pnpm 10.3, and `allowBuilds` arrived
-  in 10.26; neither is new in pnpm 11. The placeholder line is written by the
-  failed install, not shipped with the profile.
-- **The smoke check's reasoning no longer calls a locally inserted package
-  an upstream default,** and names the release that removed the package the
-  notes called long gone.
 
-- **The token meter was reading nothing.** The upstream meter prices a
-  context by replaying the session's event log, so it takes the session, not
-  the session id. The bridge handed it an id, the replay found nothing, and
-  every session measured zero tokens with no error to catch - the
-  context-pressure warning never fired, while `/context` kept working and
-  made it look healthy. The bridge now hands it the session, and the
-  contract gate asserts the upstream shape.
-
-- **The release carries the package tarball.** The release had no assets at
-  all, which left the note in the issue thread pointing at something that was
-  not there. The tarball is built from the same tree the tag points at, and it
-  is the package as the registry would receive it, so there is a way to
-  install the release even before the registry carries it.
-
-### Changed
-- **The publish step names the registry** rather than leaving it to npm's
-  default.
-- **The public ledger no longer carries a private form of address,** and the
-  upstream ledger entries were corrected where the earlier ones claimed a fix
-  was in production when the running process was still on the old build.
-
-## [0.9.1] — 2026-10-20
-
-### Fixed
 - **Every slash command can die with a generic "cannot start session" line
   (issue #2).** The host's `commands.execute` grew an attachments slot in
   front of `signal`; the bridge still called the old three-argument shape, so
@@ -179,6 +121,101 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   is `protobufjs: false` — the blocked script only prints a version-scheme
   warning. The upstream CLI prints a pointer to that file for git-hosted
   plugins only, so an npm-published plugin documents the step itself.
+
+
+## [0.9.2] - 2026-10-20
+
+### Fixed
+
+- **The bridge no longer guesses the host's argument shape.** 0.9.1 read the
+  host method's argument count and picked a call shape from it. That count
+  cannot tell the two shapes apart: a host that gives its `signal` a default
+  value reports three arguments while still having the attachments slot, and
+  the three-argument shape puts the signal where the attachments belong. That
+  is issue #2's failure again, except silent - the host falls back to its
+  default signal and the abort is lost with nothing to show for it. The third
+  argument is now both: an empty array for the host that wants attachments
+  there, and the signal's own members for the host that wants the signal
+  there. Each host shape is pinned by a regression test, and restoring the
+  argument-count choice turns the default-value case red.
+
+- **The registry check no longer reads a version number out of an error.**
+  npm's answer for a version that is not published contains the version
+  number ("404 No match found for version 0.9.1"), so the check reported a
+  missing version as published. The 404 is read first now. The check was
+  verified against the real registry in six cases: a missing version, a
+  published one, an empty answer, a refused connection, a version wrapped in
+  colour codes, and the error text that carries the version.
+
+- **The argument-count check in the contract gate counts the declaration.**
+  It matched the first "async execute(" in the upstream source, so a comment
+  showing an example call was counted instead of the method itself and a
+  legal host was reported as drifted.
+
+- **A failing read of a settled job's output leaves a trace.** It degraded
+  to "no tail" silently, which is how a wrong caller shape stayed invisible.
+  It still does not throw into the event stream.
+
+- **The release step updates a release that already exists.** Creating one
+  failed the job whenever the tag was pushed again - which is what a
+  rewritten history does - and the release had been made all the same.
+
+- **The install note's pnpm version was wrong.** The gate is
+  `strictDepBuilds`, on by default since pnpm 10.3, and `allowBuilds` arrived
+  in 10.26; neither is new in pnpm 11. The placeholder line is written by the
+  failed install, not shipped with the profile.
+
+- **The smoke check's reasoning no longer calls a locally inserted package
+  an upstream default,** and names the release that removed the package the
+  notes called long gone.
+
+- **The token meter was reading nothing.** The upstream meter prices a
+  context by replaying the session's event log, so it takes the session, not
+  the session id. The bridge handed it an id, the replay found nothing, and
+  every session measured zero tokens with no error to catch - the
+  context-pressure warning never fired, while `/context` kept working and
+  made it look healthy. The bridge now hands it the session, and the
+  contract gate asserts the upstream shape.
+
+- **The publish step names the registry** rather than leaving it to npm's
+  default.
+
+- **The public ledger no longer carries a private form of address,** and the
+  upstream ledger entries were corrected where the earlier ones claimed a fix
+  was in production when the running process was still on the old build.
+
+
+## [0.9.3] - 2026-10-20
+
+### Fixed
+
+- **The release carries the package tarball.** The release had no assets at
+  all, which left the note in the issue thread pointing at something that was
+  not there. The tarball is built from the same tree the tag points at, and it
+  is the package as the registry would receive it, so there is a way to
+  install the release even before the registry carries it.
+
+### Changed
+
+
+## [0.9.4] - 2026-10-20
+
+### Fixed
+- **The registry check reads npm's exit code.** It looked for a
+  version-shaped string in npm's output and called the version published
+  when it found one. npm prints its error text on stdout as well, and an
+  unreachable registry names the address it could not reach - 127.0.0.1 -
+  which looks like a version number, so a registry that could not be
+  reached was read as a version that was published. The exit code is now
+  read, and a version-shaped string counts only when the command
+  succeeded. A registry that does not answer is reported as unknown
+  rather than as missing.
+- **The pressure sweep leaves a line with what it measured.** It said
+  nothing when it succeeded, which made the fault it exists to catch
+  indistinguishable from a quiet system. It now writes a line with the
+  number the meter returned, when the number changes rather than on every
+  poll, so a non-zero total is proof that the meter read the session.
+
 
 ## [0.9.0] — 2026-09-13
 
