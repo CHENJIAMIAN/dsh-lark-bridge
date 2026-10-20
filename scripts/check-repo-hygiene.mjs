@@ -19,6 +19,7 @@
 // or export REPO_HYGIENE_PATTERNS=/path/to/patterns.
 
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs"
+import { execFileSync } from "node:child_process"
 import { join, relative, extname, resolve } from "node:path"
 
 // Universal "you shipped your machine" signals.
@@ -122,6 +123,37 @@ const DEFAULT_DIRS = ["src", "tests", "docs", "scripts", ".github", "config", "b
 const NON_STRICT_DIRS = ["src", "tests", "docs", "scripts"]
 const SKIP_DIRS = new Set([".git", "node_modules", "__pycache__", "dist", "build", "coverage"])
 
+// The files that would actually be published.
+//
+// The check used to walk the working tree, which meant it also read the
+// local-only files that .gitignore keeps out of the repository — the
+// deployment scripts on this host, which name this host's service unit
+// and its directories. Those files never ship, so flagging them was
+// wrong twice over: it reported findings on content that is not
+// published, and it forced a local script that has to work here to be
+// rewritten into something that would not.
+//
+// The set of published files is what git tracks. Listing them is also
+// exact, where walking directories has to guess: a file in a directory
+// nobody scanned was invisible, and the repository root was not in the
+// list of scanned directories at all.
+//
+// Falls back to walking when git is unavailable or the directory is not
+// a repository, so the check still runs somewhere it cannot ask git.
+function trackedFiles(repo) {
+  try {
+    const out = execFileSync("git", ["-C", repo, "ls-files", "-z"], {
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    })
+    const files = out.split("\0").filter(Boolean)
+    if (files.length) return files
+  } catch {
+    // fall through to the walk
+  }
+  return null
+}
+
 function parseArgs(argv) {
   const args = { repo: ".", lib: false, strict: false, patternsFile: null }
   const positional = []
@@ -207,29 +239,41 @@ function main() {
   if (patternsFile && existsSync(patternsFile)) console.log(`  + local patterns from ${patternsFile}`)
 
   const hits = []
-  for (const d of dirs) {
-    const base = join(repo, d)
-    if (!existsSync(base) || !statSync(base).isDirectory()) continue
-    for (const f of walk(base, [])) scanFile(repo, f, patterns, hits)
-  }
-  // Top-level files in the repository root are scanned too. They used to be
-  // invisible to this check: the scan walked a fixed list of directories, and
-  // the root was not among them — so a file like cordis.patch.yml (the
-  // bundle's own configuration, which ships with the package) could carry
-  // this deployment's unit name and the check would report "clean".
-  // The root is where the package's own manifest, README and bundle config
-  // live, so it is exactly the place a deployment detail is most likely to
-  // be pasted in by accident.
-  for (const name of readdirSync(repo)) {
-    if (SKIP_DIRS.has(name)) continue
-    const full = join(repo, name)
-    let st
-    try {
-      st = statSync(full)
-    } catch {
-      continue
+  const tracked = trackedFiles(repo)
+  if (tracked) {
+    // Exactly the files that ship. This covers the repository root — where
+    // the package's own manifest, README and bundle configuration live,
+    // and which used to be invisible because the scan walked a fixed list
+    // of directories that did not include the root — and it leaves out the
+    // local-only files that .gitignore keeps out of the repository.
+    let scanned = 0
+    for (const rel of tracked) {
+      if (!SCAN_EXT.has(extname(rel))) continue
+      const full = join(repo, rel)
+      if (!existsSync(full)) continue
+      scanFile(repo, full, patterns, hits)
+      scanned++
     }
-    if (st.isFile() && SCAN_EXT.has(extname(name))) scanFile(repo, full, patterns, hits)
+    console.log(`  scanned ${scanned} tracked file(s)`)
+  } else {
+    // No git here: walk the directories, including the root, so the check
+    // still reports something rather than pretending to be clean.
+    for (const d of dirs) {
+      const base = join(repo, d)
+      if (!existsSync(base) || !statSync(base).isDirectory()) continue
+      for (const f of walk(base, [])) scanFile(repo, f, patterns, hits)
+    }
+    for (const name of readdirSync(repo)) {
+      if (SKIP_DIRS.has(name)) continue
+      const full = join(repo, name)
+      let st
+      try {
+        st = statSync(full)
+      } catch {
+        continue
+      }
+      if (st.isFile() && SCAN_EXT.has(extname(name))) scanFile(repo, full, patterns, hits)
+    }
   }
   // Build output ships to npm, so it is scanned too — but only when asked,
   // since a minified bundle legitimately contains long opaque strings.

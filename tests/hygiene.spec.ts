@@ -38,6 +38,21 @@ function fixture(files: Record<string, string>): string {
   return dir
 }
 
+/** A fixture that is a git repository, with the given files committed. */
+function withGitFixture(files: Record<string, string>, fn: (dir: string) => void) {
+  const dir = fixture(files)
+  try {
+    execFileSync("git", ["init", "-q", "."], { cwd: dir, stdio: "pipe" })
+    execFileSync("git", ["config", "user.email", "test@example.invalid"], { cwd: dir, stdio: "pipe" })
+    execFileSync("git", ["config", "user.name", "test"], { cwd: dir, stdio: "pipe" })
+    execFileSync("git", ["add", "-A"], { cwd: dir, stdio: "pipe" })
+    execFileSync("git", ["commit", "-qm", "fixture"], { cwd: dir, stdio: "pipe" })
+    fn(dir)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 function withFixture(files: Record<string, string>, fn: (dir: string) => void) {
   const dir = fixture(files)
   try {
@@ -48,6 +63,28 @@ function withFixture(files: Record<string, string>, fn: (dir: string) => void) {
 }
 
 describe("repo hygiene check", () => {
+  // The check reads the files git tracks, because those are the files that
+  // ship. A local-only file that .gitignore keeps out of the repository
+  // never leaves this machine, so a machine path in it is not a leak —
+  // and flagging it would force a script that has to work here to be
+  // rewritten into something that would not.
+  describe("which files it reads", () => {
+    it("reports a leak in a tracked file", () => {
+      withGitFixture({ "src/a.ts": `const LIB = "${WSL_PATH}"` }, dir => {
+        expect(runCheck([dir])).toBe(1)
+      })
+    })
+
+    it("does not report a leak in an untracked file", () => {
+      withGitFixture({ "src/a.ts": "export const ok = 1" }, dir => {
+        // written after the commit, so it is present in the working tree
+        // but not tracked
+        writeFileSync(join(dir, "src/local-only.ts"), `const LIB = "${WSL_PATH}"`)
+        expect(runCheck([dir])).toBe(0)
+      })
+    })
+  })
+
   // Uses the operator's own patterns when present, so this asserts the same
   // thing CI does rather than a weaker subset.
   it("passes on this repository", () => {
