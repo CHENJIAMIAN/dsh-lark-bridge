@@ -4,7 +4,7 @@ All notable changes to dsh-lark-bridge are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.2] - 2026-10-20
+## [0.9.3] - 2026-10-20
 
 ### Fixed
 - **The bridge no longer guesses the host's argument shape.** 0.9.1 read the
@@ -54,6 +54,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   context-pressure warning never fired, while `/context` kept working and
   made it look healthy. The bridge now hands it the session, and the
   contract gate asserts the upstream shape.
+
+- **The release carries the package tarball.** The release had no assets at
+  all, which left the note in the issue thread pointing at something that was
+  not there. The tarball is built from the same tree the tag points at, and it
+  is the package as the registry would receive it, so there is a way to
+  install the release even before the registry carries it.
 
 ### Changed
 - **The publish step names the registry** rather than leaving it to npm's

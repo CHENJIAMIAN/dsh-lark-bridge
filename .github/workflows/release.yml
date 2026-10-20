@@ -91,6 +91,24 @@ jobs:
             gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
           fi
 
+      # A tarball on the release page, so there is a way to install the
+      # release before the registry carries it. The release had no assets
+      # at all, which left the note in the issue thread ("the tarball can
+      # be taken from the release") pointing at nothing. The tarball is
+      # built from the same tree the tag points at, and it is the package
+      # as npm would receive it.
+      - name: Attach the package tarball to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP"             | tail -1 | tee "$RUNNER_TEMP/tarball-name"
+          tarball="$RUNNER_TEMP/$(cat "$RUNNER_TEMP/tarball-name")"
+          if [ ! -f "$tarball" ]; then
+            echo "::error title=no tarball produced::npm pack did not produce a file, so the release would carry no way to install it."
+            exit 1
+          fi
+          gh release upload "$GITHUB_REF_NAME" "$tarball" --clobber
+
       # The npm registry is the channel users actually install from: a fix
       # that never reaches the registry fixes nothing for the people who
       # reported the bug. Until this step existed, every tag since v0.7.0
