@@ -24,3 +24,6 @@ journey/s1-probe.sh
 # 必须留在本地——把这些词写进仓库，等于用泄漏清单去泄漏。
 # 模板见 .leak-patterns.example
 .leak-patterns
+# Python 缓存（工具跑脚本时生成，别进仓）
+__pycache__/
+*.pyc
