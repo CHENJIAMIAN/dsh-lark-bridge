@@ -1042,7 +1042,16 @@ export function installBridge(
             // notice's tail was silently empty ever since the feature landed.
             return jobs.readAt(job.id, coords.earliest, sessionId)
               .chunks.map((chunk) => chunk.text).join('')
-          } catch {
+          } catch (error) {
+            // Degrading to "no tail" is right — a notice without its tail
+            // still beats no notice. But it used to degrade silently, and
+            // that is how the wrong caller shape stayed invisible: the
+            // failure left nothing behind to point at. It leaves a trace
+            // now, and still does not throw into the event stream.
+            console.warn(
+              `[dsh-lark-bridge] 读取子任务 ${job.id} 的输出失败：`
+              + `${error instanceof Error ? error.message : String(error)}`,
+            )
             return ''
           }
         }

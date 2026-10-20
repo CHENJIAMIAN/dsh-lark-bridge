@@ -380,16 +380,34 @@ export async function runCommandLine(
   const execute = commands.execute as unknown as (
     ...args: unknown[]
   ) => Promise<Awaited<ReturnType<HostCommands['execute']>>>
-  const arity = execute.length
-  if (arity !== 3 && arity !== 4) {
-    console.warn(
-      `[dsh-lark-bridge] commands.execute 的参数个数是 ${arity}（预期 3 或 4）——`
-      + '上游命令服务签名可能又变了，按四参调用；若报 signal 相关错误，请核对上游签名。',
-    )
-  }
-  const execution = arity === 3
-    ? await execute.call(commands, agent, trimmed, signal)
-    : await execute.call(commands, agent, trimmed, [], signal)
+  // The attachments slot and the signal slot are told apart by position, so
+  // the argument that goes in the third place has to satisfy both readings
+  // at once. It is an empty array (what a four-argument host wants there)
+  // that also carries the signal's methods (what a three-argument host
+  // wants there), so one call works for either shape.
+  //
+  // Why not read the arity and pick a shape: a host that gives `signal` a
+  // default value reports a length of 3 while still having the
+  // attachments slot, and picking the three-argument shape for it puts
+  // the signal where the attachments belong. That is the same failure
+  // issue #2 reported, except silent: the host uses its default signal
+  // and the bridge loses the abort. Reading the arity cannot tell that
+  // shape from a host that never had an attachments slot.
+  //
+  // Why not always pass four: a three-argument host would then read the
+  // attachments array as its signal.
+  // A proxy, not a copied object: the signal's members live on its
+  // prototype, so copying them by assignment yields an empty object. The
+  // proxy reads as an empty array (length 0, no entries) and forwards the
+  // signal's own members to the real signal.
+  const attachmentsSlot = new Proxy([] as unknown[], {
+    get(target, property, receiver) {
+      if (property in target) return Reflect.get(target, property, receiver)
+      const member = (signal as unknown as Record<PropertyKey, unknown>)[property]
+      return typeof member === 'function' ? member.bind(signal) : member
+    },
+  })
+  const execution = await execute.call(commands, agent, trimmed, attachmentsSlot, signal)
   if (execution === undefined) {
     return { reply: `⚠️ 未知命令 \`/${name}\`。\n\n${helpText(commands, agent, config?.locale ?? 'zh')}`, resolved: false }
   }

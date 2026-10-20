@@ -36,8 +36,9 @@ if (!HARNESS_CLI) console.log('· DSH_HARNESS_CLI 未设置，跳过组合树检
 for (const pkg of ['dsh-terminal', 'dsh-terminal-bash', 'tool-terminal']) {
   check(`组合树含 ${pkg}`, tree.includes(pkg))
 }
-// mcp-client: 0.2.1-rc.2 起组合树默认带 dsh-mcp-client（MCP 子服务支持），
-// 判据随之上调——要断言"不在"必须显式声明，否则默认按"应当存在"检查。
+// mcp-client: 本部署的组合树带 dsh-mcp-client（MCP 子服务支持）。这来自
+// chat/web profile 自己的 insert，不是上游默认——上游 0.2.1-rc.2 全仓只有
+// 技能模板提到它。判据按"应当存在"检查；要断言"不在"必须显式声明。
 if (process.env.SMOKE_EXPECT_MCP === '0') {
   check('组合树不含 mcp-client（显式声明 SMOKE_EXPECT_MCP=0）', !tree.includes('mcp-client'))
 } else {

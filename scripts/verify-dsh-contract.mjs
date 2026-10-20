@@ -158,6 +158,16 @@ const arityChecks = [
   },
 ]
 
+/**
+ * Checks against the bridge's own `src/host.ts`.
+ *
+ * These are not drift checks: the file they read is the one they protect,
+ * so they can only catch a local edit that broke the declared shape. The
+ * checks that actually watch upstream are the ones above, which read the
+ * upstream source. The name says "mirrors" because each entry states what
+ * upstream declares, but the thing being compared is local to both sides
+ * of the assertion.
+ */
 const HOST_PATTERNS = [
   ['HostAgent.cancel mirrors options', /cancel\(cause: string, options\?: \{ readonly keepInbox\?: boolean \}\): void/],
   ['GoalChangeData carries cleared tombstone', /readonly cleared\?: \{ readonly id: string; readonly revision\?: number \}/],

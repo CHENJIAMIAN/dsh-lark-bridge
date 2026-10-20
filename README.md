@@ -77,23 +77,25 @@ pnpm dlx @deepseek-ai/dsh plugin --profile web add @moyu-good/dsh-lark-bridge \
 
 > [!NOTE]
 > **First-time `plugin add` fails once** with
-> `ERR_PNPM_IGNORED_BUILDS ... protobufjs` — pnpm 11+ blocks dependency build
-> scripts by default and treats an unapproved one as a hard error. The blocked
+> `ERR_PNPM_IGNORED_BUILDS ... protobufjs` — pnpm blocks dependency build
+> scripts unless they are approved, and an unreviewed one makes the install
+> exit non-zero (`strictDepBuilds`, on by default since pnpm 10.3). The blocked
 > script belongs to `protobufjs` (a Feishu SDK dependency); it only prints a
 > version-scheme warning, writes no file and reaches no network.
 > Open `<your-home>/.dsh/profiles/web/pnpm-workspace.yaml` and set
-> `protobufjs: false` under `allowBuilds` — the file ships with a placeholder
-> line whose value is the literal text `set this to true or false`, which is
-> not a boolean, so replace it. `false` is the right value: it declines the
-> script, and the script has nothing to do. This is a one-time step per
-> profile.
+> `protobufjs: false` under `allowBuilds` — after the failed install pnpm
+> writes a line there whose value is the literal text
+> `set this to true or false`, which is not a boolean, so replace it. `false`
+> is the right value: it declines the script, and the script has nothing to
+> do. This is a one-time step per profile.
 >
 > **Re-run the same command after editing.** The failed install leaves the
 > profile half-configured — the plugin's bundles are not merged when the
 > install exits non-zero — so the file edit alone does not finish the job.
 >
-> `allowBuilds` is the only key pnpm 11+ reads for this — `onlyBuiltDependencies`
-> and the other legacy build keys were removed in pnpm 11. It lives in the
+> `allowBuilds` (since pnpm 10.26) is the only key pnpm reads for this —
+> `onlyBuiltDependencies` and the other legacy build keys were removed in pnpm
+> 11. It lives in the
 > **installing** profile's `pnpm-workspace.yaml`, not in this package, because
 > the approval belongs to whoever runs the install.
 >

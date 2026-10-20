@@ -28,9 +28,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   issue #2 fell through. The gate now asserts the upstream signature
   directly, against the live upstream branch, so the next slot insertion
   fails in CI instead of in production.
-- **The pnpm install note now matches the pnpm 11+ reality**: the profile's
-  placeholder line holds the literal text `set this to true or false` (not a
-  boolean) and must be replaced, and the same command has to be re-run
+- **The pnpm install note now matches the pnpm reality**: after the failed
+  install pnpm writes a line into the profile holding the literal text
+  `set this to true or false` (not a boolean) and it must be replaced, and
+  the same command has to be re-run
   afterwards — a failed install leaves the profile half-configured, because
   the plugin's bundles are not merged when the install exits non-zero.
 - **The documented Node version now matches `engines.node`** (22.19+ or
@@ -100,8 +101,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   item and token counts.
 
 ### Changed
-- **Install note corrected for pnpm 11+ (issue #4).** The build-script gate
-  is `allowBuilds` in the *installing* profile's `pnpm-workspace.yaml`; the
+- **Install note corrected for the pnpm build-script gate (issue #4).** The
+  gate is `allowBuilds` in the *installing* profile's `pnpm-workspace.yaml`; the
   legacy `onlyBuiltDependencies` key was removed in pnpm 11, and a package
   cannot grant the approval on the installer's behalf. The documented value
   is `protobufjs: false` — the blocked script only prints a version-scheme

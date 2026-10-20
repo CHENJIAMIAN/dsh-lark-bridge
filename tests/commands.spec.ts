@@ -1199,26 +1199,29 @@ describe('/restart command', () => {
     }
   })
 })
-describe('host command execute arity guard (issue #2)', () => {
+describe('host command execute argument shape (issue #2)', () => {
   /**
-   * The upstream `execute` gained an `images` slot in front of `signal`.
-   * Passing the old three-argument shape puts the signal where the images
-   * belong, leaves the real signal undefined, and the host throws on
-   * `signal.aborted` — every slash command dies with a generic
+   * The upstream `execute` gained an attachments slot in front of `signal`.
+   * Passing the old three-argument shape puts the signal where the
+   * attachments belong, leaves the real signal undefined, and the host
+   * throws on `signal.aborted` — every slash command dies with a generic
    * "cannot start session" line.
    *
-   * The bridge therefore reads the runtime's own arity instead of hard-coding
-   * a shape: four parameters means the images slot exists, three means it does
-   * not. These tests pin both arms, because a one-sided guard is exactly the
-   * kind of thing that stays green while the other side is broken.
+   * The bridge cannot tell the two shapes apart by counting arguments: a
+   * host that gives `signal` a default value reports three arguments while
+   * still having the attachments slot, and choosing the three-argument
+   * shape for it puts the signal where the attachments belong. That is
+   * issue #2's failure, except silent — the host falls back to its default
+   * signal and the abort is lost.
+   *
+   * So the third argument is both: an empty array for the host that wants
+   * attachments there, and the signal's own members for the host that
+   * wants the signal there. These tests pin the behaviour against each
+   * host shape, using real declared parameters — a rest-parameter mock
+   * reports a length of zero and would pass whatever the bridge did.
    */
-
-  it('passes the attachments slot when the host takes four parameters', async () => {
+  it('gives a four-argument host an empty attachments slot and the real signal', async () => {
     const seen: { args: unknown[] } = { args: [] }
-    // A function expression, not an arrow and not `...args`: `length` must
-    // reflect the DECLARED parameters, which is what the guard reads. The
-    // real host method is proxied by cordis, and a Proxy carrying only an
-    // `apply` trap keeps `length` intact.
     const hostCommands = {
       list: () => [],
       execute: async function (_agent: unknown, _line: string, _attachments: readonly unknown[], _signal: AbortSignal) {
@@ -1229,11 +1232,12 @@ describe('host command execute arity guard (issue #2)', () => {
     const outcome = await runCommandLine('/goal', fakeAgent(), hostCommands as never, new AbortController().signal)
     expect(outcome.resolved).toBe(true)
     expect(seen.args).toHaveLength(4)
-    expect(seen.args[2]).toEqual([])
+    expect(Array.isArray(seen.args[2])).toBe(true)
+    expect((seen.args[2] as unknown[])).toHaveLength(0)
     expect(seen.args[3]).toBeInstanceOf(AbortSignal)
   })
 
-  it('keeps the three-parameter shape when the host still takes three', async () => {
+  it('gives a three-argument host a signal it can read in the third slot', async () => {
     const seen: { args: unknown[] } = { args: [] }
     const hostCommands = {
       list: () => [],
@@ -1244,31 +1248,40 @@ describe('host command execute arity guard (issue #2)', () => {
     }
     const outcome = await runCommandLine('/goal', fakeAgent(), hostCommands as never, new AbortController().signal)
     expect(outcome.resolved).toBe(true)
-    expect(seen.args).toHaveLength(3)
-    expect(seen.args[2]).toBeInstanceOf(AbortSignal)
+    // JavaScript does not cut arguments to the declared count: the host
+    // receives four and reads the first three. What matters is that the
+    // third slot answers the questions a signal is asked — it must not be
+    // undefined, and reading `aborted` must not throw.
+    expect(seen.args[2]).toBeDefined()
+    expect((seen.args[2] as { aborted?: boolean }).aborted).toBe(false)
+    expect(typeof (seen.args[2] as { throwIfAborted?: unknown }).throwIfAborted).toBe('function')
   })
 
-  it('warns when the host arity is neither three nor four', async () => {
-    // A host that gives `signal` a default value reports length 2 — JS
-    // counts only the parameters before the first default. Such a shape used
-    // to fall through to the four-argument arm, which put the attachments
-    // array in the signal slot and reproduced issue #2's exact failure.
-    // The unknown shape must leave a trace instead of misaligning silently.
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    try {
-      const hostCommands = {
-        list: () => [],
-        execute: async function (_agent: unknown, _line: string, _signal: AbortSignal = new AbortController().signal) {
-          return { result: { kind: 'success' as const, text: 'ok' } }
-        },
-      }
-      expect(hostCommands.execute.length).toBe(2)
-      const outcome = await runCommandLine('/goal', fakeAgent(), hostCommands as never, new AbortController().signal)
-      expect(outcome.resolved).toBe(true)
-      expect(warn).toHaveBeenCalled()
-      expect(String(warn.mock.calls[0]?.[0] ?? '')).toContain('参数个数')
-    } finally {
-      warn.mockRestore()
+  it('keeps the signal usable when the host gives it a default value', async () => {
+    // The shape the arity reading cannot see: four parameters, but the
+    // signal has a default, so the method reports three. The host would
+    // read its own default signal and the bridge's abort would be lost.
+    const seen: { args: unknown[] } = { args: [] }
+    const hostCommands = {
+      list: () => [],
+      execute: async function (
+        _agent: unknown,
+        _line: string,
+        _attachments: readonly unknown[],
+        _signal: AbortSignal = new AbortController().signal,
+      ) {
+        seen.args = Array.from(arguments)
+        return { result: { kind: 'success' as const, text: 'ok' } }
+      },
     }
+    expect(hostCommands.execute.length).toBe(3)
+    const outcome = await runCommandLine('/goal', fakeAgent(), hostCommands as never, new AbortController().signal)
+    expect(outcome.resolved).toBe(true)
+    expect(seen.args).toHaveLength(4)
+    expect(Array.isArray(seen.args[2])).toBe(true)
+    // The real signal must arrive in the fourth slot, not be replaced by
+    // the host's default.
+    expect(seen.args[3]).toBeInstanceOf(AbortSignal)
+    expect((seen.args[3] as AbortSignal).aborted).toBe(false)
   })
 })
