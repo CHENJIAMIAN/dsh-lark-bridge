@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://github.com/moyu-good/dsh-lark-bridge/actions/workflows/ci.yml"><img src="https://github.com/moyu-good/dsh-lark-bridge/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-397%20passing-brightgreen" alt="tests">
+  <img src="https://img.shields.io/badge/tests-558%20passing-brightgreen" alt="tests">
   <a href="https://dshbase.com/plugins/moyu-good-dsh-lark-bridge/"><img src="https://img.shields.io/badge/dshbase-verified-blue" alt="dshbase verified"></a>
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-blue" alt="license">
   <img src="https://img.shields.io/badge/transport-WebSocket%20long--connection-orange" alt="transport">
@@ -60,7 +60,13 @@ Feishu is the carrier; the work is still done by DeepSeek Harness itself.
 
 **Prerequisites:** Node 22.19+ or 24+ (as `engines.node` requires), [pnpm](https://pnpm.io/installation) (recommended, see note), a DeepSeek API key, and the Feishu app on your phone.
 
-**Harness version:** this bridge targets **DeepSeek Harness >= 0.1.5-rc.2**. It talks to the harness through the plugin seam, and 0.1.5 moved the user-questions seam from a provider registry to the `user-questions/request` waterfall — see the CHANGELOG for the one-line compatibility note.
+**Harness version:** **DeepSeek Harness >= 0.1.7** — 0.2.1-rc.2 is the tree this bridge is
+developed and run against. 0.1.7 is a hard floor, not a preference: it renamed
+`agentPresets.standingKeyFor` to `acquireScope` (which returns a lease, held for the session's
+lifetime) and replaced `jobs.onJobDone` with the `jobs.events` stream, and the bridge calls
+`acquireScope` with no fallback — on a 0.1.5 host, composing a preset session throws. (0.1.5 is
+where the user-questions seam moved to the `user-questions/request` waterfall; see the CHANGELOG
+for that note.)
 
 ```sh
 # 1. install the plugin into a dsh profile & boot (pnpm — ~20s, parallel install)
@@ -183,9 +189,12 @@ a device for the roster.
 
 - **Just say what you want**: "why are the tests failing in this project?" — drag files and
   images straight into the chat.
-- **Three surfaces, one conversation**: open `http://127.0.0.1:18787` for the web UI (same
-  session library as the Feishu side); once DSH Desktop runs the plugin it joins the same
-  fleet. Exactly one surface replies; `/bot devices` shows who.
+- **Three surfaces, one conversation**: the web UI listens on `http://127.0.0.1:18787`, but
+  each launch mints a new token, so a browser without the cookie gets 401. Open the
+  `dsh web: http://127.0.0.1:18787/?token=…` line the launcher prints once — that sets a
+  long-lived cookie, after which the plain address works (same session library as the Feishu
+  side); once DSH Desktop runs the plugin it joins the same fleet. Exactly one surface replies;
+  `/bot devices` shows who.
 - **Switch Feishu apps in two taps**: `/bot account` → tap **Use** on the card → `/restart`.
 - **Guidance is built in**: new chats get a short starter guide; `/manual` is the full one;
   `/balance` is the wallet.
@@ -209,8 +218,8 @@ Highlights — the ones other bridges don't have:
 | 🛠️ **Native Feishu agent tools** | `feishu_notify` proactive messages, `feishu_drive_*` cloud-drive scratchpad reachable from any device |
 | 🖥️ **Self-healing slash panel** | the panel has a single writer (the arbitration-active endpoint), bilingual, kept in step with what actually runs |
 | 🧰 **Capability inventory** | `/tools` lists what this deployment can actually do — the visible tools and the MCP servers it talks to, not only what someone switched off |
-| 🎙️ **Media delivered in kind** | a recording arrives as a voice note and a clip as a video — playable in the chat, not a download link (the extension decides; `kind` overrides) |
-| 👥 **Team panel** | when the host runs a team, one card shows the members, the shared tasks and the mailbox, updated in place |
+| 🎙️ **Media delivered in kind** | an ogg or opus recording arrives as a voice note and an mp4 clip as a video — playable in the chat, not a download link (the extension decides; `kind` overrides). A format the chat cannot carry in that shape arrives as a file, and the result says so |
+| 👥 **Team panel** | when the host runs a team, one card shows the members, the shared tasks and the messages passed between them, updated in place |
 
 <details>
 <summary><b>All capabilities</b></summary>
@@ -231,7 +240,7 @@ Highlights — the ones other bridges don't have:
 | 📎 File delivery | Agent `send_file` delivers artifacts with caption (default-deny local dirs) |
 | 🔑 QR onboarding | First boot prints a QR; scanning creates the app with event subscription |
 | 🔒 Authorization narrowing | `senderAllowlist` / `groupAllowlist` / `approvers` |
-| 🧩 Chronicle hook | `chronicleEndpoint`: fire-and-forget full-transcript POST per inbound message |
+| 🧩 Chronicle hook | `chronicleEndpoint`: fire-and-forget POST per accepted inbound **user** message — payload is `source`/`text`/`chatId`, and the bridge's replies never go to the ledger |
 | 🛡️ Deep dsh adaptation | Everything through host service contracts — self-contained, no host source needed |
 
 </details>
@@ -301,7 +310,7 @@ Essentials:
 | `output` | `cot` | Native thinking message vs typewriter card |
 | `requireMention` | `true` | In groups, respond only when @-mentioned |
 | `outbound.allowedFileDirs` | unset → disabled | Local dirs `send_file` may read from |
-| `chronicleEndpoint` | `''` | Optional external full-transcript ledger |
+| `chronicleEndpoint` | `''` | Optional external ledger: one POST per accepted inbound user message (`source`/`text`/`chatId`); the bridge's replies are not included |
 
 Full option reference: [README.zh.md 配置](README.zh.md#️-配置) · credentials resolve in three
 layers (bundle patch config → settings document plugin section → first-boot QR registration).
@@ -361,18 +370,18 @@ src/
                      migration, account book, endpoint arbitration
   pricing.ts         live DeepSeek peak/off-peak phase
   user-guide.ts      single source of the /manual content
-  chronicle.ts     optional external-ledger ingest hook (integration example)
+  chronicle.ts     inbound-message ledger hook (integration example; user text only)
   config.ts        schema + defaults
-tests/             vitest suites (397) incl. harness-based fakes
+tests/             vitest suites (558) incl. harness-based fakes
 scripts/           verify-dsh-contract.mjs — asserts no drift vs upstream master
-plugin-contract-test.mjs   43 assertions on the host contract surface
+plugin-contract-test.mjs   43 contract checks on the host contract surface
 ```
 
 **Quality gates**
 
 ```sh
-pnpm test                        # 397 unit/integration tests
-node plugin-contract-test.mjs    # 43 host-contract assertions
+pnpm test                        # 558 unit/integration tests
+node plugin-contract-test.mjs    # 43 host-contract checks
 node scripts/verify-dsh-contract.mjs   # drift check against upstream master
 pnpm typecheck && pnpm run build # tsc + tsdown (lib/ is committed)
 ```
@@ -381,8 +390,9 @@ CI runs all of the above on every push and pull request, with the upstream drift
 pinned to dsh master — if upstream changes a contract, the build tells you before users do.
 
 **Adding a feature?** Write the design card first (template in `docs/design/`), implement,
-backfill the change record. For an integration that only needs message visibility, prefer
-the `chronicleEndpoint` hook over modifying the pipeline — see `src/chronicle.ts`.
+backfill the change record. For an integration that only needs inbound message visibility, prefer
+the `chronicleEndpoint` hook over modifying the pipeline — see `src/chronicle.ts` (it sends the
+user's text, not the bridge's replies).
 
 ## 🧱 Development & MR Flow
 

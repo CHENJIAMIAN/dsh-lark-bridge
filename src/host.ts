@@ -1267,3 +1267,45 @@ export function isTeamMessageDeliveredEvent(
     && typeof data.messageId === 'string'
     && typeof data.targetId === 'string'
 }
+
+/**
+ * A message that came from another agent in a team.
+ *
+ * The team package does not record a mailbox event when a member messages
+ * another; it steers the message into the target's inbox, and it lands there
+ * as a `user/message` whose source says who sent it. The mailbox events
+ * (`team/message/queued` and `team/message/delivered`) are historical
+ * records the host reads but never writes.
+ */
+export interface TeamRelayMessageData {
+  readonly message: {
+    readonly id: string
+    readonly content: readonly { readonly type: string; readonly text?: string }[]
+    readonly source: {
+      readonly kind: string
+      readonly form?: string
+      readonly senderSessionId?: string
+    }
+  }
+}
+
+/**
+ * Narrow a session event to a message relayed from a teammate.
+ *
+ * @param event - any session event.
+ * @returns whether the event is a `user/message` a teammate sent.
+ */
+export function isTeamRelayMessageEvent(
+  event: HostSessionEvent,
+): event is HostSessionEvent & { readonly data: TeamRelayMessageData } {
+  if (event.type !== 'user/message') return false
+  const data = event.data as Partial<TeamRelayMessageData> | undefined
+  if (data === undefined || data === null) return false
+  const message = data.message
+  if (message === undefined || message === null) return false
+  if (typeof message.id !== 'string') return false
+  if (!Array.isArray(message.content)) return false
+  const source = message.source
+  if (source === undefined || source === null) return false
+  return source.kind === 'agent-message'
+}

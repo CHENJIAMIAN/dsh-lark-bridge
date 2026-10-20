@@ -78,6 +78,24 @@ export declare function addTeamTask(state: TeamCardState, task: TeamTaskSnapshot
  */
 export declare function addTeamMessage(state: TeamCardState, message: TeamMessageSnapshot): void;
 /**
+ * Fold a message a teammate relayed into the state.
+ *
+ * The team package does not record a mailbox event when one member messages
+ * another; it steers the message into the target's inbox, and it arrives as
+ * a `user/message` whose source names the sender. The name is resolved
+ * against the roster, because the event carries the sender's session id.
+ * @param state - the card state to update.
+ * @param message - the relayed message, as the host delivered it.
+ * @param senderSessionId - the session that sent it.
+ */
+export declare function addTeamRelayMessage(state: TeamCardState, message: {
+    readonly id: string;
+    readonly content: readonly {
+        readonly type?: string;
+        readonly text?: string;
+    }[];
+}, senderSessionId: string | undefined): void;
+/**
  * Mark a message as acknowledged by the session that recorded it.
  * @param state - the card state to update.
  * @param messageId - the acknowledged message.

@@ -72,7 +72,7 @@ describe('user-questions provider', () => {
     await tick()
     const response = handleCardAction(clickEvent(id, 'B 方案'))
 
-    expect(response).toEqual({ toast: '回答已提交' })
+    expect(response).toEqual({ toast: { type: 'success', content: '回答已提交' } })
     const answer = await promise
     expect(answer.answers).toEqual([{ id: 'q1', selected: ['B 方案'] }])
   })

@@ -1141,4 +1141,36 @@ export declare function isTeamMessageEvent(event: HostSessionEvent): event is Ho
 export declare function isTeamMessageDeliveredEvent(event: HostSessionEvent): event is HostSessionEvent & {
     readonly data: TeamMessageDeliveredEventData;
 };
+/**
+ * A message that came from another agent in a team.
+ *
+ * The team package does not record a mailbox event when a member messages
+ * another; it steers the message into the target's inbox, and it lands there
+ * as a `user/message` whose source says who sent it. The mailbox events
+ * (`team/message/queued` and `team/message/delivered`) are historical
+ * records the host reads but never writes.
+ */
+export interface TeamRelayMessageData {
+    readonly message: {
+        readonly id: string;
+        readonly content: readonly {
+            readonly type: string;
+            readonly text?: string;
+        }[];
+        readonly source: {
+            readonly kind: string;
+            readonly form?: string;
+            readonly senderSessionId?: string;
+        };
+    };
+}
+/**
+ * Narrow a session event to a message relayed from a teammate.
+ *
+ * @param event - any session event.
+ * @returns whether the event is a `user/message` a teammate sent.
+ */
+export declare function isTeamRelayMessageEvent(event: HostSessionEvent): event is HostSessionEvent & {
+    readonly data: TeamRelayMessageData;
+};
 //# sourceMappingURL=host.d.ts.map

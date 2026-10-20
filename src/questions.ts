@@ -147,6 +147,22 @@ interface PendingQuestion {
 }
 
 /**
+ * The card-callback response Feishu shows the clicking user.
+ *
+ * `CardActionResponse` is `Record<string, unknown>` — the SDK forwards it
+ * verbatim and validates nothing — so this is the only place the toast shape
+ * can be pinned. Feishu expects `toast` to be an OBJECT (`{ type, content }`);
+ * a bare string passes the type checker and is then dropped by the platform,
+ * leaving the click with no feedback at all.
+ */
+type QuestionToastResponse = CardActionResponse & {
+  toast: {
+    type: 'success' | 'info' | 'error' | 'warning' | 'loading'
+    content: string
+  }
+}
+
+/**
  * The bridge's user-questions provider: render questions as Feishu cards and
  * resolve them on button clicks.
  * @param port - the transport used to send cards.
@@ -204,7 +220,7 @@ export function createQuestionProvider(
     },
   }
 
-  const handleCardAction = (evt: CardActionEvent): CardActionResponse | undefined => {
+  const handleCardAction = (evt: CardActionEvent): QuestionToastResponse | undefined => {
     const value = questionActionValue(evt.action.value)
     if (value === undefined) return undefined
     const item = pending.get(value.id)
@@ -218,7 +234,9 @@ export function createQuestionProvider(
       return { id: q.id, selected: [value.option] }
     })
     item.resolve({ answers })
-    return { toast: '回答已提交' }
+    // Feishu's card callback carries a toast OBJECT to the clicking user
+    // (SDK: `{ toast: { type, content } }`) — a string here renders nothing.
+    return { toast: { type: 'success', content: '回答已提交' } }
   }
 
   return { provider, handleCardAction }

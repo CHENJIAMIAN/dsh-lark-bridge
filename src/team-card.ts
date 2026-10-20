@@ -125,6 +125,48 @@ export function addTeamMessage(state: TeamCardState, message: TeamMessageSnapsho
 }
 
 /**
+ * The prefix the team package puts on a relayed message's first block.
+ *
+ * The sender's own name is in it, and the rest of the message follows in the
+ * blocks after it, so the prefix is removed rather than shown twice.
+ */
+const RELAY_PREFIX = /^Team message from ([^:]+):\s*/
+
+/**
+ * Fold a message a teammate relayed into the state.
+ *
+ * The team package does not record a mailbox event when one member messages
+ * another; it steers the message into the target's inbox, and it arrives as
+ * a `user/message` whose source names the sender. The name is resolved
+ * against the roster, because the event carries the sender's session id.
+ * @param state - the card state to update.
+ * @param message - the relayed message, as the host delivered it.
+ * @param senderSessionId - the session that sent it.
+ */
+export function addTeamRelayMessage(
+  state: TeamCardState,
+  message: { readonly id: string; readonly content: readonly { readonly type?: string; readonly text?: string }[] },
+  senderSessionId: string | undefined,
+): void {
+  const raw = teamContentText(message.content)
+  const match = RELAY_PREFIX.exec(raw)
+  const senderName = match?.[1] ?? (senderSessionId === undefined ? '队友' : state.members.get(senderSessionId)?.name ?? '队友')
+  const content = match === null ? raw : raw.slice(match[0].length)
+  state.messages.set(message.id, {
+    id: message.id,
+    senderName,
+    targetId: senderSessionId ?? '',
+    content,
+    delivered: true,
+  })
+  while (state.messages.size > TEAM_MESSAGE_MAX) {
+    const oldest = state.messages.keys().next()
+    if (oldest.done === true) break
+    state.messages.delete(oldest.value)
+  }
+}
+
+/**
  * Mark a message as acknowledged by the session that recorded it.
  * @param state - the card state to update.
  * @param messageId - the acknowledged message.

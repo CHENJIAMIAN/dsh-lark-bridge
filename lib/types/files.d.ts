@@ -34,14 +34,27 @@ export type SendFileKind = 'file' | 'image' | 'audio' | 'video';
 /**
  * The kind a file is delivered in, read from its extension.
  *
- * The extension is the only signal the model does not have to be taught:
- * a `.mp3` is a recording and a `.mp4` is a clip, whatever the tool call
- * says. An unknown extension is a file — the safe reading, because a file
- * can always be opened.
+ * Only the containers the transport can actually carry in kind count as audio
+ * or video: it declares every such upload as an `opus` or `mp4` container and
+ * reads the duration out of an Ogg or MP4 stream, refusing the send when it
+ * finds neither. An mp3 named as a voice note therefore fails at upload, while
+ * a file attachment always arrives — so everything outside those two containers
+ * is a file. The extension is the only signal the model does not have to be
+ * taught, and an unknown one reads as a file, the shape that always works.
  * @param fileName - the file's name.
  * @returns the kind to deliver it in.
  */
 export declare function sendFileKindFor(fileName: string): SendFileKind;
+/** One file's delivery: where it went, and what the caller should know about the shape. */
+export interface DeliveredFile {
+    readonly fileName: string;
+    /**
+     * Set when the file could not go out in the shape it was asked for — a media
+     * container the chat cannot carry, or a duration that could not be measured.
+     * Says why, so a plain attachment is never mistaken for a voice note.
+     */
+    readonly note?: string;
+}
 /** The file-delivery capability the tool factory receives from the bridge. */
 export interface SendFileCapability {
     /**
@@ -50,14 +63,14 @@ export interface SendFileCapability {
      * descriptive error on any failure (unknown session, missing file, too
      * large, transport down).
      */
-    deliverBySession(sessionId: string, args: SendFileArgs): Promise<{
-        readonly fileName: string;
-    }>;
+    deliverBySession(sessionId: string, args: SendFileArgs): Promise<DeliveredFile>;
 }
 /** Canonical JSON value the tool's `output.schema` declares. */
 export interface SendFileResult {
     readonly ok: boolean;
     readonly fileName?: string;
+    /** Why the file arrived as a plain attachment, when it could not go out in kind. */
+    readonly note?: string;
     readonly error?: string;
 }
 /** Model-facing content renderer for the tool's canonical result. */
@@ -75,6 +88,23 @@ export declare function presentSendFileCall(args: unknown): {
  * @returns a dsh `ToolDefinition`-shaped registration.
  */
 export declare function createSendFileTool(capability: SendFileCapability): object;
+/** What a duration measurement found. */
+export type DurationProbe = 
+/** A number of milliseconds. */
+{
+    readonly state: 'measured';
+    readonly ms: number;
+}
+/** No `ffprobe` on this machine: the transport times the containers it knows. */
+ | {
+    readonly state: 'no-tool';
+}
+/** `ffprobe` ran and could not measure this file. */
+ | {
+    readonly state: 'failed';
+};
+/** Measures one file's duration. Replaceable: measuring shells out to a tool. */
+export type MeasureDuration = (path: string) => Promise<DurationProbe>;
 /**
  * Deliver a file to a chat through the outbound transport. Resolves with the
  * delivered file name, or rejects with a message the tool turns into a result.
@@ -82,10 +112,9 @@ export declare function createSendFileTool(capability: SendFileCapability): obje
  * @param chatId - the target chat.
  * @param cwd - workspace root, for resolving relative paths.
  * @param args - the parsed tool arguments.
+ * @param measure - duration measurement for a voice note or a video; defaults to `ffprobe`.
  */
-export declare function deliverFile(port: OutboundPort, chatId: string, cwd: string, args: SendFileArgs): Promise<{
-    readonly fileName: string;
-}>;
+export declare function deliverFile(port: OutboundPort, chatId: string, cwd: string, args: SendFileArgs, measure?: MeasureDuration): Promise<DeliveredFile>;
 export interface SavedFiles {
     readonly notes: string[];
     readonly paths: string[];

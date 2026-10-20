@@ -1021,7 +1021,13 @@ function runToolsCommand(
     : `当前禁用（${listed.length}）：\n${listed.map(t => `· \`${t}\``).join('\n')}`
   // What the machine can do, not only what someone switched off: a reader
   // asking "what can this deployment do" has no other way to find out.
-  const available = toolInventory(tools, toolScope)
+  const inventory = toolInventory(tools, toolScope)
+  // "What can this machine do" is answered by the tools it still has: a tool
+  // someone switched off is not available, and listing it beside the ones
+  // that are answers a different question than the reader asked.
+  const available = inventory === undefined
+    ? undefined
+    : inventory.filter(t => !deniedTools.has(t.name))
   const availableBody = available === undefined
     ? ''
     : available.length === 0

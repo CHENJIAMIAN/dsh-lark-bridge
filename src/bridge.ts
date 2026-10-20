@@ -45,7 +45,7 @@ import type {
   ScheduleEntry,
 } from './host.ts'
 import type { HostJobs, HostJobSnapshot, HostLoaderEntry, HostMessageFeedback, HostSession, HostSessionQuery, HostSkills, HostTokenMeter, SubagentEndData, WorkflowRunInfoData } from './host.ts'
-import { isAssistantMessageEvent, isCompactionEndEvent, isPresentedEvent, isCompactionPruneEvent, isCompactionStartEvent, isCompactionSummaryEvent, isGoalChangeEvent, isLlmRetryEvent, isScheduleChangeEvent, isStepStartEvent, isSubagentCatalogEvent, isSubagentDescriptorEvent, isTodoWriteEvent, isToolCallEvent, isTurnEndEvent, isWebSearchRequestEvent, isWorkflowAgentEndEvent, isWorkflowAgentStartEvent, isWorkflowRunEndEvent, isWorkflowRunStartEvent ,
+import { isAssistantMessageEvent, isTeamRelayMessageEvent, isCompactionEndEvent, isPresentedEvent, isCompactionPruneEvent, isCompactionStartEvent, isCompactionSummaryEvent, isGoalChangeEvent, isLlmRetryEvent, isScheduleChangeEvent, isStepStartEvent, isSubagentCatalogEvent, isSubagentDescriptorEvent, isTodoWriteEvent, isToolCallEvent, isTurnEndEvent, isWebSearchRequestEvent, isWorkflowAgentEndEvent, isWorkflowAgentStartEvent, isWorkflowRunEndEvent, isWorkflowRunStartEvent ,
   isTeamMemberEvent,
   isTeamTaskEvent,
   isTeamMessageEvent,
@@ -64,6 +64,7 @@ import {
   AUDIT_COMMAND,
   BALANCE_COMMAND,
   BOT_COMMAND,
+  commandName,
   CONFIG_COMMAND,
   CONTEXT_COMMAND,
   FEEDBACK_COMMAND,
@@ -577,6 +578,31 @@ function composeChatAgent(
 }
 
 /**
+ * Whether a standby endpoint answers this line in the chat.
+ *
+ * The fleet is single-writer: only the arbitration-active endpoint replies,
+ * and a standby stays silent on ordinary traffic so a phone client never
+ * talks over the machine that is actually answering. Silence is wrong for the
+ * two READ-ONLY lines the user guide sends a puzzled operator to (`/help` and
+ * `/bot devices`) — their entire job is to say where the fleet is, so
+ * swallowing them turns a healthy standby into "the bot is dead". Everything
+ * with an effect (and all prose) still gets nothing, so answering can never
+ * make a standby a second executor of the same command.
+ * @param text - the inbound message text exactly as received.
+ * @returns whether this line deserves a standby notice.
+ */
+function standbyAnswers(text: string): boolean {
+  const line = text.trim()
+  const name = commandName(line)
+  if (name === HELP_COMMAND) return true
+  if (name !== BOT_COMMAND) return false
+  // Mirrors `runBotCommand`'s own split, so the line answered here is the line
+  // that would have run `/bot devices` on the active end.
+  const sub = line.slice(1 + BOT_COMMAND.length).trim().split(/\s+/)[0] ?? ''
+  return sub === 'devices'
+}
+
+/**
  * Create an identified user message from one chat input. Group messages carry
  * the sender so the model can tell voices apart; direct messages stay verbatim.
  * @param msg - normalized inbound chat message.
@@ -646,6 +672,23 @@ export function installBridge(
       ...caption === undefined || caption === '' ? {} : { caption },
     })
   }
+  /**
+   * Deliver a file a child session declared into the chat that owns it.
+   *
+   * A child runs in its own session, so the session is not the one bound to
+   * the chat; the chat is found through the child mapping instead. A file
+   * nobody can place is reported rather than dropped without a word.
+   */
+  const deliverChildDeclaredFile = async (
+    chatId: string,
+    path: string,
+    caption: string | undefined,
+  ): Promise<void> => {
+    await deliverFile(replay, chatId, cwd, {
+      path,
+      ...caption === undefined || caption === '' ? {} : { caption },
+    })
+  }
   // Native Feishu tools (2026-09-09): the agent can act on Feishu itself —
   // proactive messages through the same replay-wrapped transport, and the
   // app's cloud-drive space as a durable cross-device scratchpad. Registered
@@ -701,7 +744,7 @@ export function installBridge(
   const sessionPresets = new Map<string, string>()
   const subagentTrackers = new Map<string, subCard.SubagentCardState>()
   /** One team card per chat, with the message id it updates in place. */
-  const teamTrackers = new Map<string, { state: teamCard.TeamCardState; messageId?: string; updatedAt?: number }>()
+  const teamTrackers = new Map<string, { state: teamCard.TeamCardState; messageId?: string; updatedAt?: number; sending?: boolean; pending?: boolean }>()
   /** 外勤会话镜像 (P141)：未绑定且非子会话的独立会话，按会话节流推一行进度。 */
   const externalMirrorAt = new Map<string, number>()
   /** childId → chatId. 0.1.5 runs every child in its OWN session — the id
@@ -794,11 +837,48 @@ export function installBridge(
     tracker.updatedAt = now
     const card = teamCard.renderTeamCard(tracker.state)
     if (tracker.messageId === undefined) {
-      const sent = await replay.send(chatId, { card })
-      tracker.messageId = sent.messageId
+      // The first send waits on a round trip, and a second event can land
+      // inside that window. Without this latch both see no message id and
+      // each send a card of its own, so a chat ends up with two panels.
+      //
+      // The event that arrives meanwhile is not dropped: it is remembered,
+      // and the card is sent again once the first send settled, so the
+      // panel shows the newest state rather than the state at first send.
+      if (tracker.sending === true) {
+        tracker.pending = true
+        return
+      }
+      tracker.sending = true
+      try {
+        const sent = await replay.send(chatId, { card })
+        tracker.messageId = sent.messageId
+      } finally {
+        tracker.sending = false
+      }
+      if (tracker.pending === true) {
+        tracker.pending = false
+        await flushTeamCard(chatId, true)
+      }
       return
     }
     await port.updateCard(tracker.messageId, card)
+  }
+
+  /**
+   * Fold a message one teammate relayed into another into the team card.
+   *
+   * The team package steers a member's message into the recipient's inbox
+   * rather than recording a mailbox event, so the card's message list is
+   * built from these relayed messages. A chat that has not seen a roster
+   * event yet has no card to update, and the message is dropped with a note
+   * rather than inventing a team the chat never led.
+   */
+  const noteTeamRelayMessage = (chatId: string, event: HostSessionEvent): void => {
+    if (!isTeamRelayMessageEvent(event)) return
+    const tracker = teamTrackers.get(chatId)
+    if (tracker === undefined) return
+    teamCard.addTeamRelayMessage(tracker.state, event.data.message, event.data.message.source.senderSessionId)
+    void flushTeamCard(chatId, true).catch(reportSendFailure)
   }
 
   const upsertSubagent = (
@@ -848,6 +928,41 @@ export function installBridge(
    * still could not see what the child was doing.
    */
   const noteChildSessionEvent = (chatId: string, childId: string, event: HostSessionEvent): void => {
+    // A message one teammate relayed to another lands in the recipient's own
+    // session, so a chat that leads the team sees it through the child
+    // mapping rather than through its own session.
+    if (isTeamRelayMessageEvent(event)) {
+      noteTeamRelayMessage(chatId, event)
+      return
+    }
+    // A child can declare a deliverable too. The declaration lands in the
+    // child's own session, so the branch that serves the chat's own session
+    // never sees it — and a file that cannot be placed used to vanish
+    // without a word. The chat that owns the child gets it, or a notice.
+    if (isPresentedEvent(event) && config.presentBridge !== false) {
+      const callId = event.data.callId
+      let seen = presentedCalls.get(childId)
+      if (seen === undefined) { seen = new Set<string>(); presentedCalls.set(childId, seen) }
+      if (!seen.has(callId)) {
+        seen.add(callId)
+        void (async () => {
+          for (const file of event.data.files) {
+            const caption = file.description === undefined || file.description === ''
+              ? `交付文件 · turn ${event.data.turn}`
+              : file.description
+            try {
+              await deliverChildDeclaredFile(chatId, file.path, caption)
+            } catch (error) {
+              const detail = error instanceof Error ? error.message : String(error)
+              void replay.send(chatId, {
+                markdown: `⚠️ 交付文件 \`${file.path}\` 未能送达：${detail}`,
+              }).catch(reportSendFailure)
+            }
+          }
+        })()
+      }
+      return
+    }
     if (isToolCallEvent(event)) {
       noteChildActivity(chatId, childId, toolActivityLine(event.data.name, event.data.arguments))
       return
@@ -1534,12 +1649,21 @@ export function installBridge(
         if (!isActiveEndpoint(arbitration, myIdentity.deviceId, myForm, myProfile)) {
           const claimed = syncCtx !== undefined && await claimIfActiveStale(syncCtx, arbitration)
           if (!claimed) {
-            // Standby backs off SILENTLY: the active endpoint answers every
-            // message anyway, so a per-message chat notice reads as the bot
-            // talking to itself from a phone client (2026-09-10 operator report).
-            // The fleet roster (/bot devices) is where standby state belongs.
+            // Standby backs off so the active endpoint is the only writer: a
+            // per-message chat notice would read as the bot talking to itself
+            // from a phone client (2026-09-10 operator report). The exception
+            // is the read-only troubleshooting pair — silence there is what
+            // makes a healthy standby look like a dead bot, since `/bot
+            // devices` is the very first thing the guide tells a puzzled
+            // operator to send. Everything else still gets no chat line.
             const where = arbitration.form === undefined ? '' : `（${arbitration.form}${arbitration.profile === undefined ? '' : `/${arbitration.profile}`}）`
             notify(`dsh-lark-bridge: standby backed off a message in ${msg.chatId} (active: ${arbitration.activeName}${where})`)
+            if (standbyAnswers(msg.content)) {
+              await port.send(msg.chatId, {
+                markdown: `🛰️ 本端是待命端，活跃端是 **${arbitration.activeName}**${where}——命令由活跃端执行。`
+                  + '这条只读命令请到活跃端发；想让本端接管，发 `/bot activate`。',
+              }).catch(reportSendFailure)
+            }
             return
           }
           notify(`dsh-lark-bridge: elected active endpoint ${myIdentity.deviceId} (${myForm}/${myProfile}; previous went silent)`)
@@ -2129,6 +2253,33 @@ export function installBridge(
       // 外勤会话镜像 (P141, 09-15 令：实时多agent实况)：既未绑定、也非
       // 子会话的独立会话（并行开发线/CLI 运行）→ 按会话节流（60s）推一行进度/
       // 完结到绑定聊天。聊天自身会话走下方渲染管线，互不重复。
+      // A session that is neither this chat's nor a known child's still
+      // declares deliverables. It belongs to no chat, so the files cannot be
+      // placed — but the person who asked for them is looking at a chat, and
+      // silence reads as "it worked". The files are announced to the chats
+      // this bridge serves, so the reader can go and get them.
+      if (isPresentedEvent(event) && config.presentBridge !== false) {
+        const callId = event.data.callId
+        let seen = presentedCalls.get(session.id)
+        if (seen === undefined) { seen = new Set<string>(); presentedCalls.set(session.id, seen) }
+        if (!seen.has(callId)) {
+          seen.add(callId)
+          for (const file of event.data.files) {
+            const caption = file.description === undefined || file.description === ''
+              ? `交付文件 · turn ${event.data.turn}`
+              : file.description
+            const seenChats = new Set<string>()
+            for (const b2 of bySession.values()) {
+              if (seenChats.has(b2.chatId)) continue
+              seenChats.add(b2.chatId)
+              void replay.send(b2.chatId, {
+                markdown: `📎 另一会话声明了交付文件：\`${file.path}\`${caption === '' ? '' : ` · ${caption}`}\n（该会话不属于当前聊天，文件未能送达本聊天）`,
+              }).catch(() => {})
+            }
+          }
+        }
+        return
+      }
       const notable = isStepStartEvent(event) || isTurnEndEvent(event)
       const nowMs = Date.now()
       const last = externalMirrorAt.get(session.id)
@@ -2276,9 +2427,18 @@ export function installBridge(
         ...event.data.label === undefined ? {} : { label: event.data.label },
       }, true)
     }
-    // Team events (W-10a): the host records the members, the shared tasks
-    // and the mailbox in the session that leads the team. One card per chat
-    // shows all of it, updated in place.
+    // Team events (W-10a): the host records the members and the shared tasks
+    // in the session that leads the team. One card per chat shows all of it,
+    // updated in place. The two mailbox events are historical records the
+    // host reads but never writes — live traffic arrives as relayed
+    // messages, handled above.
+    // A message a teammate relayed into this session. The team package does
+    // not record a mailbox event for it: it steers the message into the
+    // recipient's inbox, and it arrives as a `user/message` whose source
+    // names the sender.
+    if (isTeamRelayMessageEvent(event)) {
+      noteTeamRelayMessage(binding.chatId, event)
+    }
     if (isTeamMemberEvent(event) || isTeamTaskEvent(event) || isTeamMessageEvent(event) || isTeamMessageDeliveredEvent(event)) {
       const teamId = event.data.teamId
       let tracker = teamTrackers.get(binding.chatId)

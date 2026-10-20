@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://github.com/moyu-good/dsh-lark-bridge/actions/workflows/ci.yml"><img src="https://github.com/moyu-good/dsh-lark-bridge/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-397%20passing-brightgreen" alt="tests">
+  <img src="https://img.shields.io/badge/tests-558%20passing-brightgreen" alt="tests">
   <a href="https://dshbase.com/zh/plugins/moyu-good-dsh-lark-bridge/"><img src="https://img.shields.io/badge/dshbase-verified-blue" alt="dshbase verified"></a>
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-blue" alt="license">
   <img src="https://img.shields.io/badge/transport-WebSocket%20long--connection-orange" alt="transport">
@@ -52,6 +52,8 @@
 
 **准备**：Node 22.19+ 或 24+（与 `engines.node` 一致）、[pnpm](https://pnpm.io/installation)（推荐）、一个 DeepSeek API Key、手机上有飞书。
 
+**Harness 版本**：**DeepSeek Harness ≥ 0.1.7**（本仓的开发与运行环境是 0.2.1-rc.2）。0.1.7 是**硬下限**，不是偏好：它把 `agentPresets.standingKeyFor` 改名为 `acquireScope`（返回按会话生命周期持有的租约），并把 `jobs.onJobDone` 换成 `jobs.events` 流；桥调用 `acquireScope` 时没有回退路径——在 0.1.5 宿主上组建 preset 会话会直接抛错。（0.1.5 是把 user-questions 接缝换成 `user-questions/request` waterfall 的那一版，CHANGELOG 里有对应说明。）
+
 ```sh
 # 1. 把插件装进 dsh profile 并启动（pnpm —— 并行安装，实测约 20 秒）
 pnpm dlx @deepseek-ai/dsh plugin --profile web add @moyu-good/dsh-lark-bridge \
@@ -94,7 +96,7 @@ pnpm dlx @deepseek-ai/dsh plugin --profile web add @moyu-good/dsh-lark-bridge \
 ## 💬 像用户一样用它
 
 - **直接说话派活**：「帮我看看这个项目为什么测试挂了」——文件、图片直接拖进聊天。
-- **三端接力**：浏览器开 `http://127.0.0.1:18787`（web 形态与飞书端同库）；DSH Desktop 装了桥插件后同样入列。同一时刻活跃端回复，其它端待命，`/bot devices` 随时看舰队。
+- **三端接力**：web 端在 `http://127.0.0.1:18787`，但启动 token 每次进程重启都重生成——浏览器没有 cookie 时直接开裸地址会 401。先把启动日志里 `dsh web: http://127.0.0.1:18787/?token=…` 那行打开一次（会种下长效 cookie），之后裸地址即可（与飞书端同库）；DSH Desktop 装了桥插件后同样入列。同一时刻活跃端回复，其它端待命，`/bot devices` 随时看舰队。
 - **换飞书应用两步**：`/bot account` → 点卡片「✅使用」→ `/restart` 生效。
 - **新手引导自动化**：新会话首条消息自带简短引导；`/manual` 取完整说明；`/balance` 看钱袋。
 
@@ -117,8 +119,8 @@ pnpm dlx @deepseek-ai/dsh plugin --profile web add @moyu-good/dsh-lark-bridge \
 | 🖥️ **面板自愈** | 命令面板由活跃端单写者维护，双语、与实际能力对齐；待命端不抢写 |
 | 🌐 **双语斜杠面板** | 国际版 Lark 英文、国内版飞书中文，自动切换 |
 | 🧰 **能力全景** | `/tools` 列出这台机器此刻真能做什么——可见工具与接的 MCP 服务器，不只是「谁禁用了什么」 |
-| 🎙️ **媒体按形态送达** | 录音按语音条、视频按视频送达，聊天里直接能播，不是下载链接（按扩展名自动判，`kind` 可覆盖） |
-| 👥 **团队面板** | 宿主跑起多 agent 团队时，一张卡片显示成员、共享任务与往来消息，就地刷新 |
+| 🎙️ **媒体按形态送达** | ogg/opus 录音按语音条、mp4 视频按视频送达，聊天里直接能播，不是下载链接（按扩展名自动判，`kind` 可覆盖）。聊天端承载不了的格式会降级为文件发送，并在结果里说明 |
+| 👥 **团队面板** | 宿主跑起多 agent 团队时，一张卡片显示成员、共享任务与队内往来消息，就地刷新 |
 
 <details>
 <summary><b>全部能力</b></summary>
@@ -140,7 +142,7 @@ pnpm dlx @deepseek-ai/dsh plugin --profile web add @moyu-good/dsh-lark-bridge \
 | 📎 文件发送 | Agent 的 `send_file` 带 caption 投递到聊天（本地目录默认拒绝） |
 | 🔑 扫码注册 | 首次启动打印二维码，扫码即建应用 |
 | 🔒 授权窄化 | `senderAllowlist` / `groupAllowlist` / `approvers` |
-| 🧩 外部台账钩子 | `chronicleEndpoint`：每条入站消息 fire-and-forget POST 到外部台账 |
+| 🧩 外部台账钩子 | `chronicleEndpoint`：每条被受理的**入站用户消息** fire-and-forget POST 一次（载荷只有 `source`/`text`/`chatId`；桥自己的回复不入台账） |
 | 🛡️ 深度 dsh 适配 | 全部走宿主服务契约，包自包含，无需宿主源码 |
 
 </details>
@@ -248,7 +250,7 @@ pnpm dlx @deepseek-ai/dsh plugin --profile web add @moyu-good/dsh-lark-bridge \
 | `output` | `cot` | 原生思考消息 vs 打字机卡片 |
 | `requireMention` | `true` | 群聊仅被 @ 时响应 |
 | `outbound.allowedFileDirs` | 未配置=禁用 | `send_file` 允许读取的本地目录 |
-| `chronicleEndpoint` | `''` | 可选的外部全文台账钩子 |
+| `chronicleEndpoint` | `''` | 可选：每条被受理的入站用户消息 POST 一次（`source`/`text`/`chatId`，不含桥的回复） |
 
 完整字段说明见 [English README Configuration](README.md#️-configuration)。凭据三层解析（后者覆盖前者）：bundle patch 配置 → settings 文档插件区 → 首次扫码注册。
 
@@ -306,25 +308,25 @@ src/
   sync/              双端同步：设置单源/心跳/control API/迁移/账号库/端级仲裁
   pricing.ts         DeepSeek 峰谷计价实时判定
   user-guide.ts      /manual 的单一内容源
-  chronicle.ts       外部台账入驿钩子（集成扩展示例）
+  chronicle.ts       外部台账写入钩子（集成扩展示例；只写入站用户文本）
   config.ts          schema 与默认值
-tests/               vitest 套件（397 个），含 harness 注入式假件
+tests/               vitest 套件（0 个），含 harness 注入式假件
 scripts/             verify-dsh-contract.mjs —— 对上游 master 的漂移校验
-plugin-contract-test.mjs     43 条宿主契约断言
+plugin-contract-test.mjs     43 条宿主契约检查
 ```
 
 **质量门**
 
 ```sh
-pnpm test                        # 397 单测/集成
-node plugin-contract-test.mjs    # 43 条契约断言
+pnpm test                        # 0 单测/集成
+node plugin-contract-test.mjs    # 43 条契约检查
 node scripts/verify-dsh-contract.mjs   # 对上游 master 的漂移检查
 pnpm typecheck && pnpm run build # tsc + tsdown（lib/ 已提交）
 ```
 
 CI 每次 push / PR 都跑全套，其中漂移检查钉在上游 dsh master——上游改了契约，构建会在用户之前告诉你。
 
-**想加功能？** 先写设计卡（模板在 `docs/design/`），再实现、再回填。如果需求只是「看到消息」，
+**想加功能？** 先写设计卡（模板在 `docs/design/`），再实现、再回填。如果需求只是「看到入站消息（不含桥的回复）」，
 优先用 `chronicleEndpoint` 钩子而不是改管线——参考 `src/chronicle.ts`。
 
 ## 🧱 开发与 MR 流程

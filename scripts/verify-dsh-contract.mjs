@@ -28,6 +28,9 @@ const FILES = {
   // The team events: one roster, one task board, and a mailbox. The bridge
   // renders a fleet panel from them.
   agentTeam: 'packages/experimental/agent-team/src/types.ts',
+  // The team package's own entry point: the relayed-message source is built
+  // there, not in the event types.
+  agentTeamIndex: 'packages/experimental/agent-team/src/index.ts',
   // The skill body the `/skills <name>` view reads. The host names the field
   // `content`; reading `body` off the result reads `undefined`.
   skill: 'packages/skill/skill/src/index.ts',
@@ -63,6 +66,15 @@ const checks = [
     name: 'the team mailbox events stay version 2',
     file: 'agentTeam',
     pattern: /'team\/message\/queued': \{ version: 2; teamId: TeamId; message: TeamMessageSnapshot \}/,
+  },
+  {
+    // A message one teammate relayed to another is not a mailbox event: the
+    // team package steers it into the recipient's inbox, and it lands there
+    // as a user message whose source says who sent it. The bridge reads the
+    // card's message list from these, so the source shape is a contract.
+    name: 'a relayed team message carries the agent-message source',
+    file: 'agentTeamIndex',
+    pattern: /kind: 'agent-message' as const, form: 'relay' as const, senderSessionId: caller\.id/,
   },
   {
     name: 'the skill body is named content',
@@ -254,6 +266,7 @@ const HOST_PATTERNS = [
   ['host.ts reads the skill body as content', /get\(name: string\): Promise<\{ readonly content: string \}/],
   ['host.ts keeps the declared-deliverable shape', /readonly callId: string[\s\S]*readonly files: readonly PresentedFileData\[\]/],
   ['host.ts guards the team member event', /export function isTeamMemberEvent\(/],
+  ['host.ts guards a relayed team message', /export function isTeamRelayMessageEvent\([\s\S]*?source\.kind === 'agent-message'/],
   ['host.ts guards the team task event', /export function isTeamTaskEvent\(/],
   ['host.ts guards the team mailbox event', /export function isTeamMessageEvent\(/],
   ['host.ts guards the team delivery event', /export function isTeamMessageDeliveredEvent\(/],

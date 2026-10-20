@@ -47,10 +47,12 @@ describe('the tool listing says what the machine can do, not only what was switc
   })
 
   it('names the MCP servers the deployment talks to', async () => {
+    // The server names are placeholders: this is a public repository, and a
+    // real deployment's server names are its own business.
     const tools = createFakeTools({}, [
-      { name: 'mcp__zhengshitang__record', description: '入驿' },
-      { name: 'mcp__firecrawl__scrape', description: '抓网页' },
-      { name: 'mcp__zhengshitang__report', description: '简报' },
+      { name: 'mcp__notes__record', description: '记一笔' },
+      { name: 'mcp__webfetch__scrape', description: '抓网页' },
+      { name: 'mcp__notes__report', description: '生成简报' },
       { name: 'bash', description: 'Run a shell command' },
     ])
     const harness = await mountChannel({}, { tools: tools.service })
@@ -58,8 +60,8 @@ describe('the tool listing says what the machine can do, not only what was switc
     await vi.waitFor(() => { expect(harness.fake.sent).toHaveLength(1) }, { timeout: 20_000, interval: 50 })
     const reply = (harness.fake.sent[0]!.input as { markdown: string }).markdown
     expect(reply).toContain('MCP 服务器')
-    expect(reply).toContain('zhengshitang')
-    expect(reply).toContain('firecrawl')
+    expect(reply).toContain('notes')
+    expect(reply).toContain('webfetch')
     await harness.dispose()
   })
 
