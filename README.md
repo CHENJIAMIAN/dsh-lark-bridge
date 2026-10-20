@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://github.com/moyu-good/dsh-lark-bridge/actions/workflows/ci.yml"><img src="https://github.com/moyu-good/dsh-lark-bridge/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-562%20passing-brightgreen" alt="tests">
+  <img src="https://img.shields.io/badge/tests-563%20passing-brightgreen" alt="tests">
   <a href="https://dshbase.com/plugins/moyu-good-dsh-lark-bridge/"><img src="https://img.shields.io/badge/dshbase-verified-blue" alt="dshbase verified"></a>
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-blue" alt="license">
   <img src="https://img.shields.io/badge/transport-WebSocket%20long--connection-orange" alt="transport">
@@ -218,7 +218,7 @@ Highlights — the ones other bridges don't have:
 | 🛠️ **Native Feishu agent tools** | `feishu_notify` proactive messages, `feishu_drive_*` cloud-drive scratchpad reachable from any device |
 | 🖥️ **Self-healing slash panel** | the panel has a single writer (the arbitration-active endpoint), bilingual, kept in step with what actually runs |
 | 🧰 **Capability inventory** | `/tools` lists what this deployment can actually do — the visible tools and the MCP servers it talks to, not only what someone switched off |
-| 🎙️ **Media delivered in kind** | an ogg or opus recording arrives as a voice note and an mp4 clip as a video — playable in the chat, not a download link (the extension decides; `kind` overrides). A format the chat cannot carry in that shape arrives as a file, and the result says so |
+| 🎙️ **Media delivered in kind** | an ogg or opus recording arrives as a voice note and an mp4 or m4v clip as a video — playable in the chat, not a download link (the extension decides, and a named `kind` can narrow it but never widen it). A format the chat cannot carry in that shape arrives as a file, and the result says so |
 | 👥 **Team panel** | when the host runs a team, one card shows the members, the shared tasks and the messages passed between them, updated in place |
 
 <details>
@@ -372,7 +372,7 @@ src/
   user-guide.ts      single source of the /manual content
   chronicle.ts     inbound-message ledger hook (integration example; user text only)
   config.ts        schema + defaults
-tests/             vitest suites (562) incl. harness-based fakes
+tests/             vitest suites (563) incl. harness-based fakes
 scripts/           verify-dsh-contract.mjs — asserts no drift vs upstream master
 plugin-contract-test.mjs   43 contract checks on the host contract surface
 ```
@@ -380,7 +380,7 @@ plugin-contract-test.mjs   43 contract checks on the host contract surface
 **Quality gates**
 
 ```sh
-pnpm test                        # 562 unit/integration tests
+pnpm test                        # 563 unit/integration tests
 node plugin-contract-test.mjs    # 43 host-contract checks
 node scripts/verify-dsh-contract.mjs   # drift check against upstream master
 pnpm typecheck && pnpm run build # tsc + tsdown (lib/ is committed)

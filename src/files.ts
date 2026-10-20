@@ -390,16 +390,43 @@ async function pathTaken(path: string): Promise<boolean> {
   }
 }
 
+/**
+ * Names this process has already handed out, so two arrivals that carry the
+ * same file name cannot both be told "that one is free".
+ *
+ * The check on disk and the write that follows are separated by an await —
+ * the write is asynchronous on purpose, so the event loop runs other work in
+ * between. Two messages carrying the same name therefore both see the file
+ * as absent and both write to it, and the second one overwrites the first.
+ * Remembering the name here closes that window: the second arrival is told
+ * to use the next one.
+ */
+const handedOut = new Set<string>()
+
 /** A destination that does not overwrite an earlier arrival with the same name. */
 async function uniqueDest(base: string): Promise<string> {
-  if (!(await pathTaken(base))) return base
+  const claim = async (candidate: string): Promise<boolean> => {
+    if (handedOut.has(candidate)) return false
+    // Claimed BEFORE the check on disk: the claim has to be taken without
+    // yielding, or two arrivals both reach the check with the name still
+    // free and both write to it.
+    handedOut.add(candidate)
+    if (await pathTaken(candidate)) {
+      // The file is already on disk from an earlier run: the claim was a
+      // guess, so give it back and let the caller try the next name.
+      handedOut.delete(candidate)
+      return false
+    }
+    return true
+  }
+  if (await claim(base)) return base
   const dot = base.lastIndexOf('.')
   const cut = dot > base.lastIndexOf('/') ? dot : base.length
   const stem = base.slice(0, cut)
   const ext = base.slice(cut)
   for (let n = 2; ; n += 1) {
     const candidate = `${stem}-${n}${ext}`
-    if (!(await pathTaken(candidate))) return candidate
+    if (await claim(candidate)) return candidate
   }
 }
 

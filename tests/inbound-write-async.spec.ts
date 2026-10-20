@@ -120,3 +120,40 @@ describe('saveInboundFiles writes asynchronously', () => {
     expect(readFileSync(second.paths[0]!)).toEqual(Buffer.from([0x41]))
   })
 })
+
+
+/**
+ * Two messages carrying the same file name arrive at the same time.
+ *
+ * The write is asynchronous on purpose, so the event loop runs other work
+ * between the check that a name is free and the write that takes it. Two
+ * arrivals that both see the name as free write to the same path, and the
+ * second one overwrites the first — a file the user was told was saved
+ * simply is not there any more.
+ */
+describe('two arrivals with the same name do not overwrite each other', () => {
+  it('gives each of them its own file', async () => {
+    const dir = workspace()
+    const first = { ...MSG, messageId: 'om_inbound_a' }
+    const second = { ...MSG, messageId: 'om_inbound_b' }
+    // Both downloads wait for the same gate, so both saves are in flight
+    // when the bytes land.
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const download = async () => {
+      await gate
+      return { buffer: PDF }
+    }
+
+    const one = saveInboundFiles(first, download, dir)
+    const two = saveInboundFiles(second, download, dir)
+    release()
+    const [savedOne, savedTwo] = await Promise.all([one, two])
+
+    expect(savedOne.paths[0]).not.toBe(savedTwo.paths[0])
+    expect(existsSync(savedOne.paths[0]!)).toBe(true)
+    expect(existsSync(savedTwo.paths[0]!)).toBe(true)
+    expect(readFileSync(savedOne.paths[0]!)).toEqual(Buffer.from(PDF))
+    expect(readFileSync(savedTwo.paths[0]!)).toEqual(Buffer.from(PDF))
+  })
+})

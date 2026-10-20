@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://github.com/moyu-good/dsh-lark-bridge/actions/workflows/ci.yml"><img src="https://github.com/moyu-good/dsh-lark-bridge/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-562%20passing-brightgreen" alt="tests">
+  <img src="https://img.shields.io/badge/tests-563%20passing-brightgreen" alt="tests">
   <a href="https://dshbase.com/zh/plugins/moyu-good-dsh-lark-bridge/"><img src="https://img.shields.io/badge/dshbase-verified-blue" alt="dshbase verified"></a>
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-blue" alt="license">
   <img src="https://img.shields.io/badge/transport-WebSocket%20long--connection-orange" alt="transport">
@@ -119,7 +119,7 @@ pnpm dlx @deepseek-ai/dsh plugin --profile web add @moyu-good/dsh-lark-bridge \
 | 🖥️ **面板自愈** | 命令面板由活跃端单写者维护，双语、与实际能力对齐；待命端不抢写 |
 | 🌐 **双语斜杠面板** | 国际版 Lark 英文、国内版飞书中文，自动切换 |
 | 🧰 **能力全景** | `/tools` 列出这台机器此刻真能做什么——可见工具与接的 MCP 服务器，不只是「谁禁用了什么」 |
-| 🎙️ **媒体按形态送达** | ogg/opus 录音按语音条、mp4 视频按视频送达，聊天里直接能播，不是下载链接（按扩展名自动判，`kind` 可覆盖）。聊天端承载不了的格式会降级为文件发送，并在结果里说明 |
+| 🎙️ **媒体按形态送达** | ogg/opus 录音按语音条、mp4/m4v 视频按视频送达，聊天里直接能播，不是下载链接（按扩展名自动判；显式 `kind` 只能收窄、不能放宽）。聊天端承载不了的格式会降级为文件发送，并在结果里说明 |
 | 👥 **团队面板** | 宿主跑起多 agent 团队时，一张卡片显示成员、共享任务与队内往来消息，就地刷新 |
 
 <details>
