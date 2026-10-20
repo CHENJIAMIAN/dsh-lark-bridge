@@ -147,4 +147,47 @@ describe('context-pressure polling', () => {
       vi.useRealTimers()
     }
   })
+
+  it('reports the number it measured, so the sweep cannot be silent', async () => {
+    // A sweep that succeeds says nothing, and "the meter was handed the
+    // wrong thing" looks exactly like "no session is under pressure" -
+    // the failure this spec exists to catch would be invisible from
+    // outside. The poll therefore leaves a line with the number it
+    // measured.
+    vi.useFakeTimers()
+    try {
+      const { harness, meter, events } = await mountWithLiveSession()
+      events.push({ tokens: 90_000, surface: 4_000 })
+
+      await vi.advanceTimersByTimeAsync(INTERVAL_MS)
+
+      await vi.waitFor(() => {
+        const lines = harness.notices.filter(line => line.includes('token pressure poll'))
+        expect(lines.length).toBeGreaterThan(0)
+        // The line carries the total the meter returned, so a non-zero
+        // total is proof that the meter read the session rather than an id.
+        expect(lines.some(line => /total=[1-9]/.test(line))).toBe(true)
+      })
+
+      const first = harness.notices.filter(line => line.includes('token pressure poll'))
+      // A second poll with an unchanged number adds no line: the log is
+      // not allowed to become a stream of identical lines.
+      await vi.advanceTimersByTimeAsync(INTERVAL_MS)
+      await vi.advanceTimersByTimeAsync(0)
+      const second = harness.notices.filter(line => line.includes('token pressure poll'))
+      expect(second.length).toBe(first.length)
+
+      // A changed number speaks again.
+      events.push({ tokens: 5_000, surface: 200 })
+      await vi.advanceTimersByTimeAsync(INTERVAL_MS)
+      await vi.advanceTimersByTimeAsync(0)
+      const third = harness.notices.filter(line => line.includes('token pressure poll'))
+      expect(third.length).toBe(first.length + 1)
+
+      expect(meter.priced.length).toBeGreaterThan(0)
+      await harness.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
