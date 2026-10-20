@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const resolvePath = (...parts) => resolve(...parts)
 /**
  * Contract drift gate: verifies that the structural copies in src/host.ts still
  * mirror the live DeepSeek Harness upstream branch. The bridge intentionally does
@@ -10,6 +15,17 @@
  */
 
 const RAW = 'https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/master/'
+/**
+ * The release the production deployment runs.
+ *
+ * The master branch is the future; this tag is the present. A gate that
+ * only looks at the future answers "will the bridge still fit the next
+ * release" and stays silent about the release in production, which is where
+ * a shape mismatch bites. Both are checked: the tag for what runs today,
+ * the branch for what comes next.
+ */
+const PROD_TAG = 'dsh-v0.2.1-rc.2'
+const RAW_TAG = `https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/${PROD_TAG}/`
 const FILES = {
   agent: 'packages/core/agent/src/runtime-types.ts',
   goal: 'packages/goal/goal/src/domain.ts',
@@ -275,12 +291,69 @@ const HOST_PATTERNS = [
 ]
 
 
-async function main() {
-  const sources = {}
+/**
+ * The tree the running deployment actually loads, when it is on this
+ * machine.
+ *
+ * The remote branch is the future; this is the present. A check that only
+ * looks at the remote branch answers "will the bridge still fit the next
+ * release" — and stays silent about the release in production, which is
+ * where a shape mismatch bites. The local tree is checked as well, so a
+ * mismatch against what runs today cannot pass unnoticed.
+ */
+const LOCAL_UPSTREAM_NAMES = [
+  'deepseek-harness-0.2.1-rc.2',
+  'deepseek-harness',
+]
+
+/**
+ * Where the upstream tree sits on this machine, if it is here.
+ *
+ * The directory names are the only thing written down: a repository that
+ * spells out a machine's own directory layout carries that layout with it,
+ * and a public repository must not. The candidates are the environment
+ * variable, the home directory's project folder, and the folder this
+ * repository sits in — the last one is where a checkout and its upstream
+ * tree usually live side by side.
+ */
+function localRoot() {
+  const here = resolvePath(fileURLToPath(new URL('..', import.meta.url)))
+  const candidates = []
+  const fromEnv = process.env.DSH_UPSTREAM_ROOT
+  if (fromEnv !== undefined && fromEnv !== '') candidates.push(fromEnv)
+  const home = process.env.HOME
+  if (home !== undefined && home !== '') {
+    for (const name of LOCAL_UPSTREAM_NAMES) {
+      candidates.push(resolvePath(home, '..', 'PROJECT', name))
+      candidates.push(resolvePath(home, 'PROJECT', name))
+    }
+  }
+  for (const name of LOCAL_UPSTREAM_NAMES) {
+    candidates.push(resolvePath(here, '..', name))
+  }
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate
+  }
+  return undefined
+}
+
+async function fetchTree(base) {
+  const out = {}
   for (const [key, path] of Object.entries(FILES)) {
-    const res = await fetch(RAW + path)
-    if (!res.ok) throw new Error(`fetch ${path} failed: HTTP ${res.status}`)
-    sources[key] = await res.text()
+    const res = await fetch(base + path)
+    if (!res.ok) throw new Error(`fetch ${base + path} failed: HTTP ${res.status}`)
+    out[key] = await res.text()
+  }
+  return out
+}
+
+async function main() {
+  const sources = await fetchTree(RAW)
+  let prodSources
+  try {
+    prodSources = await fetchTree(RAW_TAG)
+  } catch (error) {
+    console.log(`  ⚠️ 生产版本 ${PROD_TAG} 拉不到：${String(error)}`)
   }
   const { readFileSync } = await import('node:fs')
   const host = readFileSync(new URL('../src/host.ts', import.meta.url), 'utf8')
@@ -305,12 +378,74 @@ async function main() {
     )
     if (!ok) failed += 1
   }
+  // The release in production, checked with the same patterns.
+  if (prodSources !== undefined) {
+    console.log(`  ── 生产版本：${PROD_TAG}`)
+    for (const check of checks) {
+      const ok = check.pattern.test(prodSources[check.file])
+      console.log(`${ok ? '  ✅' : '  ❌'} 生产版：${check.name}`)
+      if (!ok) failed += 1
+    }
+    for (const check of arityChecks) {
+      const found = check.find(prodSources[check.file])
+      if (found === null) {
+        console.log(`  ❌ 生产版：${check.name} — 没能找到 ${check.member}`)
+        failed += 1
+        continue
+      }
+      const ok = check.accept.includes(found)
+      console.log(
+        `${ok ? '  ✅' : '  ❌'} 生产版：${check.name} — 运行时 arity=${found}`
+        + `（期望 ${check.accept.join(' 或 ')}）`,
+      )
+      if (!ok) failed += 1
+    }
+  }
+  // The tree that runs on this machine, checked with the same patterns.
+  const root = localRoot()
+  if (root === undefined) {
+    console.log('  ⚠️ 本机没有上游树可查——只核了远端分支')
+  } else {
+    const local = {}
+    let missing = 0
+    for (const [key, path] of Object.entries(FILES)) {
+      const file = `${root}/${path}`
+      try {
+        local[key] = readFileSync(file, 'utf8')
+      } catch {
+        missing += 1
+        console.log(`  ⚠️ 本机上游树里没有 ${path}`)
+      }
+    }
+    if (missing === 0) {
+      console.log(`  ── 本机在跑的上游树：${root}`)
+      for (const check of checks) {
+        const ok = check.pattern.test(local[check.file])
+        console.log(`${ok ? '  ✅' : '  ❌'} 本机树：${check.name}`)
+        if (!ok) failed += 1
+      }
+      for (const check of arityChecks) {
+        const found = check.find(local[check.file])
+        if (found === null) {
+          console.log(`  ❌ 本机树：${check.name} — 没能找到 ${check.member}`)
+          failed += 1
+          continue
+        }
+        const ok = check.accept.includes(found)
+        console.log(
+          `${ok ? '  ✅' : '  ❌'} 本机树：${check.name} — 运行时 arity=${found}`
+          + `（期望 ${check.accept.join(' 或 ')}）`,
+        )
+        if (!ok) failed += 1
+      }
+    }
+  }
   for (const [name, pattern] of HOST_PATTERNS) {
     const ok = pattern.test(host)
     console.log(`${ok ? '  ✅' : '  ❌'} host.ts: ${name}`)
     if (!ok) failed += 1
   }
-  console.log(failed === 0 ? '\n契约无漂移（dsh 上游 master）' : `\n${failed} 项漂移`)
+  console.log(failed === 0 ? `\n契约无漂移（远端分支、生产版本 ${PROD_TAG}、本机上游树）` : `\n${failed} 项漂移`)
   process.exit(failed === 0 ? 0 : 1)
 }
 

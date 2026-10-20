@@ -91,6 +91,13 @@ export interface DeviceState {
      * anyone else.
      */
     machineFingerprint?: string;
+    /**
+     * The digest this machine was first recorded under, when that digest was
+     * computed differently (it used to include the hostname). Kept so a
+     * device recorded under the old rule is still recognised as this machine
+     * after the rule changed, instead of being treated as a copy.
+     */
+    machineFingerprintLegacy?: string;
 }
 /** Absolute path of this machine's device-state file. */
 export declare function deviceStateFile(home?: string): string;
@@ -115,12 +122,30 @@ export interface EnsureDeviceIdOptions {
 /**
  * A digest of this machine's own identifiers.
  *
- * `/etc/machine-id` is the strongest signal available on Linux hosts (WSL
- * included) and survives a reboot; the hostname is the fallback for hosts
- * without it. The raw value is never stored.
+ * Only identifiers that survive a rename belong here. The hostname does
+ * not: a host that gets renamed — a WSL distribution, a container, a cloud
+ * instance — would otherwise look like a different machine, and the check
+ * that follows would re-mint this device's identity and clear the retired
+ * flag that an operator set on purpose. The stable sources are the machine
+ * id on Linux (both the systemd one and the dbus one) and the machine guid
+ * on Windows.
+ *
+ * A host with none of those is identified by its hostname, and by nothing
+ * else: two such hosts that share a name are indistinguishable, which the
+ * caller has to know when it reads the digest.
  * @returns a hex digest, or undefined when the host offers no identifier.
  */
 export declare function machineFingerprint(): string | undefined;
+/**
+ * The digest the fingerprint used to be: the machine id AND the hostname.
+ *
+ * It was wrong — a rename changed the digest — but the state file on disk
+ * may still carry it, and a device that was recorded under the old digest
+ * is the very same device. A state whose digest matches this one is the
+ * same machine, so it keeps its identity and its retired flag.
+ * @returns a hex digest, or undefined when the host offers no identifier.
+ */
+export declare function legacyMachineFingerprint(): string | undefined;
 /**
  * This machine's stable identity, minted into device-state.json on first
  * use. Hostname and pid are NOT identity (both drift); a device keeps its id

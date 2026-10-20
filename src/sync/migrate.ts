@@ -205,6 +205,13 @@ export interface DeviceState {
    * anyone else.
    */
   machineFingerprint?: string
+  /**
+   * The digest this machine was first recorded under, when that digest was
+   * computed differently (it used to include the hostname). Kept so a
+   * device recorded under the old rule is still recognised as this machine
+   * after the rule changed, instead of being treated as a copy.
+   */
+  machineFingerprintLegacy?: string
 }
 
 const DEVICE_STATE_NAME = 'device-state.json'
@@ -250,12 +257,47 @@ export interface EnsureDeviceIdOptions {
 /**
  * A digest of this machine's own identifiers.
  *
- * `/etc/machine-id` is the strongest signal available on Linux hosts (WSL
- * included) and survives a reboot; the hostname is the fallback for hosts
- * without it. The raw value is never stored.
+ * Only identifiers that survive a rename belong here. The hostname does
+ * not: a host that gets renamed — a WSL distribution, a container, a cloud
+ * instance — would otherwise look like a different machine, and the check
+ * that follows would re-mint this device's identity and clear the retired
+ * flag that an operator set on purpose. The stable sources are the machine
+ * id on Linux (both the systemd one and the dbus one) and the machine guid
+ * on Windows.
+ *
+ * A host with none of those is identified by its hostname, and by nothing
+ * else: two such hosts that share a name are indistinguishable, which the
+ * caller has to know when it reads the digest.
  * @returns a hex digest, or undefined when the host offers no identifier.
  */
 export function machineFingerprint(): string | undefined {
+  const stable: string[] = []
+  for (const file of ['/etc/machine-id', '/var/lib/dbus/machine-id']) {
+    try {
+      const value = readFileSync(file, 'utf8').trim()
+      if (value !== '') stable.push(value)
+    } catch {
+      // Not this host's kind of identifier.
+    }
+  }
+  if (stable.length > 0) {
+    return createHash('sha256').update(stable.join('\u0000')).digest('hex').slice(0, 32)
+  }
+  const host = os.hostname()
+  if (host === '') return undefined
+  return createHash('sha256').update(`hostname\u0000${host}`).digest('hex').slice(0, 32)
+}
+
+/**
+ * The digest the fingerprint used to be: the machine id AND the hostname.
+ *
+ * It was wrong — a rename changed the digest — but the state file on disk
+ * may still carry it, and a device that was recorded under the old digest
+ * is the very same device. A state whose digest matches this one is the
+ * same machine, so it keeps its identity and its retired flag.
+ * @returns a hex digest, or undefined when the host offers no identifier.
+ */
+export function legacyMachineFingerprint(): string | undefined {
   const parts: string[] = []
   try {
     parts.push(readFileSync('/etc/machine-id', 'utf8').trim())
@@ -288,21 +330,61 @@ export async function ensureDeviceId(
 ): Promise<{ deviceId: string; deviceName: string }> {
   const state = await readDeviceState(home)
   const fingerprint = options.fingerprint ?? machineFingerprint()
+  const legacy = options.fingerprint === undefined
+    ? legacyMachineFingerprint()
+    : undefined
   const deviceName = state.deviceName ?? os.hostname()
   // A state without a digest predates the check: keep the identity, and
   // record the digest so the next start can compare.
-  const arrivedFromAnotherMachine = state.machineFingerprint !== undefined
+  //
+  // A digest that was computed the old way — the one that folded the
+  // hostname in — still names THIS machine, so a state carrying it is not
+  // a copy. That is the difference between a rule change and a machine
+  // change, and treating it as a machine change would re-mint the identity
+  // and clear a retirement an operator set on purpose.
+  const recorded = state.machineFingerprint
+  const recordedLegacy = state.machineFingerprintLegacy
+  // Either slot naming this machine under either rule is enough.
+  const matchesCurrent = fingerprint !== undefined
+    && (recorded === fingerprint || recordedLegacy === fingerprint)
+  const matchesLegacy = legacy !== undefined
+    && (recorded === legacy || recordedLegacy === legacy)
+  const sameMachine = matchesCurrent || matchesLegacy
+  const arrivedFromAnotherMachine = recorded !== undefined
     && fingerprint !== undefined
-    && state.machineFingerprint !== fingerprint
+    && !sameMachine
   if (state.deviceId !== undefined && !arrivedFromAnotherMachine) {
-    if (state.machineFingerprint === undefined && fingerprint !== undefined) {
-      await writeDeviceState({ ...state, machineFingerprint: fingerprint }, home)
+    const patch: DeviceState = { ...state }
+    if (fingerprint !== undefined) {
+      if (recorded === undefined) {
+        // A state without a digest predates the check: keep the identity
+        // and record the digest so the next start can compare.
+        patch.machineFingerprint = fingerprint
+      } else if (recorded !== fingerprint) {
+        // The state was recorded under the old rule, which folded the
+        // hostname in. The new digest replaces it — a rename must not
+        // change this machine's identity — and the old one is kept beside
+        // it, so the next start recognises this machine either way.
+        patch.machineFingerprint = fingerprint
+        if (patch.machineFingerprintLegacy === undefined) {
+          patch.machineFingerprintLegacy = recorded
+        }
+      }
+    }
+    if (patch.machineFingerprintLegacy === undefined && legacy !== undefined
+      && legacy !== patch.machineFingerprint) {
+      patch.machineFingerprintLegacy = legacy
+    }
+    if (state.machineFingerprint !== patch.machineFingerprint
+      || state.machineFingerprintLegacy !== patch.machineFingerprintLegacy) {
+      await writeDeviceState(patch, home)
     }
     return { deviceId: state.deviceId, deviceName }
   }
   const deviceId = `dev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
   const next: DeviceState = { ...state, deviceId, deviceName }
   if (fingerprint !== undefined) next.machineFingerprint = fingerprint
+  if (legacy !== undefined && legacy !== fingerprint) next.machineFingerprintLegacy = legacy
   // The retired flag came from the other machine: it said nothing about
   // this one, and honouring it would silence a fresh machine.
   delete next.retired

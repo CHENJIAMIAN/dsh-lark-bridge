@@ -78,6 +78,22 @@ describe('send_file tool definition', () => {
       text: expect.stringContaining('a.html'),
     })
   })
+
+  it('carries a downgrade note through to the model', async () => {
+    const note = '语音仅支持 ogg/opus 容器，该文件已作为文件发送。'
+    const tool = createSendFileTool({
+      deliverBySession: async () => ({ fileName: 'note.mp3', note }),
+    }) as { execute(args: unknown, exec: unknown): Promise<SendFileResult> }
+
+    const result = await tool.execute({ path: '/tmp/note.mp3' }, { agent: { session: { id: 'ses_1' } } })
+
+    // A send that arrived as a plain attachment must not read as a voice note.
+    expect(result).toEqual({ ok: true, fileName: 'note.mp3', note })
+    expect(renderSendFileResult({ path: '/tmp/note.mp3' }, result)[0]).toMatchObject({
+      type: 'text',
+      text: expect.stringContaining(note),
+    })
+  })
 })
 
 describe('deliverFile', () => {
