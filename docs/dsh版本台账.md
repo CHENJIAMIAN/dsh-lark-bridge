@@ -16,10 +16,10 @@
 
 ## 版本切换方式
 
-`web 端的启动脚本` 两处路径指向目标版本的 `lib/bin.js`。
-**当前指向**：`deepseek-harness-0.2.1-alpha.2/apps/cli/lib/bin.js`（2026-10-10 起；位于项目父目录 `<PROJECT>/` 下）
+目标树的路径写在**仓外的 env 文件**里（由升级脚本维护，启动脚本 source 它并导出 `DSH_HARNESS_DIR`）
+**当前指向**：`deepseek-harness-0.2.1-rc.2/apps/cli/lib/bin.js`（2026-10-20 切树；由仓外 env 文件指定，不写在启动脚本里）
 
-**回滚方法**：两处路径改回 `deepseek-harness-0.1.5/lib/bin.js`（0.1.5 目录仍在，回滚可行）
+**回滚方法**：把 env 文件里的 `DSH_HARNESS_DIR` 改回目标树再重启（升级脚本的 rollback 会自动做）
 
 ## 目录清单
 
