@@ -106,15 +106,17 @@ function isPlaceholderMatch(line, matchIndex, matchLength) {
   // The same allowance for a WSL mount: /mnt/c/<win-user>/... is a generic
   // Windows profile directory, not a real path.
   //
-  // Judged on the line, not on the matched text: the pattern for a WSL mount
-  // matches only the mount prefix, which carries no user segment of its own
-  // — the generic one sits in the next segment, as a bracketed stand-in.
+  // The user segment is read at the position of THIS match, not from the
+  // line. Reading it from the line exempted the whole line whenever any
+  // WSL path on it had a placeholder in it — so a line that copied from a
+  // placeholder profile directory and also named a real project directory
+  // passed as clean, and the real path in it was never reported.
   //
   // The generic PLACEHOLDER_USERS list is deliberately NOT used here: it
   // contains words like "project" and "name", and a real path under a
-  // mount is not a stand-in. Only a bracketed segment
-  // counts, or one of the names a WSL profile directory plausibly takes.
-  const wsl = line.match(/\/mnt\/[a-z]\/([^/\n]+)/i)
+  // mount is not a stand-in. Only a bracketed segment counts, or one of
+  // the names a WSL profile directory plausibly takes.
+  const wsl = line.slice(matchIndex).match(/^\/mnt\/[a-z]\/([^/\n]+)/i)
   if (wsl) {
     const seg = wsl[1].trim().toLowerCase()
     const bracketed = /^<.+>$/.test(seg)
@@ -217,11 +219,27 @@ function scanFile(repo, file, patterns, hits) {
   for (const [re, label] of patterns) {
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]
-      const m = re.exec(line)
-      if (m && !isPlaceholderMatch(line, m.index, m[0].length)) {
-        hits.push({ path: relative(repo, file), line: i + 1, label, text: line.trim().slice(0, 120) })
-        break
+      // Every occurrence on the line is looked at, not just the first.
+      // Taking only the first match meant a line whose first occurrence
+      // was exempt — a placeholder earlier on the line — was skipped
+      // whole, so a real path later on that same line went unreported.
+      const flags = re.flags.includes("g") ? re.flags : re.flags + "g"
+      const rx = new RegExp(re.source, flags)
+      let m
+      let reported = false
+      while ((m = rx.exec(line)) !== null) {
+        if (m[0].length === 0) {
+          rx.lastIndex++
+          continue
+        }
+        if (!isPlaceholderMatch(line, m.index, m[0].length)) {
+          hits.push({ path: relative(repo, file), line: i + 1, label, text: line.trim().slice(0, 120) })
+          reported = true
+          break
+        }
+        rx.lastIndex = m.index + m[0].length
       }
+      if (reported) break
     }
   }
 }

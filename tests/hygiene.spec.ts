@@ -134,6 +134,19 @@ describe("repo hygiene check", () => {
     })
   })
 
+  // A placeholder earlier on a line does not exempt the rest of the line.
+  // The check used to look at the first match of a pattern on a line, so
+  // a line whose first occurrence was a placeholder was skipped whole —
+  // and a real path later on that same line went unreported.
+  it("reports a real path that follows a placeholder on the same line", () => {
+    // The fixture strings are assembled rather than written literally:
+    // this file is itself inside the scanned tree.
+    const body = `cp ${F("/mnt/", "c/username/x")} /tmp ${WSL_PATH}`
+    withFixture({ "src/a.ts": body }, dir => {
+      expect(runCheck([dir])).toBe(1)
+    })
+  })
+
   // Docs and tests spell out placeholder paths on purpose. Flagging them
   // teaches everyone to ignore the check, which is worse than not having one.
   it("does not report placeholder paths", () => {
