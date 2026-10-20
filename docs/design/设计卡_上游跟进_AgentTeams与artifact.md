@@ -43,7 +43,7 @@
 
 ### 2.2 artifact file actions（merge 9b308c9568 / PR#3819，branch feat/artifact-file-actions）
 
-- **新 scoped 工具 `present`**（`packages/fs/tool-present`）：模型写盘产出后调用，声明最终交付物；校验文件存在且为 regular file，`maxFiles` 默认 8；成功后发出会话事件
+- **新 scoped 工具 `present`**（`packages/deliverables/tool-present`）：模型写盘产出后调用，声明最终交付物；校验文件存在且为 regular file，`maxFiles` 默认 8；成功后发出会话事件
   **`deliverables/presented`**：`{ turn, callId: ToolCallId, files: PresentedFile[] }`，`PresentedFile = { path, description? }`（types.ts SessionEventMap 注释：来自成功的 final present 结果，**含嵌套调用**）。
 - **关键语义**：文件**留在源路径**，不拷贝不快照（feature note 2026-09-09-present-filesystem-access / 2026-09-08-present-workspace-source-files）；web 端经 session-controller 打开/展示。
 - **session-controller**（src/index.ts diff）：新增 `workspaceDesktop(): { name, available, fileManager: 'finder'|'explorer'|'directory'|null }`；`SessionOpenWorkspacePathRequest` 增 `action?: 'reveal'`（走 `revealNativePath`）。
@@ -88,7 +88,7 @@
 
 `scripts/verify-dsh-contract.mjs` 的 FILES 表增两项 checks：
 - `packages/experimental/agent-team/src/types.ts`：4 个 `team/*` 事件形状正则（`version: 2` + 快照字段名）；
-- `packages/fs/tool-present/src/types.ts`：`'deliverables/presented'` 与 `files: PresentedFile[]` 存在性。
+- `packages/deliverables/tool-present/src/types.ts`：`'deliverables/presented'` 与 `files: PresentedFile[]` 存在性。
 
 ## 5. 失败路径
 

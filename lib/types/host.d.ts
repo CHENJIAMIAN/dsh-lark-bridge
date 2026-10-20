@@ -329,6 +329,14 @@ export interface HostDefaultModel {
 /** The Cordis loader service; awaited so agents never see a half-composed tree. */
 export interface HostLoader {
     await(): Promise<unknown>;
+    /**
+     * The live plugin entries, as the loader sees them.
+     *
+     * This is the seam `/plugins` reads, so it belongs in the contract: an
+     * inventory that silently becomes empty when the host changes is worse
+     * than an inventory that reports itself unreachable.
+     */
+    entries?(): Iterable<unknown>;
 }
 /** One registered namespace's owner scope (subset of the host `SettingsScope`). */
 export interface HostSettingsScope {

@@ -263,6 +263,10 @@ Highlights — the ones other bridges don't have:
 | `/audit` | Operation audit summary |
 | `/config` | The bridge's live configuration |
 | `/feedback` | Rate the last answer |
+| `/new` | Start a new session |
+| `/plugins` | List deployed plugins and status |
+| `/bot` | Bridge admin: status, settings, accounts, plugin sync, devices |
+| `/restart` | Restart the host process (only when the deployment wires it) |
 
 Set `locale: zh|en` to force a language; otherwise it follows the platform domain.
 

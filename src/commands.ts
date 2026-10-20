@@ -188,7 +188,13 @@ export interface CommandOutcome {
  * @param locale - the resolved display language.
  * @returns the markdown listing.
  */
-export function helpText(commands: HostCommands | undefined, agent: HostAgent, locale: 'zh' | 'en' = 'zh', config?: ResolvedConfig): string {
+export function helpText(
+  commands: HostCommands | undefined,
+  agent: HostAgent,
+  locale: 'zh' | 'en' = 'zh',
+  config?: ResolvedConfig,
+  feedback?: HostMessageFeedback,
+): string {
   const own = [
     `\`/${STOP_COMMAND}\` — ${describeCommand(STOP_COMMAND, locale, 'Stop the current task')}`,
     // Listed only when the deployment wired a restart command, matching the panel.
@@ -204,6 +210,10 @@ export function helpText(commands: HostCommands | undefined, agent: HostAgent, l
     `\`/${MODEL_COMMAND}\` — ${describeCommand(MODEL_COMMAND, locale, 'View or switch the default model')}`,
     `\`/${BOT_COMMAND}\` — ${describeCommand(BOT_COMMAND, locale, 'Bridge dual-end status, settings, plugin sync')}`,
     `\`/${BALANCE_COMMAND}\` — ${describeCommand(BALANCE_COMMAND, locale, 'DeepSeek API balance')}`,
+    // Only when the deployment composed the feedback service: listing a
+    // command that answers with "not available" teaches the reader to
+    // distrust the listing.
+    ...(feedback === undefined ? [] : [`\`/${FEEDBACK_COMMAND}\` — ${describeCommand(FEEDBACK_COMMAND, locale, 'Record feedback about this session')}`]),
     `\`/${MANUAL_COMMAND}\` — ${describeCommand(MANUAL_COMMAND, locale, 'The full user guide')}`,
     `\`/${WS_COMMAND}\` — ${describeCommand(WS_COMMAND, locale, 'List registered workspaces')}`,
     `\`/${PLUGINS_COMMAND}\` — ${describeCommand(PLUGINS_COMMAND, locale, 'List deployed plugins and status')}`,
@@ -353,7 +363,7 @@ export async function runCommandLine(
     return runConfigCommand(config)
   }
   if (name === HELP_COMMAND) {
-    return { reply: helpText(commands, agent, config?.locale ?? 'zh', config), resolved: true }
+    return { reply: helpText(commands, agent, config?.locale ?? 'zh', config, feedback), resolved: true }
   }
   if (commands === undefined) {
     return { reply: `⚠️ 本部署没有组合命令运行时，\`/${name}\` 无法执行。`, resolved: false }
@@ -412,7 +422,7 @@ export async function runCommandLine(
   })
   const execution = await execute.call(commands, agent, trimmed, attachmentsSlot, signal)
   if (execution === undefined) {
-    return { reply: `⚠️ 未知命令 \`/${name}\`。\n\n${helpText(commands, agent, config?.locale ?? 'zh')}`, resolved: false }
+    return { reply: `⚠️ 未知命令 \`/${name}\`。\n\n${helpText(commands, agent, config?.locale ?? 'zh', config, feedback)}`, resolved: false }
   }
   const { result } = execution
   // /compact answers in terse English lines ("Compacted 8 history items

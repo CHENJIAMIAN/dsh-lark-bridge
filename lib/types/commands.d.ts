@@ -120,7 +120,7 @@ export interface CommandOutcome {
  * @param locale - the resolved display language.
  * @returns the markdown listing.
  */
-export declare function helpText(commands: HostCommands | undefined, agent: HostAgent, locale?: 'zh' | 'en', config?: ResolvedConfig): string;
+export declare function helpText(commands: HostCommands | undefined, agent: HostAgent, locale?: 'zh' | 'en', config?: ResolvedConfig, feedback?: HostMessageFeedback): string;
 /**
  * Run one command line for a chat's agent.
  *

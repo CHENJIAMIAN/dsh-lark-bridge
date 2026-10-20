@@ -58,6 +58,7 @@ import * as subCard from './subagent-card.ts'
 import {
   AUDIT_COMMAND,
   BALANCE_COMMAND,
+  BOT_COMMAND,
   CONFIG_COMMAND,
   CONTEXT_COMMAND,
   FEEDBACK_COMMAND,
@@ -1291,8 +1292,18 @@ export function installBridge(
     try {
       // The bridge's scoped context delegates `loader` to the root; the cast is
       // safe because every dsh deployment mounts the loader plugin.
-      const root = ctx as unknown as { loader?: { entries?: () => Iterable<unknown> } }
-      return [...(root.loader?.entries?.() ?? [])] as unknown as HostLoaderEntry[]
+      // The same lookup the rest of the bridge uses for host services. The
+      // earlier property access on the scoped context was not the same
+      // seam, so a host that moved the loader left the inventory silently
+      // empty.
+      const loader = ctx.get('loader') as HostLoader | undefined
+      const entries = loader?.entries
+      // A missing seam is not an empty deployment. Returning [] here would
+      // tell the reader "no plugins are installed" when the truth is that
+      // the bridge cannot see them, which is the difference between
+      // "nothing to install" and "the inventory is broken".
+      if (entries === undefined) return undefined
+      return [...entries.call(loader)] as unknown as HostLoaderEntry[]
     } catch {
       return undefined
     }
@@ -1308,13 +1319,20 @@ export function installBridge(
     { name: AUDIT_COMMAND, description: describeCommand(AUDIT_COMMAND, locale, 'View operation audit') },
     { name: BALANCE_COMMAND, description: describeCommand(BALANCE_COMMAND, locale, 'DeepSeek API balance') },
     { name: MANUAL_COMMAND, description: describeCommand(MANUAL_COMMAND, locale, 'The full user guide') },
-    { name: FEEDBACK_COMMAND, description: describeCommand(FEEDBACK_COMMAND, locale, 'Record feedback about this session') },
+    // Only when the deployment composed the feedback service: a panel entry
+    // that always answers with "not available" is worse than no entry.
+    ...(ctx.get('messageFeedback') === undefined ? [] : [{ name: FEEDBACK_COMMAND, description: describeCommand(FEEDBACK_COMMAND, locale, 'Record feedback about this session') }]),
     { name: CONTEXT_COMMAND, description: describeCommand(CONTEXT_COMMAND, locale, 'View context pressure') },
     { name: SKILLS_COMMAND, description: describeCommand(SKILLS_COMMAND, locale, 'List / inspect discoverable skills') },
     { name: MODEL_COMMAND, description: describeCommand(MODEL_COMMAND, locale, 'View or switch the default model') },
     { name: WS_COMMAND, description: describeCommand(WS_COMMAND, locale, 'List registered workspaces') },
     { name: PLUGINS_COMMAND, description: describeCommand(PLUGINS_COMMAND, locale, 'List deployed plugins and status') },
     { name: CONFIG_COMMAND, description: describeCommand(CONFIG_COMMAND, locale, 'View current configuration') },
+    // /bot is listed even when the sync layer is not up: it answers with the
+    // reason rather than failing, and a deployment that enables sync later
+    // must not need a panel re-registration to reach it. The sync context is
+    // published asynchronously, so testing for it here would be a race.
+    { name: BOT_COMMAND, description: describeCommand(BOT_COMMAND, locale, 'Bridge dual-end status, settings, plugin sync') },
     // /restart only exists when the deployment wired a restart command; an
     // unconfigured restart must not sit on the panel answering with an error.
     ...(config.restartCommand === '' ? [] : [{ name: RESTART_COMMAND, description: describeCommand(RESTART_COMMAND, locale, 'Restart the host process') }]),

@@ -184,6 +184,10 @@ pnpm dlx @deepseek-ai/dsh plugin --profile web add @moyu-good/dsh-lark-bridge \
 | `/audit` | 本会话操作审计摘要 |
 | `/config` | 桥的当前配置 |
 | `/feedback` | 给上一条回答评分 |
+| `/new` | 新开会话 |
+| `/plugins` | 查看已部署的插件及运行状态 |
+| `/bot` | 桥管理：状态/设置/账号/插件同步/设备 |
+| `/restart` | 重启服务进程（需部署侧配置） |
 
 **`/bot` 子命令**（桥管理）：`set` / `unset` / `peers` / `sync-plugins` / **`account`**（save·use·forget，交互卡片）/ `export` / `import` / `devices` / `retire` / `activate` / `name`。
 
