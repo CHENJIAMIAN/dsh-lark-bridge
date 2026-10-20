@@ -137,7 +137,7 @@ pnpm dlx @deepseek-ai/dsh plugin --profile web add @moyu-good/dsh-lark-bridge \
 | 📎 文件发送 | Agent 的 `send_file` 带 caption 投递到聊天（本地目录默认拒绝） |
 | 🔑 扫码注册 | 首次启动打印二维码，扫码即建应用 |
 | 🔒 授权窄化 | `senderAllowlist` / `groupAllowlist` / `approvers` |
-| 🧩 驿传钩子 | `chronicleEndpoint`：每条入站消息 fire-and-forget POST 到外部台账 |
+| 🧩 外部台账钩子 | `chronicleEndpoint`：每条入站消息 fire-and-forget POST 到外部台账 |
 | 🛡️ 深度 dsh 适配 | 全部走宿主服务契约，包自包含，无需宿主源码 |
 
 </details>

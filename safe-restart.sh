@@ -85,5 +85,5 @@ fi
 for BRIDGE_PID in "${BRIDGE_PIDS[@]}"; do
   kill "$BRIDGE_PID" 2>/dev/null || true
 done
-pkill -f "run-dsh-web.sh" 2>/dev/null || true
+pkill -f "web 端的启动脚本" 2>/dev/null || true
 exit 0

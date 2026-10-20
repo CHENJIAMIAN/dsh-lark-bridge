@@ -167,7 +167,7 @@ describe('context-pressure polling', () => {
         // The line carries the total the meter returned, so a non-zero
         // total is proof that the meter read the session rather than an id.
         expect(lines.some(line => /total=[1-9]/.test(line))).toBe(true)
-      })
+      }, { timeout: 30_000, interval: 50 })
 
       const first = harness.notices.filter(line => line.includes('token pressure poll'))
       // A second poll with an unchanged number adds no line: the log is
@@ -185,6 +185,46 @@ describe('context-pressure polling', () => {
       expect(third.length).toBe(first.length + 1)
 
       expect(meter.priced.length).toBeGreaterThan(0)
+      await harness.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('survives a session whose meter throws, and says so', async () => {
+    // One session with an unusable meter must not stall the sweep for the
+    // others, and the failure must leave a trace - a session that is
+    // silently skipped is a session nobody knows is unmeasured.
+    vi.useFakeTimers()
+    try {
+      const harness = await mountChannel(
+        { onboarding: false, tokenPressure: { enabled: true, intervalMs: INTERVAL_MS, threshold: THRESHOLD } },
+        {
+          tokenMeter: {
+            measure() {
+              throw new Error('the meter is not ready')
+            },
+          },
+        },
+      )
+      await harness.fake.emitMessage(fakeMessage({ content: '长任务' }))
+      await vi.waitFor(() => {
+        if (harness.agents.created.length === 0) throw new Error('the inbound message created no agent')
+      }, { timeout: 30_000, interval: 50 })
+
+      // The sweep runs, the throw is caught, and the session is skipped.
+      await vi.advanceTimersByTimeAsync(INTERVAL_MS)
+      await vi.advanceTimersByTimeAsync(0)
+
+      // Nothing was posted about pressure: the measurement failed, so the
+      // chat is not told a number that was never measured.
+      expect(pressureWarnings(harness)).toHaveLength(0)
+
+      // And the failure is on the record.
+      const logged = harness.logs.filter(line => line.text.includes('token pressure measure failed'))
+      expect(logged.length).toBeGreaterThan(0)
+      expect(logged.some(line => line.text.includes('the meter is not ready'))).toBe(true)
+
       await harness.dispose()
     } finally {
       vi.useRealTimers()

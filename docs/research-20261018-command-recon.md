@@ -99,7 +99,7 @@
 - 子命令：`check / prepare <tag> / switch <tag> / rollback / status` — :11-15, 207-213。
 - 关键机制：prepare 建 worktree+装依赖+构建+体检（不动生产）— :69-90；switch 先备份（WPS 云盘）→ smoke_test（换端口+剥飞书凭据+占位抓取 key）→ sed 改 launcher 的 `exec node .../lib/bin.js` → systemctl 重启 → 终检，失败自动 rollback — :124-168；state 文件 `<DSH_HOME>/.upgrade-state` — :32, 143-145。
 - 2026-10-10 四处修复：`bin_of` 双布局（老树 `lib/bin.js`／新树 `apps/cli/lib/bin.js`）— :35-38；`http_alive` 401 兼容（web 门要 token，401 也算活）— :39-41；`smoke_test` 重写（后台起+轮询，旧版三处坏）— :92-121；`prev_label` 只从 `exec node` 行取（防命中注释里的旧版本号）— :141-143。
-- 与人工五步 SOP 的关系：SOP 在 `dsh-lark-bridge/docs/dsh升级SOP.md`（`部署侧 SOP 注册表:118-126`，状态「现行」）。SOP 五步=①contract-drift 门禁 ②改 `run-dsh-web.sh` 路径 ③typecheck ④npm test ⑤build+restart+**真发一条飞书消息**（SOP:14-35）；三道闸门+人工闸门见 SOP:37-46。关系=**互补**：脚本是 SOP 中「切树/重启/回滚」环节的自动化并强化（备份、试启动 smoke、终检、rollback），SOP 的桥侧三门禁（契约漂移/类型检查/行为测试）与人工真实验证仍由人工执行；脚本不改桥代码、不跑桥测试。
+- 与人工五步 SOP 的关系：SOP 在 `dsh-lark-bridge/docs/dsh升级SOP.md`（`部署侧 SOP 注册表:118-126`，状态「现行」）。SOP 五步=①contract-drift 门禁 ②改 `web 端的启动脚本` 路径 ③typecheck ④npm test ⑤build+restart+**真发一条飞书消息**（SOP:14-35）；三道闸门+人工闸门见 SOP:37-46。关系=**互补**：脚本是 SOP 中「切树/重启/回滚」环节的自动化并强化（备份、试启动 smoke、终检、rollback），SOP 的桥侧三门禁（契约漂移/类型检查/行为测试）与人工真实验证仍由人工执行；脚本不改桥代码、不跑桥测试。
 
 ### compact_dingze.py（同目录）
 - 一句话：**《通用bot定则》瘦身脚本**——去重（重复章节号，如两个「〇之七」）、删已失效条目、清空目录、按主题归并，只做减法不加新规矩 — :1-12, 23-45（用 `_winpath.resolve` 做跨运行时路径）。

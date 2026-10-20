@@ -21,7 +21,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-RUN="$ROOT/run-dsh-web.sh"
+RUN="$ROOT/web 端的启动脚本"
 LOG_BASE="/home/user/.dsh/logs"
 COMMAND="${1:-status}"
 shift || true
@@ -77,7 +77,7 @@ stop_one() {
   if [[ -n "$FORCE" ]]; then
     echo "multi-profile: force-stopping $profile."
     for pid in $(find_pids "$profile"); do kill "$pid" 2>/dev/null || true; done
-    pkill -f "run-dsh-web.sh $profile" 2>/dev/null || true
+    pkill -f "web 端的启动脚本 $profile" 2>/dev/null || true
   else
     bash "$ROOT/safe-restart.sh" --profile "$profile" || {
       echo "multi-profile: $profile refused — a session is mid-turn (use --force to override)."

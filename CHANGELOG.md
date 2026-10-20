@@ -200,6 +200,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.9.4] - 2026-10-20
 
+### Added
+- **A test for the sweep's failure path.** A session whose meter throws
+  must not stall the sweep for the others, and the failure must leave a
+  trace - a session that is silently skipped is a session nobody knows
+  is unmeasured. The test pins both, and removing the warning that
+  records the failure turns it red.
+- **A timing-sensitive wait no longer times out on a loaded machine.** The
+  new sweep test waited with the default one second, which the suite's own
+  configuration calls out as the flake it is; the inbound handler is
+  fire-and-forget, so the agent and its binding land after the message
+  returns. The wait now uses the same thirty seconds the rest of the
+  suite uses for that, and the test was run ten times to confirm.
+
 ### Fixed
 - **The registry check reads npm's exit code.** It looked for a
   version-shaped string in npm's output and called the version published
@@ -304,7 +317,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 - **`/balance`** — query the DeepSeek open-platform balance the deployment
   bills through (`DEEPSEEK_API_KEY` in the process env; the web deploy
-  exports it in `run-dsh-web.sh`). Verified against the live endpoint
+  exports it in `web 端的启动脚本`). Verified against the live endpoint
   (2026-09-09): per-currency totals with the granted/topped-up breakdown
   shown only when non-zero, service availability, the query moment in
   Beijing time, and the live peak/off-peak phase. Panel + `/help` entry

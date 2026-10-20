@@ -325,7 +325,7 @@ export async function runCommandLine(
   }
   if (name === BALANCE_COMMAND) {
     // The key that matters is the one the harness bills through, which the
-    // deployment exports into this process (run-dsh-web.sh on the web side).
+    // deployment exports into this process (web 端的启动脚本 on the web side).
     const key = process.env.DEEPSEEK_API_KEY
     if (key === undefined || key === '') {
       return {

@@ -20,7 +20,7 @@
 npm run contract-drift      # 对照上游 master 检查契约签名
 
 # 步骤 2｜切换 dsh 版本
-#   修改 run-dsh-web.sh 里的两个路径指向新版本（apps/cli/lib/bin.js + node_modules）
+#   修改 web 端的启动脚本 里的两个路径指向新版本（apps/cli/lib/bin.js + node_modules）
 
 # 步骤 3｜类型检查（最便宜的 API 变更探测器）
 npm run typecheck           # 桥接镜像的 host.ts 若对不上，这里会报
