@@ -28,6 +28,14 @@ const FILES = {
   // The team events: one roster, one task board, and a mailbox. The bridge
   // renders a fleet panel from them.
   agentTeam: 'packages/experimental/agent-team/src/types.ts',
+  // The skill body the `/skills <name>` view reads. The host names the field
+  // `content`; reading `body` off the result reads `undefined`.
+  skill: 'packages/skill/skill/src/index.ts',
+  // The session search hit. A hit is a session record, and the record
+  // carries the header one level down.
+  sessionQuery: 'packages/session-query/session-query/src/types.ts',
+  // The persistence snapshot. The header sits one level down inside it.
+  sessionPersistence: 'packages/session/session-persistence/src/index.ts',
 }
 
 const checks = [
@@ -55,6 +63,21 @@ const checks = [
     name: 'the team mailbox events stay version 2',
     file: 'agentTeam',
     pattern: /'team\/message\/queued': \{ version: 2; teamId: TeamId; message: TeamMessageSnapshot \}/,
+  },
+  {
+    name: 'the skill body is named content',
+    file: 'skill',
+    pattern: /readonly content: string/,
+  },
+  {
+    name: 'a search hit carries the session header one level down',
+    file: 'sessionQuery',
+    pattern: /export interface SessionRecord \{[\s\S]*?\bheader: SessionHeader/,
+  },
+  {
+    name: 'a persistence snapshot carries the session header one level down',
+    file: 'sessionPersistence',
+    pattern: /interface SessionPersistenceSnapshot \{[\s\S]*?readonly header: SessionHeader/,
   },
   {
     name: 'the team member snapshot keeps its name and phase',
@@ -226,6 +249,9 @@ const HOST_PATTERNS = [
   ['HostJobSnapshot mirrors output coordinates', /readonly output\?: \{[\s\S]*readonly total: number[\s\S]*readonly earliest: number/],
   ['HostMessageFeedback mirrors put', /put\(request: \{[\s\S]*readonly sessionId: string[\s\S]*readonly rating: 'positive' \| 'negative'/],
   ['host.ts guards the declared-deliverable event', /export function isPresentedEvent\(/],
+  ['host.ts reads the session header one level down', /export interface HostSessionHeader \{[\s\S]*?readonly header: \{/],
+  ['host.ts reads a search hit header one level down', /export interface HostSessionQueryHit \{[\s\S]*?readonly header: \{/],
+  ['host.ts reads the skill body as content', /get\(name: string\): Promise<\{ readonly content: string \}/],
   ['host.ts keeps the declared-deliverable shape', /readonly callId: string[\s\S]*readonly files: readonly PresentedFileData\[\]/],
   ['host.ts guards the team member event', /export function isTeamMemberEvent\(/],
   ['host.ts guards the team task event', /export function isTeamTaskEvent\(/],

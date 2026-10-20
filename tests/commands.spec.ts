@@ -143,7 +143,10 @@ describe('/preset command', () => {
 describe('/sessions command', () => {
   /** A fake store with the given session headers. */
   function fakeStore(headers: { id: string; createdAt: number }[]): HostSessionPersistence {
-    return { list: async () => headers }
+    // The persistence store hands back snapshots, and the header sits one
+    // level down inside each. A flat record here would let the bridge read
+    // `id` off a shape the host never sends.
+    return { list: async () => headers.map(header => ({ header })) }
   }
 
   it('lists this chat sessions, newest first, marking the current one', async () => {
@@ -201,8 +204,8 @@ describe('/sessions command', () => {
       searchSessions: async (req: { query: string }) => ({
         items: req.query === '飞书'
           ? [
-              { session: { id: 'feishu-oc_chat_1', createdAt: 1_700_000_000_000 }, bestMatch: { snippet: '用户在做飞书桥的 i18n 开发' } },
-              { session: { id: 'feishu-oc_chat_2', createdAt: 1_700_000_500_000 }, bestMatch: { snippet: '其他话题' } },
+              { header: { id: 'feishu-oc_chat_1', createdAt: 1_700_000_000_000 }, bestMatch: { snippet: '用户在做飞书桥的 i18n 开发' } },
+              { header: { id: 'feishu-oc_chat_2', createdAt: 1_700_000_500_000 }, bestMatch: { snippet: '其他话题' } },
             ]
           : [],
       }),
@@ -786,7 +789,7 @@ describe('/skills command', () => {
   function fakeSkills(summaries: Array<{ name: string; description: string; source?: string }> = [], bodies: Record<string, string> = {}) {
     return {
       list: async () => summaries,
-      get: async (name: string) => (name in bodies ? { body: bodies[name] } : undefined),
+      get: async (name: string) => (name in bodies ? { content: bodies[name] } : undefined),
     }
   }
 

@@ -135,7 +135,7 @@ describe('thinking process (CoT)', () => {
       turn: 1,
       message: {
         source: { callId: 'c1' },
-        content: [{ type: 'tool-result', toolCallId: 'c1', content: [{ type: 'text', text: 'total 24' }] }],
+        content: [{ type: 'text', text: 'total 24', toolCallId: 'c1' }],
       },
     })
 

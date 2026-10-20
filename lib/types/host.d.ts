@@ -108,9 +108,18 @@ export interface HostAgentOptions {
 }
 /** One persisted session's header, as this plugin's lookup reads it. */
 export interface HostSessionHeader {
-    readonly id: string;
-    /** Unix epoch milliseconds; the newest header for a chat is the one to resume. */
-    readonly createdAt: number;
+    /**
+     * The session's own header.
+     *
+     * The persistence store hands back a snapshot with the header one level
+     * down, not a flat record — reading `id` off the snapshot reads
+     * `undefined`.
+     */
+    readonly header: {
+        readonly id: string;
+        /** Unix epoch milliseconds; the newest header for a chat is the one to resume. */
+        readonly createdAt: number;
+    };
 }
 /**
  * The `sessionPersistence` store (subset of the host provider). Only headers
@@ -605,10 +614,19 @@ export interface ToolResultData {
         readonly source?: {
             readonly callId?: string;
         };
+        /**
+         * The tool message's model-facing blocks.
+         *
+         * The host sends these flat: a text block carries its `text` beside its
+         * `type`, not inside a nested list. An older host nested them one level
+         * deeper, so both shapes are read.
+         */
         readonly content: readonly {
             readonly type: string;
             readonly toolCallId?: string;
-            /** Nested model-facing blocks; a tool's text output lives here. */
+            /** The block's text, when it carries one. */
+            readonly text?: string;
+            /** Nested model-facing blocks; the older host's shape. */
             readonly content?: readonly {
                 readonly type: string;
                 readonly text?: string;
@@ -845,7 +863,13 @@ declare module '@deepseek-ai/cordis' {
 }
 /** One cross-session search hit (subset of the host `SessionSearchHit`). */
 export interface HostSessionQueryHit {
-    readonly session: {
+    /**
+     * The matched session's header.
+     *
+     * A search hit is a session record, and the record carries the header one
+     * level down — the same shape the persistence store returns.
+     */
+    readonly header: {
         readonly id: string;
         readonly createdAt?: number;
     };
@@ -988,8 +1012,14 @@ export interface HostSkills {
     /** List invocation-neutral skill summaries for a workspace. */
     list(): Promise<HostSkillSummary[]>;
     /** Load a full skill by name; `undefined` when absent or invalid. */
+    /**
+     * One skill's body, as the host returns it.
+     *
+     * The host names the field `content`; reading `body` off the result
+     * reads `undefined`, and trimming that throws.
+     */
     get(name: string): Promise<{
-        readonly body: string;
+        readonly content: string;
     } | undefined>;
 }
 /**

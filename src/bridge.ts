@@ -1032,18 +1032,25 @@ export function installBridge(
     ctx.logger.warn('user-questions provider unavailable: %s', error)
   }
 
-  /** Resolve the provider/model for a new chat agent; config overrides the host default. */
+  /**
+   * Resolve the provider/model for a new chat agent.
+   *
+   * The host's own selection comes first: it carries the choice `/model`
+   * saved, and the config values are the deployment's initial defaults
+   * rather than a lock. Reading the config first would make `/model` report
+   * a switch that never reaches a new agent.
+   */
   const modelSelection = (): HostAgentOptions => {
+    const defaults = ctx.get('agentDefaultModel') as HostDefaultModel | undefined
+    if (defaults !== undefined) {
+      return defaults.currentSelection()
+    }
     if (config.provider !== undefined || config.model !== undefined) {
       return { provider: config.provider, model: config.model }
     }
-    const defaults = ctx.get('agentDefaultModel') as HostDefaultModel | undefined
-    if (defaults === undefined) {
-      throw new Error(
-        'dsh-lark-bridge: no model configured — set config.provider/model or compose the agentDefaultModel service',
-      )
-    }
-    return defaults.currentSelection()
+    throw new Error(
+      'dsh-lark-bridge: no model configured — set config.provider/model or compose the agentDefaultModel service',
+    )
   }
 
   /**
