@@ -27,10 +27,21 @@
         # syncSlashCommands: true    # publish commands to the bot's `/` panel
         # sessionScope: chat         # chat-thread / chat-sender split it finer
         requireMention: true
-        # /restart: kill this process and let systemd bring it back.
+        # /restart: kill this process and let the supervisor bring it back.
         # The command runs detached after a 2.5 s delay (the reply reaches
-        # the chat first); systemd's Restart=always is what actually revives it.
-        restartCommand: systemctl restart dsh-feishu-chat.service
+        # the chat first); the supervisor's Restart=always is what revives it.
+        #
+        # How to restart is a deployment concern — a systemd unit name, a
+        # container runtime, a process manager — so it is not baked in here.
+        # The bridge ships the command shape; the deployment supplies the how.
+        # The value is read from the environment so that a unit name, which
+        # is this deployment's own topology, never travels inside a
+        # published package.
+        #
+        # Deployments that use systemd set DSH_RESTART_COMMAND, for example
+        #   systemctl restart <your-unit>.service
+        # and leave it unset to keep /restart unavailable.
+        restartCommand: !!js process.env.DSH_RESTART_COMMAND ?? ''
         # Authorization narrows; it does not gate. Who can reach the bot at all
         # is the app's visibility scope in the developer console. Unconfigured,
         # this serves any room it is added to (when @-mentioned) and anyone the

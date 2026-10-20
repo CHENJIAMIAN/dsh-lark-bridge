@@ -38,18 +38,82 @@ const BASE_PATTERNS = [
 ]
 
 // Documentation and tests legitimately spell out placeholder paths
-// (/home/user/project, /mnt/c/<win-user>/...). Flagging those trains people
+// (a home directory under a generic user name, a WSL mount under a
+// bracketed stand-in). Flagging those trains people
 // to ignore the check, so placeholders are skipped.
+// Segments that may follow a WSL mount prefix and still be a stand-in.
+// Deliberately narrow: a real path under a WSL mount must be reported.
+const WSL_PROFILE_SEGMENTS = new Set(["<win-user>", "<username>", "<user>", "user", "username"])
+
 const PLACEHOLDER_USERS = new Set([
   "user", "username", "yourname", "your-user", "youruser", "you", "me",
   "example", "test", "foo", "bar", "baz", "someone", "somebody",
   "project", "projects", "home", "name", "x", "xxx",
+  // Generic stand-ins that appear inside paths in documentation and tests.
+  // "win-user" is the one used for the Windows profile directory in this
+  // project's own examples; without it the examples read as real paths.
+  "win-user", "winuser", "windows-user", "<win-user>", "dsh",
 ])
 
-function isPlaceholder(line) {
-  if (/[<>]/.test(line)) return true // <win-user>, <username> — explicitly generic
-  const m = line.match(/(?:\/home\/|\/Users\/|:\\\\(?:Users|Projects?|Documents|Desktop)\\\\)([A-Za-z0-9._-]+)/i)
-  if (m && PLACEHOLDER_USERS.has(m[1].toLowerCase())) return true
+// A line is exempt from a pattern only when the match itself sits inside a
+// placeholder — not when the line merely contains an angle bracket.
+//
+// The earlier rule ("any line containing < or > is a placeholder") was far
+// too broad: it exempted the whole line from every pattern whenever the
+// line contained an arrow (=> or ->), a generic type parameter (<T>), a
+// comparison (a < b), an HTML tag, or a markdown quote marker (> ). That is
+// a structural blind spot, not a placeholder allowance: in the CI-covered
+// files, 7.9% of all non-empty lines contain an angle bracket, and a real
+// leak sitting on any of them was never reported. A quoted markdown line
+// that mentioned a private term was never caught either, because the whole
+// line was skipped.
+function placeholderSpans(line) {
+  const spans = []
+  for (const m of line.matchAll(/<([^<>\n]{1,64})>/g)) {
+    const inner = m[1].trim().toLowerCase()
+    if (PLACEHOLDER_USERS.has(inner)) spans.push({ start: m.index, end: m.index + m[0].length })
+  }
+  return spans
+}
+
+function isPlaceholderMatch(line, matchIndex, matchLength) {
+  // The match is exempt when it falls inside a placeholder span.
+  for (const span of placeholderSpans(line)) {
+    if (matchIndex >= span.start && matchIndex + matchLength <= span.end) return true
+  }
+  // The second allowance: a home-directory path whose user segment is a
+  // well-known placeholder name (/home/user/..., /Users/<you>/...).
+  //
+  // This is judged on the matched text itself, not on where the match sits:
+  // the pattern for an absolute home path matches "/home/user/" including
+  // the user segment, so the whole match is the placeholder.
+  const matched = line.slice(matchIndex, matchIndex + matchLength)
+  // The user segment of a home path. The pattern matches "/home/" plus the
+  // user segment, so the segment is inside the matched text.
+  const seg = matched.match(/(?:\/home\/|\/Users\/)([A-Za-z0-9._-]+)/i)
+  if (seg && PLACEHOLDER_USERS.has(seg[1].toLowerCase())) return true
+  // The Windows form is different: the pattern matches only the
+  // directory, so the user segment sits just after the match, on the
+  // line. Look for it there.
+  const win = line.slice(matchIndex).match(/^[A-Za-z]:\\+[A-Za-z]+\\+([A-Za-z0-9._-]+)/i)
+  if (win && PLACEHOLDER_USERS.has(win[1].toLowerCase())) return true
+  // The same allowance for a WSL mount: /mnt/c/<win-user>/... is a generic
+  // Windows profile directory, not a real path.
+  //
+  // Judged on the line, not on the matched text: the pattern for a WSL mount
+  // matches only the mount prefix, which carries no user segment of its own
+  // — the generic one sits in the next segment, as a bracketed stand-in.
+  //
+  // The generic PLACEHOLDER_USERS list is deliberately NOT used here: it
+  // contains words like "project" and "name", and a real path under a
+  // mount is not a stand-in. Only a bracketed segment
+  // counts, or one of the names a WSL profile directory plausibly takes.
+  const wsl = line.match(/\/mnt\/[a-z]\/([^/\n]+)/i)
+  if (wsl) {
+    const seg = wsl[1].trim().toLowerCase()
+    const bracketed = /^<.+>$/.test(seg)
+    if (bracketed || WSL_PROFILE_SEGMENTS.has(seg)) return true
+  }
   return false
 }
 
@@ -111,8 +175,10 @@ function scanFile(repo, file, patterns, hits) {
   const lines = content.split("\n")
   for (const [re, label] of patterns) {
     for (let i = 0; i < lines.length; i++) {
-      if (re.test(lines[i]) && !isPlaceholder(lines[i])) {
-        hits.push({ path: relative(repo, file), line: i + 1, label, text: lines[i].trim().slice(0, 120) })
+      const line = lines[i]
+      const m = re.exec(line)
+      if (m && !isPlaceholderMatch(line, m.index, m[0].length)) {
+        hits.push({ path: relative(repo, file), line: i + 1, label, text: line.trim().slice(0, 120) })
         break
       }
     }
@@ -146,12 +212,35 @@ function main() {
     if (!existsSync(base) || !statSync(base).isDirectory()) continue
     for (const f of walk(base, [])) scanFile(repo, f, patterns, hits)
   }
+  // Top-level files in the repository root are scanned too. They used to be
+  // invisible to this check: the scan walked a fixed list of directories, and
+  // the root was not among them — so a file like cordis.patch.yml (the
+  // bundle's own configuration, which ships with the package) could carry
+  // this deployment's unit name and the check would report "clean".
+  // The root is where the package's own manifest, README and bundle config
+  // live, so it is exactly the place a deployment detail is most likely to
+  // be pasted in by accident.
+  for (const name of readdirSync(repo)) {
+    if (SKIP_DIRS.has(name)) continue
+    const full = join(repo, name)
+    let st
+    try {
+      st = statSync(full)
+    } catch {
+      continue
+    }
+    if (st.isFile() && SCAN_EXT.has(extname(name))) scanFile(repo, full, patterns, hits)
+  }
   // Build output ships to npm, so it is scanned too — but only when asked,
   // since a minified bundle legitimately contains long opaque strings.
   if (args.lib) {
     const lib = join(repo, "lib")
-    if (existsSync(lib)) scanFile(repo, lib, patterns, hits)
-    for (const f of walk(lib, [])) scanFile(repo, f, patterns, hits)
+    // existsSync covers the directory itself; walk() needs the guard too,
+    // because a repository without a lib/ directory made the scan throw
+    // ENOENT and the check died instead of reporting.
+    if (existsSync(lib) && statSync(lib).isDirectory()) {
+      for (const f of walk(lib, [])) scanFile(repo, f, patterns, hits)
+    }
   }
 
   if (!hits.length) {

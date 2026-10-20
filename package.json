@@ -16,7 +16,7 @@
     "contract-drift": "node scripts/verify-dsh-contract.mjs",
     "audit-host": "node scripts/audit-host-contract.mjs",
     "verify-upgrade": "bash scripts/verify-upgrade.sh",
-    "hygiene": "node scripts/check-repo-hygiene.mjs . --lib"
+    "hygiene": "node scripts/check-repo-hygiene.mjs . --lib --patterns-file .leak-patterns"
   },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
