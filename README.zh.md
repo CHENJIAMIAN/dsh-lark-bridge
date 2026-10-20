@@ -213,8 +213,19 @@ pnpm dlx @deepseek-ai/dsh plugin --profile web add @moyu-good/dsh-lark-bridge \
 ```
 
 带得走的：共享设置与各 profile 插件清单（经上游 CLI 重装，跨平台直接可用）。
-永不带走的：peer 心跳、control token、`node_modules`、会话历史——会话在
-`~/.dsh`（上游管理），整目录拷贝即可带走。
+永不带走的：peer 心跳、control token、`node_modules`、会话历史。
+
+会话历史在 `~/.dsh`（上游管理）。要带走，只拷会话目录：
+
+```text
+~/.dsh/sessions/     # 会话本体
+~/.dsh/storages/     # 会话投影缓存与工作区索引
+```
+
+**不要整目录拷 `~/.dsh`**。`~/.dsh/dsh-lark-bridge/device-state.json` 记着本机的
+`deviceId` 与退位标记：拷过去会让新机顶着旧机的身份（两台机器抢同一个聊天），
+还可能把退位标记一并带走——新机开机后每条消息只回一行提示，不再驱动 agent。
+上面的迁移文件本就不含这些状态，它们是每机私有的。
 
 **设备生命周期**：每台机器首启生成稳定 `deviceId`（`/bot devices` 查看台账：
 本机、心跳在线端、云端活跃端、迁移档案）。旧机不用手动停——`/bot retire`

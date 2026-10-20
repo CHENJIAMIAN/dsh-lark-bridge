@@ -11,6 +11,8 @@
 import os from 'node:os'
 import path from 'node:path'
 import fsp from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import type { SharedSettings } from './settings-store.ts'
 import { maskSecret, readSettings, syncDir } from './settings-store.ts'
 import type { ProfileManifest } from './profile-manifest.ts'
@@ -194,6 +196,15 @@ export interface DeviceState {
   deviceId?: string
   /** Human-readable name (defaults to hostname, settable via `/bot name`). */
   deviceName?: string
+  /**
+   * Digest of this machine's own identifiers, used to notice that a copied
+   * state file landed on a different machine.
+   *
+   * A digest, never the raw identifier: the file is per-machine local state
+   * and may be copied around, and the identifier itself is not needed by
+   * anyone else.
+   */
+  machineFingerprint?: string
 }
 
 const DEVICE_STATE_NAME = 'device-state.json'
@@ -227,14 +238,76 @@ export async function writeDeviceState(state: DeviceState, home?: string): Promi
  * across restarts and form switches, and a NEW machine mints its own — the
  * file never travels with a migration (only per-machine state lives there).
  */
-export async function ensureDeviceId(home?: string): Promise<{ deviceId: string; deviceName: string }> {
+/** Options for {@link ensureDeviceId}. */
+export interface EnsureDeviceIdOptions {
+  /**
+   * The machine digest to compare against, overriding the one read from the
+   * host. Tests pass a value so they can play both machines.
+   */
+  fingerprint?: string
+}
+
+/**
+ * A digest of this machine's own identifiers.
+ *
+ * `/etc/machine-id` is the strongest signal available on Linux hosts (WSL
+ * included) and survives a reboot; the hostname is the fallback for hosts
+ * without it. The raw value is never stored.
+ * @returns a hex digest, or undefined when the host offers no identifier.
+ */
+export function machineFingerprint(): string | undefined {
+  const parts: string[] = []
+  try {
+    parts.push(readFileSync('/etc/machine-id', 'utf8').trim())
+  } catch {
+    // A host without machine-id falls back to the hostname below.
+  }
+  parts.push(os.hostname())
+  if (parts.every(part => part === '')) return undefined
+  return createHash('sha256').update(parts.join('\u0000')).digest('hex').slice(0, 32)
+}
+
+/**
+ * This machine's stable identity, minted into device-state.json on first
+ * use. Hostname and pid are NOT identity (both drift); a device keeps its id
+ * across restarts and form switches, and a NEW machine mints its own — the
+ * file never travels with a migration (only per-machine state lives there).
+ *
+ * A copied state file is the one way that promise breaks, so the state
+ * carries a digest of the machine it was minted on. When the digest does not
+ * match, the file belongs to another machine: the identity is re-minted and
+ * the retired flag goes with it, because a retirement belongs to the machine
+ * that asked for it.
+ * @param home - the sync home; defaults to this machine's.
+ * @param options - an explicit fingerprint, for tests.
+ * @returns the identity this machine answers with.
+ */
+export async function ensureDeviceId(
+  home?: string,
+  options: EnsureDeviceIdOptions = {},
+): Promise<{ deviceId: string; deviceName: string }> {
   const state = await readDeviceState(home)
-  if (state.deviceId !== undefined) {
-    return { deviceId: state.deviceId, deviceName: state.deviceName ?? os.hostname() }
+  const fingerprint = options.fingerprint ?? machineFingerprint()
+  const deviceName = state.deviceName ?? os.hostname()
+  // A state without a digest predates the check: keep the identity, and
+  // record the digest so the next start can compare.
+  const arrivedFromAnotherMachine = state.machineFingerprint !== undefined
+    && fingerprint !== undefined
+    && state.machineFingerprint !== fingerprint
+  if (state.deviceId !== undefined && !arrivedFromAnotherMachine) {
+    if (state.machineFingerprint === undefined && fingerprint !== undefined) {
+      await writeDeviceState({ ...state, machineFingerprint: fingerprint }, home)
+    }
+    return { deviceId: state.deviceId, deviceName }
   }
   const deviceId = `dev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-  const deviceName = state.deviceName ?? os.hostname()
-  await writeDeviceState({ ...state, deviceId, deviceName }, home)
+  const next: DeviceState = { ...state, deviceId, deviceName }
+  if (fingerprint !== undefined) next.machineFingerprint = fingerprint
+  // The retired flag came from the other machine: it said nothing about
+  // this one, and honouring it would silence a fresh machine.
+  delete next.retired
+  delete next.retiredAt
+  await writeDeviceState(next, home)
   return { deviceId, deviceName }
 }
 

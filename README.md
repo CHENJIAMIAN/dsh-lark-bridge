@@ -149,8 +149,22 @@ path on the new machine, install the plugin there (Quick Start above), then:
 
 What travels: shared settings and per-profile plugin lists (installed through
 the upstream CLI, so cross-platform moves just work). What never travels:
-peer heartbeats, control tokens, `node_modules`, session history — sessions
-live under `~/.dsh` (upstream-owned); copy that directory to carry them.
+peer heartbeats, control tokens, `node_modules`, session history.
+
+Session history lives under `~/.dsh` (upstream-owned). To carry it across,
+copy the session directories only:
+
+```text
+~/.dsh/sessions/     # the conversations themselves
+~/.dsh/storages/     # session projection cache and workspace index
+```
+
+Do **not** copy the whole of `~/.dsh`. `~/.dsh/dsh-lark-bridge/device-state.json`
+holds this machine's `deviceId` and its retired flag: a copy would give the
+new machine the old machine's identity (both would answer the same chat) and
+could bring the retired flag along, so the new machine would greet every
+message with a one-line notice instead of running the agent. The migration
+file above never contains that state — it is per-machine by design.
 
 **Device lifecycle**: every machine mints a stable `deviceId` on first boot
 (`/bot devices` shows the roster: this machine, heartbeat-live peers, the
