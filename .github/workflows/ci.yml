@@ -2,7 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [main, 'feat/**']
+    # Every branch, not a list of prefixes: a branch whose name does not
+    # match a pattern is a branch whose changes are never checked, and the
+    # failure mode is invisible - the push looks accepted and the check
+    # never runs. The pull_request trigger below covers the branches that
+    # matter most, but a push to a branch with no pull request is still a
+    # push, and it should be checked where it lands.
+    branches: ['**']
   pull_request:
 
 jobs:
@@ -36,3 +42,17 @@ jobs:
       - run: pnpm typecheck
       - run: node scripts/verify-dsh-contract.mjs
       - run: pnpm test
+      # The build output is committed, and the running plugin loads it, so a
+      # change under src/ that never reached lib/ ships the old code with a
+      # green check. This has happened: the ledger records a fix that was
+      # in the source but not in the bundle the process was running.
+      # Rebuilding here and asking git for a difference makes that
+      # impossible to merge: the step fails when the committed output does
+      # not match what the source produces.
+      - name: Committed build matches the source
+        run: |
+          pnpm run build
+          if ! git diff --exit-code -- lib; then
+            echo "::error title=lib is stale::The committed build output differs from what the source produces. Run 'pnpm run build' and commit the result."
+            exit 1
+          fi
