@@ -31,7 +31,7 @@
 | Release | 已建、tarball 已附（524344 bytes） |
 | CI | 绿 |
 | Release 步骤 | 14 步全绿；只有「Verify the registry」红＝**预期**（无 npm token） |
-| 泄漏面 | 解包逐文件核：私人称呼 / 东家 / 本机路径 / 用户名 / 服务单元名 / 部署脚本名 / 内部系统名 / 治理系统名 / 翰林院 = **10 类全 0 命中** |
+| 泄漏面 | 解包逐文件核：私人称呼 / 东家 / 本机路径 / 用户名 / 服务单元名 / 部署脚本名 / 内部系统名 / 治理系统名 / 另一处内部项目名 = **10 类全 0 命中** |
 | 关键修复 | 混合体 Proxy、`measure(binding.session)`、poll 记录、catch 留痕 = **全在** |
 | 装上能用 | `npm i` 成功 + `require` 成功（导出 `Config,apply,inject,name`） |
 
@@ -46,7 +46,7 @@
 2. 本机与 Windows 侧 `.npmrc` —— 只有 `registry=`，**无 `_authToken`**
 3. 环境变量 —— 无 `NPM_TOKEN` / `NODE_AUTH_TOKEN`
 4. GitHub Actions（仓库级 secrets + variables + environments）—— **只有 `REPO_HYGIENE_PATTERNS`**
-5. 全盘特征串扫（`/root` + `/mnt/d/PROJECT` + Windows 侧）—— **零命中**
+5. 全盘特征串扫（本机根目录 + 项目盘 + Windows 用户目录）—— **零命中**
 6. 飞书会话历史 + 当前 P2P 原文（bot 身份读出 49925 字节）—— 零命中
 
 ★ 可能给在**别的对话**：那要 user 身份列 P2P（飞书隐私限制：bot 不能列），
