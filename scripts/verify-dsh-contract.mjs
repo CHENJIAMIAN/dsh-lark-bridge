@@ -117,6 +117,47 @@ const checks = [
   },
 ]
 
+/**
+ * Checks that count a method's arguments the way JavaScript does at runtime.
+ *
+ * The text of a signature can stay the same while the value the bridge reads
+ * at runtime changes: `execute(agent, line, attachments, signal = new
+ * AbortController().signal)` still matches a pattern that looks for the four
+ * parameters, but its `.length` is 3, because JavaScript counts only the
+ * parameters before the first default. The bridge reads that length to decide
+ * between calling with three arguments and with four, so a default added
+ * upstream would silently change the call shape — which is exactly how issue
+ * #2 happened.
+ *
+ * A default is therefore counted here, the same way JavaScript counts it, and
+ * the result is compared against the shapes the bridge knows how to call.
+ */
+const arityChecks = [
+  {
+    name: 'commands.execute 的运行时参数个数',
+    file: 'commands',
+    member: 'execute',
+    // Only four. A length of three is ambiguous here: it is either a host
+    // that never had an attachments slot, or a host that has one and gives
+    // the signal a default value — and the second reading is the one that
+    // broke issue #2, because the bridge would then put the signal into
+    // the attachments slot. The bridge's own call is pinned to the
+    // four-argument shape, so a host that reports three is drift.
+    accept: [4],
+    find(source) {
+      const match = /async execute\(([^)]*)\)/s.exec(source)
+      if (match === null) return null
+      const params = match[1]
+        .split(',')
+        .map((part) => part.trim())
+        .filter((part) => part.length > 0)
+      // JavaScript counts only the parameters before the first default.
+      const firstDefault = params.findIndex((part) => part.includes('='))
+      return firstDefault === -1 ? params.length : firstDefault
+    },
+  },
+]
+
 const HOST_PATTERNS = [
   ['HostAgent.cancel mirrors options', /cancel\(cause: string, options\?: \{ readonly keepInbox\?: boolean \}\): void/],
   ['GoalChangeData carries cleared tombstone', /readonly cleared\?: \{ readonly id: string; readonly revision\?: number \}/],
@@ -145,6 +186,20 @@ async function main() {
   for (const check of checks) {
     const ok = check.pattern.test(sources[check.file])
     console.log(`${ok ? '  ✅' : '  ❌'} ${check.name}`)
+    if (!ok) failed += 1
+  }
+  for (const check of arityChecks) {
+    const found = check.find(sources[check.file])
+    if (found === null) {
+      console.log(`  ❌ ${check.name} — 没能从上游源码里找到 ${check.member}`)
+      failed += 1
+      continue
+    }
+    const ok = check.accept.includes(found)
+    console.log(
+      `${ok ? '  ✅' : '  ❌'} ${check.name} — 运行时 arity=${found}`
+      + `（桥按此选三参/四参；期望 ${check.accept.join(' 或 ')}）`,
+    )
     if (!ok) failed += 1
   }
   for (const [name, pattern] of HOST_PATTERNS) {
