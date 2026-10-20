@@ -21,9 +21,51 @@ const FILES = {
   presetRegistry: 'packages/preset/agent-preset-registry/src/index.ts',
   commands: 'packages/interaction/commands/src/index.ts',
   tokenMeter: 'packages/llm/token-meter/src/index.ts',
+  // The declared-deliverable event: the host tells the channel which files
+  // a turn produced. The bridge delivers them to the chat, so the shape
+  // below is a contract it depends on.
+  toolPresent: 'packages/deliverables/tool-present/src/types.ts',
+  // The team events: one roster, one task board, and a mailbox. The bridge
+  // renders a fleet panel from them.
+  agentTeam: 'packages/experimental/agent-team/src/types.ts',
 }
 
 const checks = [
+  {
+    name: 'declared deliverables carry turn, callId and files',
+    file: 'toolPresent',
+    pattern: /'deliverables\/presented': \{ turn: number; callId: ToolCallId; files: PresentedFile\[\] \}/,
+  },
+  {
+    name: 'a declared file carries a path and an optional description',
+    file: 'toolPresent',
+    pattern: /export interface PresentedFile \{[\s\S]*?\bpath: string[\s\S]*?\bdescription\?: string[\s\S]*?\}/,
+  },
+  {
+    name: 'team events stay version 2 with snapshot payloads',
+    file: 'agentTeam',
+    pattern: /'team\/member': \{ version: 2; teamId: TeamId; member: TeamMemberSnapshot \}/,
+  },
+  {
+    name: 'the team task event stays version 2',
+    file: 'agentTeam',
+    pattern: /'team\/task': \{ version: 2; teamId: TeamId; task: TeamTaskSnapshot \}/,
+  },
+  {
+    name: 'the team mailbox events stay version 2',
+    file: 'agentTeam',
+    pattern: /'team\/message\/queued': \{ version: 2; teamId: TeamId; message: TeamMessageSnapshot \}/,
+  },
+  {
+    name: 'the team member snapshot keeps its name and phase',
+    file: 'agentTeam',
+    pattern: /export interface TeamMemberSnapshot \{[\s\S]*?readonly name: string[\s\S]*?readonly phase: TeamMemberPhase[\s\S]*?\}/,
+  },
+  {
+    name: 'the team task snapshot keeps its subject and status',
+    file: 'agentTeam',
+    pattern: /export interface TeamTaskSnapshot \{[\s\S]*?readonly subject: string[\s\S]*?readonly status: TeamTaskStatus[\s\S]*?\}/,
+  },
   {
     name: 'Agent.cancel keeps the options signature',
     file: 'agent',
@@ -183,7 +225,10 @@ const HOST_PATTERNS = [
   ['HostJobs mirrors readAt', /readAt\(id: string, from: number, caller\?: string\): HostJobOutputRead/],
   ['HostJobSnapshot mirrors output coordinates', /readonly output\?: \{[\s\S]*readonly total: number[\s\S]*readonly earliest: number/],
   ['HostMessageFeedback mirrors put', /put\(request: \{[\s\S]*readonly sessionId: string[\s\S]*readonly rating: 'positive' \| 'negative'/],
+  ['host.ts guards the declared-deliverable event', /export function isPresentedEvent\(/],
+  ['host.ts keeps the declared-deliverable shape', /readonly callId: string[\s\S]*readonly files: readonly PresentedFileData\[\]/],
 ]
+
 
 async function main() {
   const sources = {}

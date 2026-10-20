@@ -113,6 +113,15 @@ export interface Config {
    * failures are logged and never affect handling. Empty disables.
    */
   briefingFile?: string
+  /**
+   * Deliver files the model declares as deliverables to the chat.
+   *
+   * On by default. The model declared the file and the chat is where the
+   * person is: a deliverable that stays on the host's disk is invisible to
+   * the only audience that asked for it. The delivery reuses the ordinary
+   * file path, so the same directory policy and the same failure text apply.
+   */
+  presentBridge?: boolean
   /** Auto-save inbound file messages into the agent workspace. Default true. */
   autoSaveFiles?: boolean
   /**
@@ -243,6 +252,8 @@ export interface ResolvedConfig {
   chronicleEndpoint: string
   /** Briefing file prepended to first message per session; '' disables. */
   briefingFile: string
+  /** Whether declared deliverables are delivered to the chat. */
+  presentBridge: boolean
   /** Whether inbound files are auto-saved to the workspace. */
   autoSaveFiles: boolean
   /** Numbered model menu for /model command. */
@@ -289,6 +300,7 @@ export const Config: z<Config> = z.object({
   chronicleEndpoint: z.string().default(''),
   briefingFile: z.string().default(''),
   autoSaveFiles: z.boolean().default(true),
+  presentBridge: z.boolean().default(true),
   modelCatalog: z.array(z.string()).default([]),
   chronicleSource: z.string().default('lark-bridge'),
   onboarding: z.boolean().default(true),
@@ -344,6 +356,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     chronicleSource: config.chronicleSource ?? 'lark-bridge',
     briefingFile: config.briefingFile ?? '',
     autoSaveFiles: config.autoSaveFiles ?? true,
+    presentBridge: config.presentBridge ?? true,
     modelCatalog: config.modelCatalog ?? [],
     onboarding: config.onboarding ?? true,
     denyTools: config.denyTools ?? [...DEFAULT_DENY_TOOLS],

@@ -681,6 +681,33 @@ export declare function isCompactionPruneEvent(event: HostSessionEvent): event i
     readonly data: CompactionPruneData;
 };
 /** Narrow a session event to one subagent descriptor. */
+/**
+ * One file the model declared as a deliverable at the end of a turn.
+ *
+ * The path is what the model wrote; it can be absolute or relative to the
+ * session's working directory. The description is the model's own caption
+ * for the file.
+ */
+export interface PresentedFileData {
+    readonly path: string;
+    readonly description?: string;
+}
+/** The data carried by a `deliverables/presented` event. */
+export interface PresentedEventData {
+    readonly turn: number;
+    readonly callId: string;
+    readonly files: readonly PresentedFileData[];
+}
+/**
+ * Whether the event declares files the model wants delivered.
+ *
+ * The guard checks the shape, not just the name: a host that emits the
+ * event with a different payload should leave the bridge's delivery path
+ * closed rather than deliver something it cannot read.
+ */
+export declare function isPresentedEvent(event: HostSessionEvent): event is HostSessionEvent & {
+    readonly data: PresentedEventData;
+};
 export declare function isSubagentDescriptorEvent(event: HostSessionEvent): event is HostSessionEvent & {
     readonly data: SubagentDescriptorData;
 };

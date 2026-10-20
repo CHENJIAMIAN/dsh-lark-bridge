@@ -700,6 +700,49 @@ export function isCompactionPruneEvent(
 }
 
 /** Narrow a session event to one subagent descriptor. */
+/**
+ * One file the model declared as a deliverable at the end of a turn.
+ *
+ * The path is what the model wrote; it can be absolute or relative to the
+ * session's working directory. The description is the model's own caption
+ * for the file.
+ */
+export interface PresentedFileData {
+  readonly path: string
+  readonly description?: string
+}
+
+/** The data carried by a `deliverables/presented` event. */
+export interface PresentedEventData {
+  readonly turn: number
+  readonly callId: string
+  readonly files: readonly PresentedFileData[]
+}
+
+/**
+ * Whether the event declares files the model wants delivered.
+ *
+ * The guard checks the shape, not just the name: a host that emits the
+ * event with a different payload should leave the bridge's delivery path
+ * closed rather than deliver something it cannot read.
+ */
+export function isPresentedEvent(
+  event: HostSessionEvent,
+): event is HostSessionEvent & { readonly data: PresentedEventData } {
+  if (event.type !== 'deliverables/presented') return false
+  const data = event.data
+  if (typeof data !== 'object' || data === null) return false
+  const candidate = data as { turn?: unknown; callId?: unknown; files?: unknown }
+  if (typeof candidate.turn !== 'number' || typeof candidate.callId !== 'string') return false
+  if (!Array.isArray(candidate.files)) return false
+  return candidate.files.every((file) => {
+    if (typeof file !== 'object' || file === null) return false
+    const entry = file as { path?: unknown; description?: unknown }
+    if (typeof entry.path !== 'string' || entry.path === '') return false
+    return entry.description === undefined || typeof entry.description === 'string'
+  })
+}
+
 export function isSubagentDescriptorEvent(
   event: HostSessionEvent,
 ): event is HostSessionEvent & { readonly data: SubagentDescriptorData } {

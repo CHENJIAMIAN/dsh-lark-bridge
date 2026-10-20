@@ -98,6 +98,15 @@ export interface Config {
      * failures are logged and never affect handling. Empty disables.
      */
     briefingFile?: string;
+    /**
+     * Deliver files the model declares as deliverables to the chat.
+     *
+     * On by default. The model declared the file and the chat is where the
+     * person is: a deliverable that stays on the host's disk is invisible to
+     * the only audience that asked for it. The delivery reuses the ordinary
+     * file path, so the same directory policy and the same failure text apply.
+     */
+    presentBridge?: boolean;
     /** Auto-save inbound file messages into the agent workspace. Default true. */
     autoSaveFiles?: boolean;
     /**
@@ -227,6 +236,8 @@ export interface ResolvedConfig {
     chronicleEndpoint: string;
     /** Briefing file prepended to first message per session; '' disables. */
     briefingFile: string;
+    /** Whether declared deliverables are delivered to the chat. */
+    presentBridge: boolean;
     /** Whether inbound files are auto-saved to the workspace. */
     autoSaveFiles: boolean;
     /** Numbered model menu for /model command. */

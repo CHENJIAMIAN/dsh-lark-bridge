@@ -45,7 +45,7 @@ import type {
   ScheduleEntry,
 } from './host.ts'
 import type { HostJobs, HostJobSnapshot, HostLoaderEntry, HostMessageFeedback, HostSession, HostSessionQuery, HostSkills, HostTokenMeter, SubagentEndData, WorkflowRunInfoData } from './host.ts'
-import { isAssistantMessageEvent, isCompactionEndEvent, isCompactionPruneEvent, isCompactionStartEvent, isCompactionSummaryEvent, isGoalChangeEvent, isLlmRetryEvent, isScheduleChangeEvent, isStepStartEvent, isSubagentCatalogEvent, isSubagentDescriptorEvent, isTodoWriteEvent, isToolCallEvent, isTurnEndEvent, isWebSearchRequestEvent, isWorkflowAgentEndEvent, isWorkflowAgentStartEvent, isWorkflowRunEndEvent, isWorkflowRunStartEvent } from './host.ts'
+import { isAssistantMessageEvent, isCompactionEndEvent, isPresentedEvent, isCompactionPruneEvent, isCompactionStartEvent, isCompactionSummaryEvent, isGoalChangeEvent, isLlmRetryEvent, isScheduleChangeEvent, isStepStartEvent, isSubagentCatalogEvent, isSubagentDescriptorEvent, isTodoWriteEvent, isToolCallEvent, isTurnEndEvent, isWebSearchRequestEvent, isWorkflowAgentEndEvent, isWorkflowAgentStartEvent, isWorkflowRunEndEvent, isWorkflowRunStartEvent } from './host.ts'
 import { createCotRenderer } from './cot.ts'
 import type { CotPort } from './cot.ts'
 import { createMessageRenderer, createStreamRenderer } from './outbound.ts'
@@ -617,6 +617,17 @@ export function installBridge(
       return deliverFile(replay, binding.chatId, cwd, args)
     },
   })
+  // Declared deliverables reach the chat through the same path. The model
+  // ends a turn by naming files it produced; without this they stay on the
+  // host's disk, and the person who asked for them is looking at the chat.
+  const deliverDeclaredFile = async (sessionId: string, path: string, caption: string | undefined) => {
+    const binding = bySession.get(sessionId)
+    if (binding === undefined) throw new Error(`会话 ${sessionId} 不在当前聊天`)
+    return deliverFile(replay, binding.chatId, cwd, {
+      path,
+      ...caption === undefined || caption === '' ? {} : { caption },
+    })
+  }
   // Native Feishu tools (2026-09-09): the agent can act on Feishu itself —
   // proactive messages through the same replay-wrapped transport, and the
   // app's cloud-drive space as a durable cross-device scratchpad. Registered
@@ -658,6 +669,15 @@ export function installBridge(
   // Rebuilt from schedule/change events as they stream in; a restart starts
   // empty (the schedules themselves survive in the session log).
   const scheduleRegistry = new Map<string, Map<string, ScheduleEntry>>()
+  /**
+   * Call ids whose declared files were already delivered, per session.
+   *
+   * A turn can end with more than one declaration, and a host may replay
+   * the event or nest calls, so the call id is what makes the delivery
+   * exactly-once. The set is bounded by the number of declarations one
+   * session makes, which is small.
+   */
+  const presentedCalls = new Map<string, Set<string>>()
   // Per-session preset choice made via /preset. Process-local: a restart
   // falls back to the configured default, which the /config command states.
   const sessionPresets = new Map<string, string>()
@@ -2183,6 +2203,43 @@ export function installBridge(
         mode: event.data.mode,
         ...event.data.label === undefined ? {} : { label: event.data.label },
       }, true)
+    }
+    if (isPresentedEvent(event)) {
+      // The model declared files at the end of its turn. Deliver them to the
+      // chat, once per declaration.
+      //
+      // The event fires once per declaration, but a host may replay it or
+      // nest calls, so the call id is what makes the delivery exactly-once.
+      // A session that already delivered this call is skipped.
+      if (config.presentBridge !== false) {
+        const callId = event.data.callId
+        let seen = presentedCalls.get(session.id)
+        if (seen === undefined) { seen = new Set<string>(); presentedCalls.set(session.id, seen) }
+        if (!seen.has(callId)) {
+          seen.add(callId)
+          // Deliveries are sequential: the chat reads them in the order the
+          // model declared them, and a second file waits for the first to
+          // settle rather than racing it.
+          void (async () => {
+            for (const file of event.data.files) {
+              const caption = file.description === undefined || file.description === ''
+                ? `交付文件 · turn ${event.data.turn}`
+                : file.description
+              try {
+                await deliverDeclaredFile(session.id, file.path, caption)
+              } catch (error) {
+                // A file that cannot be delivered is reported once, in the
+                // chat, and not retried: the retry belongs to the model,
+                // which can call the send tool again with a different path.
+                const detail = error instanceof Error ? error.message : String(error)
+                void replay.send(binding.chatId, {
+                  markdown: `⚠️ 交付文件 \`${file.path}\` 未能送达：${detail}`,
+                }).catch(reportSendFailure)
+              }
+            }
+          })()
+        }
+      }
     }
     if (isScheduleChangeEvent(event)) {
       const line = scheduleLine({
