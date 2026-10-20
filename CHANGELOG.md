@@ -230,6 +230,45 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   poll, so a non-zero total is proof that the meter read the session.
 
 
+## [0.9.5] - 2026-10-20
+
+### Fixed
+
+- **The published package no longer carries this machine's names.** The
+  leak gate watched for private forms of address, this machine's paths and
+  its hostname; it did not watch for the name of an internal system, the
+  name of a local deployment script, or the name of the service unit. The
+  package that went out as 0.9.4 contained all three, and the gate
+  reported the repository clean. The pattern list now covers them, the
+  text no longer carries them, and the gate's own list is refreshed in the
+  workflow's secret so the check on the runner sees what the local check
+  sees.
+
+- **A change under the source that never reached the build output no
+  longer passes.** The build output is committed and the running plugin
+  loads it, so an edit that stopped at the source shipped the previous
+  behaviour with a green check. The workflow now rebuilds and asks git for
+  a difference, so a stale committed build fails the run. The check on
+  the runner's own path, where the source maps differ, is included.
+
+- **A push to a branch outside the listed names is checked.** The push
+  trigger named two patterns; a branch outside them got no check at all,
+  and the failure mode was invisible. Every branch is checked now.
+
+- **The registry check no longer reads an answer out of a failed
+  command.** It required the command to succeed and the output to look
+  like a version, but it never compared the two, and the registry treats
+  a version request as a range. A version that was never published could
+  therefore be reported as published. The output must now equal the
+  version, and a registry that cannot be reached is reported as unknown
+  rather than as missing.
+
+### Notes
+
+- **0.9.4 carries those names in its published tarball.** It was cut
+  before the fix above. Install from a later version, or from the git
+  source of the current main, which is clean.
+
 ## [0.9.0] — 2026-09-13
 
 ### Changed
