@@ -29,7 +29,12 @@ const BASE_PATTERNS = [
   [/\/root\//, "root home path"],
   [/\/Users\/[A-Za-z0-9._-]+\//, "macOS home path"],
   [/\/mnt\/[a-z]\//, "WSL mount path"],
-  [/[A-Za-z]:\\\\(?:Users|Projects?|Documents|Desktop)\\\\/i, "Windows user path"],
+  // A Windows profile path. The backslashes are written one or two per
+  // separator: a path in a source file usually has single ones, while a
+  // path in a string literal that itself escapes them has doubled ones.
+  // Matching only the doubled form left the plain form unreported, which
+  // is the form a real path actually takes.
+  [/[A-Za-z]:\\+(?:Users|Projects?|Documents|Desktop)\\+/i, "Windows user path"],
   // Credentials pasted into source.
   [/\bgh[pousr]_[A-Za-z0-9]{20,}/, "GitHub token"],
   [/\bgithub_pat_[A-Za-z0-9_]{20,}/, "GitHub fine-grained token"],
@@ -145,6 +150,10 @@ function trackedFiles(repo) {
     const out = execFileSync("git", ["-C", repo, "ls-files", "-z"], {
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
+      // git prints "fatal: not a git repository" on stderr when the
+      // directory is not one; that noise does not belong in the check's
+      // output.
+      stdio: ["ignore", "pipe", "ignore"],
     })
     const files = out.split("\0").filter(Boolean)
     if (files.length) return files

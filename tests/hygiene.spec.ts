@@ -112,6 +112,28 @@ describe("repo hygiene check", () => {
     })
   })
 
+  // A Windows path is written with one backslash per separator in a source
+  // file, and with two when the string literal itself escapes them. Both
+  // spellings are a real path, and both have to be reported — matching only
+  // the doubled form left the plain form unreported, which is the form a
+  // real path actually takes.
+  it("reports a real Windows path in either spelling", () => {
+    const plain = 'const p = "C:' + "\\" + 'Users' + "\\" + 'realuser' + "\\" + 'docs"'
+    const escaped = 'const p = "C:' + "\\\\" + 'Users' + "\\\\" + 'realuser' + "\\\\" + 'docs"'
+    for (const body of [plain, escaped]) {
+      withFixture({ "src/a.ts": body }, dir => {
+        expect(runCheck([dir])).toBe(1)
+      })
+    }
+  })
+
+  it("does not report a Windows path under a placeholder user name", () => {
+    const body = 'const p = "C:' + "\\" + 'Users' + "\\" + 'username' + "\\" + 'docs"'
+    withFixture({ "src/a.ts": body }, dir => {
+      expect(runCheck([dir])).toBe(0)
+    })
+  })
+
   // Docs and tests spell out placeholder paths on purpose. Flagging them
   // teaches everyone to ignore the check, which is worse than not having one.
   it("does not report placeholder paths", () => {
