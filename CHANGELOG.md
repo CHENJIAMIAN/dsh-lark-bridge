@@ -12,11 +12,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   front of `signal`; the bridge still called the old three-argument shape, so
   the signal landed in the attachments slot, the real signal stayed
   `undefined`, and the host threw while reading `signal.aborted`. The bridge
-  now reads the runtime's own arity instead of hard-coding a shape — four
-  parameters means the attachments slot exists, three means it does not — so
-  neither an older nor a newer host can silently mis-align the arguments
-  again. Both arms are pinned by regression tests, and the regression is
-  proven: restoring the hard-coded three-argument call turns them red.
+  now passes an argument that satisfies both shapes at once: an empty array
+  for the host that wants attachments there, and the signal's own members
+  for the host that wants the signal there. Reading the host's argument
+  count was not enough — a host that gives `signal` a default value reports
+  three arguments while still having the attachments slot, and picking the
+  three-argument shape for it puts the signal where the attachments belong,
+  which is this same failure but silent. Each host shape is pinned by a
+  regression test, and the regression is proven: restoring the
+  argument-count choice turns the default-value case red.
 - **A failing slash command now says "command execution failed" instead of
   "cannot start session".** The command path runs on the host, not on the
   model, so the outer session-creation catch was reporting a session problem
@@ -27,7 +31,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   dozen upstream signatures but none for `commands.execute` — the exact gap
   issue #2 fell through. The gate now asserts the upstream signature
   directly, against the live upstream branch, so the next slot insertion
-  fails in CI instead of in production.
+  fails in CI instead of in production. It also counts the arguments the
+  way JavaScript counts them, because a signature can keep its text and
+  change its length: giving `signal` a default value leaves the source
+  unchanged and takes the count from four to three.
 - **The pnpm install note now matches the pnpm reality**: after the failed
   install pnpm writes a line into the profile holding the literal text
   `set this to true or false` (not a boolean) and it must be replaced, and
