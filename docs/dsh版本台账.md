@@ -21,6 +21,73 @@
 
 **回滚方法**：把 env 文件里的 `DSH_HARNESS_DIR` 改回目标树再重启（升级脚本的 rollback 会自动做）
 
+## 2026-10-20 收尾（0.9.5 发布 + 第七份复核核销 + npm 通道查证）
+
+### 0.9.5 已发布（包是干净的）
+
+| 项 | 实测 |
+|---|---|
+| tag | `v0.9.5` → `eb2725e` |
+| Release | 已建、tarball 已附（524344 bytes） |
+| CI | 绿 |
+| Release 步骤 | 14 步全绿；只有「Verify the registry」红＝**预期**（无 npm token） |
+| 泄漏面 | 解包逐文件核：私人称呼 / 东家 / 本机路径 / 用户名 / 服务单元名 / 部署脚本名 / 内部系统名 / 治理系统名 / 翰林院 = **10 类全 0 命中** |
+| 关键修复 | 混合体 Proxy、`measure(binding.session)`、poll 记录、catch 留痕 = **全在** |
+| 装上能用 | `npm i` 成功 + `require` 成功（导出 `Config,apply,inject,name`） |
+
+★ **为什么必须发 0.9.5**：0.9.4 的 tarball（18:44 切的）**仍带三处泄漏**，
+  泄漏清理是 19:26 之后才做的；**已发布产物不可改** ⇒ 只能出新版本。
+  0.9.5 的 CHANGELOG 已写明「0.9.4 的包带那些名字，请装 0.9.5」。
+
+### npm 通道：token 不在机器上，但也不需要
+
+六路查证，**均无**：
+1. 凭据台账（`config/keys-ledger.md`）——**没有 npm 这一节**（只有模型 key、采集通道、GLM MCP、Congress.gov）
+2. 本机与 Windows 侧 `.npmrc` —— 只有 `registry=`，**无 `_authToken`**
+3. 环境变量 —— 无 `NPM_TOKEN` / `NODE_AUTH_TOKEN`
+4. GitHub Actions（仓库级 secrets + variables + environments）—— **只有 `REPO_HYGIENE_PATTERNS`**
+5. 全盘特征串扫（`/root` + `/mnt/d/PROJECT` + Windows 侧）—— **零命中**
+6. 飞书会话历史 + 当前 P2P 原文（bot 身份读出 49925 字节）—— 零命中
+
+★ 可能给在**别的对话**：那要 user 身份列 P2P（飞书隐私限制：bot 不能列），
+  而 **lark-cli 的 user 授权已过期**。
+★ **但 token 不是必需的**（实测）：`npm i github:moyu-good/dsh-lark-bridge#v0.9.5`
+  **成功**（236 文件、版本 0.9.5、泄漏 0）⇒ 报障人现在就能拿到干净修复版。
+  两条 issue（#2 / #4）的评论已更新到 0.9.5。
+
+### 第七份复核（13:07 派）逐条核销
+
+它报的**三条「拦路项」实测后全部不成立**：
+
+| 它的指控 | 判决 | 反例 |
+|---|---|---|
+| Windows 正则要求两个反斜杠、整条规则是死的 | **不成立** | 源码是 `\+`＝一个或多个；实测「一个反斜杠 + Windows 用户目录」被报出 3 条 |
+| WSL 占位豁免能藏 token | **不成立** | 豁免从 `line.slice(matchIndex)` 起算，不取行内第一个；实测「占位在前 + `ghp_` token 在后」被报出 |
+| `cmd_rollback` 只认 HTTP 200 | **已修** | 15:20 那版已走 `http_alive`（200 或 401 都算活） |
+
+它报的**真问题 1 条（已修）**：台账「版本切换方式」段还写「启动脚本两处路径」
+「当前指向 0.2.1-alpha.2」——**两句都假**（今天改成仓外 env 文件机制 + 已切 rc.2）。
+
+★ 它还报「`DEEPSEEK_API_KEY` 在生产是空串」⇒ **不是问题**：生产主模型是
+  opencode-go，那把 DeepSeek key 只供 hermes 搜索用，本就不该进 dsh 进程。
+
+### 公开面复扫（六面）
+
+issue / issue 评论 / PR / PR 评论 / Release / commit message：
+- 前五面 **0 命中**
+- **Release v0.3.0 的 body 里还有一处部署脚本名 ⇒ 已改**（那个 release 的 notes 写的是当时的部署命令）
+- **commit message 面还剩 1 条**（2026-09-09 的 `/balance` 提交）⇒
+  **这正是第三次历史改写要清的**（单独改它也要重写后续全部历史＝同一件事）⇒ **不单独处理**
+
+### 已知缺口（不为它单发版本）
+
+- **包内不含 `CHANGELOG.md`**（`files` 白名单只有 `lib`/`src`/`bin`/README/LICENSE/`cordis.patch.yml`）
+  ⇒ 报障人装完看不到变更说明（GitHub 上能看到）。改白名单要重建 + 重发 tag，
+  **与下次发版合并**。
+- **`refs/pull/3/head`** 的 commit message 仍含私人称呼 ⇒ 只能靠 GitHub Support。
+- **生产 tokenMeter 行为层零证据**：chat profile 的 `insert:` 无 `dsh-token-meter`
+  ⇒ 18:28 之后生产零入站 ⇒ `bySession` 空 ⇒ poll 空转。**代码在、触发条件不在**。
+
 ## 目录清单
 
 | 版本 | 路径 | 状态 |
