@@ -20,7 +20,28 @@ export interface SendFileArgs {
     readonly path: string;
     /** Optional caption text delivered with the attachment. */
     readonly caption?: string;
+    /**
+     * How to deliver the file, when the extension does not say.
+     *
+     * A recording named `recording.dat` would otherwise arrive as a download
+     * link; the transport can carry it as a voice note the human plays in
+     * place. Omitted, the kind is read from the extension.
+     */
+    readonly kind?: SendFileKind;
 }
+/** The shapes the transport can deliver a file in. */
+export type SendFileKind = 'file' | 'image' | 'audio' | 'video';
+/**
+ * The kind a file is delivered in, read from its extension.
+ *
+ * The extension is the only signal the model does not have to be taught:
+ * a `.mp3` is a recording and a `.mp4` is a clip, whatever the tool call
+ * says. An unknown extension is a file — the safe reading, because a file
+ * can always be opened.
+ * @param fileName - the file's name.
+ * @returns the kind to deliver it in.
+ */
+export declare function sendFileKindFor(fileName: string): SendFileKind;
 /** The file-delivery capability the tool factory receives from the bridge. */
 export interface SendFileCapability {
     /**

@@ -10,7 +10,8 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { AuditStats, HostAgent, HostAgentPresets, HostCommands, HostDefaultModel, HostJobs, HostLoaderEntry, HostMessageFeedback, HostSessionPersistence, HostSessionQuery, HostSkills, HostTokenMeter, HostWorkspaceRegistry, ScheduleEntry } from './host.ts'
+import type { AuditStats, HostAgent, HostAgentPresets, HostCommands, HostDefaultModel, HostJobs, HostLoaderEntry, HostMessageFeedback, HostSessionPersistence, HostSessionQuery, HostSkills, HostTokenMeter, HostWorkspaceRegistry, ScheduleEntry,
+  HostTools,} from './host.ts'
 import type { ResolvedConfig } from './config.ts'
 import { describeCommand, helpHeading } from './i18n.ts'
 import type { SyncCommandContext } from './sync/bot-command.ts'
@@ -272,6 +273,8 @@ export async function runCommandLine(
   currentCwd: string | undefined = undefined,
   loaderEntries: readonly HostLoaderEntry[] | undefined = undefined,
   sync: SyncCommandContext | undefined = undefined,
+  tools: HostTools | undefined = undefined,
+  toolScope: unknown = undefined,
 ): Promise<CommandOutcome> {
   const trimmed = line.trimStart()
   const name = commandName(trimmed) ?? ''
@@ -313,7 +316,7 @@ export async function runCommandLine(
     return runContextCommand(agent, tokenMeter)
   }
   if (name === TOOLS_COMMAND) {
-    return runToolsCommand(trimmed, deniedTools)
+    return runToolsCommand(trimmed, deniedTools, tools, toolScope)
   }
   if (name === SCHEDULES_COMMAND) {
     return runSchedulesCommand(agent, schedules)
@@ -938,9 +941,63 @@ function runSchedulesCommand(
  * @param deniedTools - the live denied-tool set, when the bridge shares one.
  * @returns the reply for the chat.
  */
+/**
+ * The tools visible in a scope, as the reader sees them.
+ *
+ * The seam is optional: a deployment that does not compose the listing
+ * shows the deny list alone, which is still an answer. A host that throws
+ * while enumerating is another deployment's problem, and the reader should
+ * not lose the deny list over it.
+ * @param tools - the tools service, when the deployment composes one.
+ * @param scope - the viewing scope; omitted views the global layer.
+ * @returns the visible tools, or undefined when the seam is absent.
+ */
+function toolInventory(
+  tools: HostTools | undefined,
+  scope: unknown,
+): readonly { readonly name: string; readonly description?: string }[] | undefined {
+  if (tools === undefined || typeof tools.schemas !== 'function') return undefined
+  try {
+    const listed = tools.schemas(scope)
+    if (!Array.isArray(listed)) return undefined
+    return listed
+      .filter(entry => entry !== null && typeof entry === 'object' && typeof (entry as { name?: unknown }).name === 'string')
+      .map(entry => ({
+        name: (entry as { name: string }).name,
+        ...typeof (entry as { description?: unknown }).description === 'string'
+          ? { description: (entry as { description: string }).description }
+          : {},
+      }))
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The MCP servers a tool list shows, read off the host's namespace.
+ *
+ * The host registers an MCP server's tools as `mcp__<server>__<tool>`, so
+ * the servers are already in the names — no separate registry to ask for.
+ * @param tools - the visible tools, or undefined when the seam is absent.
+ * @returns the server names, sorted, without duplicates.
+ */
+function mcpServerNames(
+  tools: readonly { readonly name: string }[] | undefined,
+): string[] {
+  if (tools === undefined) return []
+  const servers = new Set<string>()
+  for (const tool of tools) {
+    const match = /^mcp__([A-Za-z0-9_-]+)__/.exec(tool.name)
+    if (match !== null) servers.add(match[1]!)
+  }
+  return [...servers].sort()
+}
+
 function runToolsCommand(
   line: string,
   deniedTools: ReadonlySet<string> | undefined,
+  tools: HostTools | undefined = undefined,
+  toolScope: unknown = undefined,
 ): CommandOutcome {
   const args = line.slice(`/${TOOLS_COMMAND}`.length).trim().split(/\s+/).filter(a => a !== '')
   if (deniedTools === undefined) {
@@ -959,11 +1016,26 @@ function runToolsCommand(
     return { reply: `✅ 已允许 \`${tool}\`。`, resolved: true }
   }
   const listed = [...deniedTools]
-  const body = listed.length === 0
+  const deniedBody = listed.length === 0
     ? '当前没有禁用的工具。'
     : `当前禁用（${listed.length}）：\n${listed.map(t => `· \`${t}\``).join('\n')}`
+  // What the machine can do, not only what someone switched off: a reader
+  // asking "what can this deployment do" has no other way to find out.
+  const available = toolInventory(tools, toolScope)
+  const availableBody = available === undefined
+    ? ''
+    : available.length === 0
+      ? '\n当前作用域里没有可用的工具。'
+      : `\n可用（${available.length}）：\n${available.map(t => `· \`${t.name}\`${t.description === undefined || t.description === '' ? '' : ` — ${t.description}`}`).join('\n')}`
+  // The MCP servers this deployment talks to, read off the tool names the
+  // host namespaces them under (`mcp__<server>__<tool>`). A deployment that
+  // connects a server otherwise shows nothing about it in the chat.
+  const mcpServers = mcpServerNames(available)
+  const mcpBody = mcpServers.length === 0
+    ? ''
+    : `\nMCP 服务器（${mcpServers.length}）：${mcpServers.map(s => `\`${s}\``).join('、')}`
   return {
-    reply: `**工具开关**\n${body}\n\n用法：\`/${TOOLS_COMMAND} deny <name>\` 禁用、\`/${TOOLS_COMMAND} allow <name>\` 恢复。`,
+    reply: `**工具开关**\n${deniedBody}${availableBody}${mcpBody}\n\n用法：\`/${TOOLS_COMMAND} deny <name>\` 禁用、\`/${TOOLS_COMMAND} allow <name>\` 恢复。`,
     resolved: true,
   }
 }

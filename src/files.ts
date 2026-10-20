@@ -26,7 +26,43 @@ export interface SendFileArgs {
   readonly path: string
   /** Optional caption text delivered with the attachment. */
   readonly caption?: string
+  /**
+   * How to deliver the file, when the extension does not say.
+   *
+   * A recording named `recording.dat` would otherwise arrive as a download
+   * link; the transport can carry it as a voice note the human plays in
+   * place. Omitted, the kind is read from the extension.
+   */
+  readonly kind?: SendFileKind
 }
+
+/** The shapes the transport can deliver a file in. */
+export type SendFileKind = 'file' | 'image' | 'audio' | 'video'
+
+/**
+ * The kind a file is delivered in, read from its extension.
+ *
+ * The extension is the only signal the model does not have to be taught:
+ * a `.mp3` is a recording and a `.mp4` is a clip, whatever the tool call
+ * says. An unknown extension is a file — the safe reading, because a file
+ * can always be opened.
+ * @param fileName - the file's name.
+ * @returns the kind to deliver it in.
+ */
+export function sendFileKindFor(fileName: string): SendFileKind {
+  const ext = fileName.slice(fileName.lastIndexOf('.') + 1).toLowerCase()
+  if (AUDIO_EXTENSIONS.has(ext)) return 'audio'
+  if (VIDEO_EXTENSIONS.has(ext)) return 'video'
+  if (IMAGE_EXTENSIONS.has(ext)) return 'image'
+  return 'file'
+}
+
+/** Extensions the transport delivers as a voice note. */
+const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'm4a', 'aac', 'ogg', 'opus', 'flac', 'amr'])
+/** Extensions the transport delivers as a video. */
+const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'mkv', 'webm', 'avi', 'm4v'])
+/** Extensions the transport delivers as an image. */
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'])
 
 /** The file-delivery capability the tool factory receives from the bridge. */
 export interface SendFileCapability {
@@ -84,6 +120,13 @@ export function createSendFileTool(capability: SendFileCapability): object {
       properties: {
         path: { type: 'string', description: 'Absolute or workspace-relative path of the file to send' },
         caption: { type: 'string', description: 'Optional short caption delivered with the file' },
+        kind: {
+          type: 'string',
+          enum: ['file', 'image', 'audio', 'video'],
+          description: 'How to deliver it. Omit it and the file extension decides: '
+            + 'a recording arrives as a voice note and a clip as a video, both playable in the chat. '
+            + 'Name it only when the extension does not tell.',
+        },
       },
       required: ['path'],
     },
@@ -144,7 +187,16 @@ export async function deliverFile(
   if (caption !== undefined && caption !== '') {
     await port.send(chatId, { markdown: caption })
   }
-  await port.send(chatId, { file: { source: absolute, fileName } })
+  const kind = args.kind ?? sendFileKindFor(fileName)
+  if (kind === 'image') {
+    await port.send(chatId, { image: { source: absolute } })
+  } else if (kind === 'audio') {
+    await port.send(chatId, { audio: { source: absolute } })
+  } else if (kind === 'video') {
+    await port.send(chatId, { video: { source: absolute } })
+  } else {
+    await port.send(chatId, { file: { source: absolute, fileName } })
+  }
   return { fileName }
 }
 

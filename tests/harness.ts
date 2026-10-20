@@ -744,8 +744,10 @@ export function createFakeCommands(
 /** An in-memory `tools` registry that can describe calls and record guards. */
 export function createFakeTools(
   presenters: Record<string, (args: unknown) => { title?: string } | undefined> = {},
+  inventory: readonly { name: string; description?: string }[] = [],
 ) {
   const views: { name: string; scope: unknown }[] = []
+  const scopes: unknown[] = []
   const service = {
     guard: () => () => undefined,
     get(name: string, scope?: unknown) {
@@ -753,8 +755,12 @@ export function createFakeTools(
       const presentCall = presenters[name]
       return presentCall === undefined ? undefined : { presentCall }
     },
+    schemas(scope?: unknown) {
+      scopes.push(scope)
+      return inventory
+    },
   }
-  return { service, views }
+  return { service, views, scopes }
 }
 
 /** An in-memory `settings` service: one namespace layering base under `stored`. */

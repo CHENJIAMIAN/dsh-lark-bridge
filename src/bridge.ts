@@ -45,7 +45,11 @@ import type {
   ScheduleEntry,
 } from './host.ts'
 import type { HostJobs, HostJobSnapshot, HostLoaderEntry, HostMessageFeedback, HostSession, HostSessionQuery, HostSkills, HostTokenMeter, SubagentEndData, WorkflowRunInfoData } from './host.ts'
-import { isAssistantMessageEvent, isCompactionEndEvent, isPresentedEvent, isCompactionPruneEvent, isCompactionStartEvent, isCompactionSummaryEvent, isGoalChangeEvent, isLlmRetryEvent, isScheduleChangeEvent, isStepStartEvent, isSubagentCatalogEvent, isSubagentDescriptorEvent, isTodoWriteEvent, isToolCallEvent, isTurnEndEvent, isWebSearchRequestEvent, isWorkflowAgentEndEvent, isWorkflowAgentStartEvent, isWorkflowRunEndEvent, isWorkflowRunStartEvent } from './host.ts'
+import { isAssistantMessageEvent, isCompactionEndEvent, isPresentedEvent, isCompactionPruneEvent, isCompactionStartEvent, isCompactionSummaryEvent, isGoalChangeEvent, isLlmRetryEvent, isScheduleChangeEvent, isStepStartEvent, isSubagentCatalogEvent, isSubagentDescriptorEvent, isTodoWriteEvent, isToolCallEvent, isTurnEndEvent, isWebSearchRequestEvent, isWorkflowAgentEndEvent, isWorkflowAgentStartEvent, isWorkflowRunEndEvent, isWorkflowRunStartEvent ,
+  isTeamMemberEvent,
+  isTeamTaskEvent,
+  isTeamMessageEvent,
+  isTeamMessageDeliveredEvent} from './host.ts'
 import { createCotRenderer } from './cot.ts'
 import type { CotPort } from './cot.ts'
 import { createMessageRenderer, createStreamRenderer } from './outbound.ts'
@@ -55,6 +59,7 @@ import type { Authorization } from './authorization.ts'
 import { postChronicle } from './chronicle.ts'
 import { briefingPrefix } from './briefing.ts'
 import * as subCard from './subagent-card.ts'
+import * as teamCard from './team-card.ts'
 import {
   AUDIT_COMMAND,
   BALANCE_COMMAND,
@@ -230,6 +235,14 @@ interface AgentComposition {
   readonly presetId?: string
   /** Names what each call of this session's tools does, and its category. */
   readonly presentCall: ToolPresentation
+  /**
+   * The viewing scope this session's tools live in.
+   *
+   * A roster keeps every model-facing row off the global layer, so the
+   * scope is what a reader needs to see the tools this session actually
+   * has. It is the same opaque key the host's own tool view takes.
+   */
+  readonly toolScope?: unknown
   /** Creation-time composition: the preset join plus this channel's own rows. */
   readonly setup: (agentCtx: Context) => Promise<void>
 }
@@ -476,11 +489,15 @@ function composeChatAgent(
 ): void {
   // Channel-owned tools (currently `send_file`) register on the agent's own
   // scope, so they exist exactly where the agent looks, and vanish with it.
-  // 0.1.5 exposes the service through the Context merge (`agent.ctx.tools`).
-  // `ctx.get('tools')` still type-checks but no longer hands back the service
-  // itself, so every registration threw "register is not a function" and the
-  // channel's own tools silently did not exist for the agent. Prefer the
-  // accessor and keep `get` only as the fallback for older harnesses.
+  // The service is read through the Context merge first (`agent.ctx.tools`):
+  // that is where the host puts it, and the accessor reaches the same
+  // instance. `ctx.get('tools')` is the fallback for harnesses that only
+  // register the service under its name.
+  //
+  // The comment this replaced said `get` no longer handed back the service.
+  // That was true of one 0.1.5-era shape; the current host registers the
+  // runtime as `super(ctx, 'tools')`, so `get` resolves it again — the
+  // upstream's own plugins read it that way.
   const tools = ((agentCtx as unknown as { tools?: unknown }).tools
     ?? agentCtx.get('tools')) as (HostTools & { register(definition: object): () => void }) | undefined
   for (const tool of extraTools) {
@@ -683,6 +700,8 @@ export function installBridge(
   // falls back to the configured default, which the /config command states.
   const sessionPresets = new Map<string, string>()
   const subagentTrackers = new Map<string, subCard.SubagentCardState>()
+  /** One team card per chat, with the message id it updates in place. */
+  const teamTrackers = new Map<string, { state: teamCard.TeamCardState; messageId?: string; updatedAt?: number }>()
   /** 外勤会话镜像 (P141)：未绑定且非子会话的独立会话，按会话节流推一行进度。 */
   const externalMirrorAt = new Map<string, number>()
   /** childId → chatId. 0.1.5 runs every child in its OWN session — the id
@@ -749,6 +768,31 @@ export function installBridge(
     if (!force && tracker.updatedAt !== undefined && now - tracker.updatedAt < CARD_UPDATE_MIN_MS) return
     tracker.updatedAt = now
     const card = subCard.render(tracker, now)
+    if (tracker.messageId === undefined) {
+      const sent = await replay.send(chatId, { card })
+      tracker.messageId = sent.messageId
+      return
+    }
+    await port.updateCard(tracker.messageId, card)
+  }
+
+  /**
+   * Send or refresh the team card for one chat.
+   *
+   * The card is sent once and updated in place afterwards, so a reader
+   * watches one panel instead of scrolling a stream of team notices. The
+   * throttle keeps a burst of team events from turning into a burst of card
+   * updates.
+   * @param chatId - the chat that leads the team.
+   * @param force - update even inside the throttle window.
+   */
+  const flushTeamCard = async (chatId: string, force: boolean): Promise<void> => {
+    const tracker = teamTrackers.get(chatId)
+    if (tracker === undefined) return
+    const now = Date.now()
+    if (!force && tracker.updatedAt !== undefined && now - tracker.updatedAt < CARD_UPDATE_MIN_MS) return
+    tracker.updatedAt = now
+    const card = teamCard.renderTeamCard(tracker.state)
     if (tracker.messageId === undefined) {
       const sent = await replay.send(chatId, { card })
       tracker.messageId = sent.messageId
@@ -1035,6 +1079,7 @@ export function installBridge(
     const toolScope = toolScopeLease?.key
     return {
       ...presetId === undefined ? {} : { presetId },
+      ...toolScope === undefined ? {} : { toolScope },
       presentCall: createCallPresenter(ctx.get('tools') as HostTools | undefined, toolScope),
       setup: async (agentCtx: Context) => {
         if (presets !== undefined && presetId !== undefined) await presets.mount(agentCtx, presetId)
@@ -1572,6 +1617,8 @@ export function installBridge(
             cwd,
             loaderEntries(),
             getSyncContext(),
+            ctx.get('tools') as HostTools | undefined,
+            (await compositionFor(sessionId)).toolScope,
           )
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error)
@@ -2221,6 +2268,22 @@ export function installBridge(
         mode: event.data.mode,
         ...event.data.label === undefined ? {} : { label: event.data.label },
       }, true)
+    }
+    // Team events (W-10a): the host records the members, the shared tasks
+    // and the mailbox in the session that leads the team. One card per chat
+    // shows all of it, updated in place.
+    if (isTeamMemberEvent(event) || isTeamTaskEvent(event) || isTeamMessageEvent(event) || isTeamMessageDeliveredEvent(event)) {
+      const teamId = event.data.teamId
+      let tracker = teamTrackers.get(binding.chatId)
+      if (tracker === undefined || tracker.state.teamId !== teamId) {
+        tracker = { state: teamCard.createTeamState(teamId) }
+        teamTrackers.set(binding.chatId, tracker)
+      }
+      if (isTeamMemberEvent(event)) teamCard.addTeamMember(tracker.state, event.data.member)
+      else if (isTeamTaskEvent(event)) teamCard.addTeamTask(tracker.state, event.data.task)
+      else if (isTeamMessageEvent(event)) teamCard.addTeamMessage(tracker.state, event.data.message)
+      else teamCard.markTeamMessageDelivered(tracker.state, event.data.messageId)
+      void flushTeamCard(binding.chatId, true).catch(reportSendFailure)
     }
     if (isPresentedEvent(event)) {
       // The model declared files at the end of its turn. Deliver them to the

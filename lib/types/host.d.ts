@@ -162,6 +162,19 @@ export interface HostTools {
      * the roster's).
      */
     get(name: string, scope?: unknown): HostToolDefinition | undefined;
+    /**
+     * Every tool visible in a viewing scope, with the description a reader
+     * would need to tell them apart.
+     *
+     * This is the seam `/tools` reads, so a reader can answer "what can this
+     * machine do" instead of only "what did someone switch off". The scope is
+     * the same opaque key {@link HostTools.get} takes; omitted views the
+     * global layer, which a deployment with a preset roster leaves empty.
+     */
+    schemas?(scope?: unknown): readonly {
+        readonly name: string;
+        readonly description?: string;
+    }[];
 }
 /** The presentation half of a tool definition (subset of the host `ToolDefinition`). */
 export interface HostToolDefinition {
@@ -979,4 +992,123 @@ export interface HostSkills {
         readonly body: string;
     } | undefined>;
 }
+/**
+ * A team member, as the host records it.
+ *
+ * The shapes mirror the host's `agent-team` package, which versions every
+ * team event at 2. They are declared here rather than imported so the
+ * bridge stays independent of the host's package layout.
+ */
+export interface TeamMemberSnapshot {
+    /** The member's session id. */
+    readonly id: string;
+    /** The member's name in the team. */
+    readonly name: string;
+    /** What the member is for. */
+    readonly description: string;
+    /** The model provider the member runs on. */
+    readonly provider: string;
+    /** Whether the member joined fresh or forked from the lead. */
+    readonly context: 'fresh' | 'fork';
+    /** Where the member is in its lifecycle. */
+    readonly phase: 'provisioning' | 'active' | 'failed';
+    /** Why the member failed, when it did. */
+    readonly error?: string;
+}
+/** A shared task, as the host records it. */
+export interface TeamTaskSnapshot {
+    /** The task's id. */
+    readonly id: string;
+    /** The revision the host last wrote. */
+    readonly revision: number;
+    /** The task's one-line subject. */
+    readonly subject: string;
+    /** The task's detail. */
+    readonly description: string;
+    /** Where the task is. */
+    readonly status: 'pending' | 'in_progress' | 'completed' | 'deleted';
+    /** The member that owns the task. */
+    readonly ownerId?: string;
+    /** The tasks this one waits for. */
+    readonly blockedBy: string[];
+    /** The write scopes the task claims. */
+    readonly writeScopes: string[];
+}
+/** A mailbox message, as the host records it. */
+export interface TeamMessageSnapshot {
+    /** The message's id. */
+    readonly id: string;
+    /** The member that sent it. */
+    readonly senderId: string;
+    /** The member's name at the time it was sent. */
+    readonly senderName: string;
+    /** The member it was addressed to. */
+    readonly targetId: string;
+    /** The message body, as content blocks. */
+    readonly content: readonly {
+        readonly type?: string;
+        readonly text?: string;
+    }[];
+}
+/** The payload of a `team/member` event. */
+export interface TeamMemberEventData {
+    readonly version: 2;
+    readonly teamId: string;
+    readonly member: TeamMemberSnapshot;
+}
+/** The payload of a `team/task` event. */
+export interface TeamTaskEventData {
+    readonly version: 2;
+    readonly teamId: string;
+    readonly task: TeamTaskSnapshot;
+}
+/** The payload of a `team/message/queued` event. */
+export interface TeamMessageEventData {
+    readonly version: 2;
+    readonly teamId: string;
+    readonly message: TeamMessageSnapshot;
+}
+/** The payload of a `team/message/delivered` event. */
+export interface TeamMessageDeliveredEventData {
+    readonly version: 2;
+    readonly teamId: string;
+    readonly messageId: string;
+    readonly targetId: string;
+}
+/**
+ * Whether an event carries a team member.
+ *
+ * The version is checked, not just the name: a payload that does not carry
+ * version 2 is another shape, and rendering it as a member would show fields
+ * that are not there.
+ * @param event - the session event.
+ * @returns true when the event is a `team/member` event.
+ */
+export declare function isTeamMemberEvent(event: HostSessionEvent): event is HostSessionEvent & {
+    readonly data: TeamMemberEventData;
+};
+/**
+ * Whether an event carries a shared team task.
+ * @param event - the session event.
+ * @returns true when the event is a `team/task` event.
+ */
+export declare function isTeamTaskEvent(event: HostSessionEvent): event is HostSessionEvent & {
+    readonly data: TeamTaskEventData;
+};
+/**
+ * Whether an event carries a queued mailbox message.
+ * @param event - the session event.
+ * @returns true when the event is a `team/message/queued` event.
+ */
+export declare function isTeamMessageEvent(event: HostSessionEvent): event is HostSessionEvent & {
+    readonly data: TeamMessageEventData;
+};
+/**
+ * Whether an event acknowledges a queued mailbox message.
+ * @param event - the session event.
+ * @returns true when the event is a `team/message/delivered` event.
+ */
+export declare function isTeamMessageDeliveredEvent(event: HostSessionEvent): event is HostSessionEvent & {
+    readonly data: TeamMessageDeliveredEventData;
+};
 //# sourceMappingURL=host.d.ts.map

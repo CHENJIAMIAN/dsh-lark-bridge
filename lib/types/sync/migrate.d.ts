@@ -82,6 +82,15 @@ export interface DeviceState {
     deviceId?: string;
     /** Human-readable name (defaults to hostname, settable via `/bot name`). */
     deviceName?: string;
+    /**
+     * Digest of this machine's own identifiers, used to notice that a copied
+     * state file landed on a different machine.
+     *
+     * A digest, never the raw identifier: the file is per-machine local state
+     * and may be copied around, and the identifier itself is not needed by
+     * anyone else.
+     */
+    machineFingerprint?: string;
 }
 /** Absolute path of this machine's device-state file. */
 export declare function deviceStateFile(home?: string): string;
@@ -95,7 +104,39 @@ export declare function writeDeviceState(state: DeviceState, home?: string): Pro
  * across restarts and form switches, and a NEW machine mints its own — the
  * file never travels with a migration (only per-machine state lives there).
  */
-export declare function ensureDeviceId(home?: string): Promise<{
+/** Options for {@link ensureDeviceId}. */
+export interface EnsureDeviceIdOptions {
+    /**
+     * The machine digest to compare against, overriding the one read from the
+     * host. Tests pass a value so they can play both machines.
+     */
+    fingerprint?: string;
+}
+/**
+ * A digest of this machine's own identifiers.
+ *
+ * `/etc/machine-id` is the strongest signal available on Linux hosts (WSL
+ * included) and survives a reboot; the hostname is the fallback for hosts
+ * without it. The raw value is never stored.
+ * @returns a hex digest, or undefined when the host offers no identifier.
+ */
+export declare function machineFingerprint(): string | undefined;
+/**
+ * This machine's stable identity, minted into device-state.json on first
+ * use. Hostname and pid are NOT identity (both drift); a device keeps its id
+ * across restarts and form switches, and a NEW machine mints its own — the
+ * file never travels with a migration (only per-machine state lives there).
+ *
+ * A copied state file is the one way that promise breaks, so the state
+ * carries a digest of the machine it was minted on. When the digest does not
+ * match, the file belongs to another machine: the identity is re-minted and
+ * the retired flag goes with it, because a retirement belongs to the machine
+ * that asked for it.
+ * @param home - the sync home; defaults to this machine's.
+ * @param options - an explicit fingerprint, for tests.
+ * @returns the identity this machine answers with.
+ */
+export declare function ensureDeviceId(home?: string, options?: EnsureDeviceIdOptions): Promise<{
     deviceId: string;
     deviceName: string;
 }>;

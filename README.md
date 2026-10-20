@@ -208,6 +208,9 @@ Highlights — the ones other bridges don't have:
 | 💰 **Balance & peak/off-peak awareness** | `/balance` live DeepSeek balance (per currency, timestamped); the prompt embeds the tariff table so batch work lands in half-price windows |
 | 🛠️ **Native Feishu agent tools** | `feishu_notify` proactive messages, `feishu_drive_*` cloud-drive scratchpad reachable from any device |
 | 🖥️ **Self-healing slash panel** | the panel has a single writer (the arbitration-active endpoint), bilingual, kept in step with what actually runs |
+| 🧰 **Capability inventory** | `/tools` lists what this deployment can actually do — the visible tools and the MCP servers it talks to, not only what someone switched off |
+| 🎙️ **Media delivered in kind** | a recording arrives as a voice note and a clip as a video — playable in the chat, not a download link (the extension decides; `kind` overrides) |
+| 👥 **Team panel** | when the host runs a team, one card shows the members, the shared tasks and the mailbox, updated in place |
 
 <details>
 <summary><b>All capabilities</b></summary>

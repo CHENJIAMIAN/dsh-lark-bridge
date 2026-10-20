@@ -227,6 +227,12 @@ const HOST_PATTERNS = [
   ['HostMessageFeedback mirrors put', /put\(request: \{[\s\S]*readonly sessionId: string[\s\S]*readonly rating: 'positive' \| 'negative'/],
   ['host.ts guards the declared-deliverable event', /export function isPresentedEvent\(/],
   ['host.ts keeps the declared-deliverable shape', /readonly callId: string[\s\S]*readonly files: readonly PresentedFileData\[\]/],
+  ['host.ts guards the team member event', /export function isTeamMemberEvent\(/],
+  ['host.ts guards the team task event', /export function isTeamTaskEvent\(/],
+  ['host.ts guards the team mailbox event', /export function isTeamMessageEvent\(/],
+  ['host.ts guards the team delivery event', /export function isTeamMessageDeliveredEvent\(/],
+  ['host.ts keeps the team member shape', /export interface TeamMemberSnapshot \{[\s\S]*?readonly name: string[\s\S]*?readonly phase: 'provisioning' \| 'active' \| 'failed'/],
+  ['host.ts keeps the team task shape', /export interface TeamTaskSnapshot \{[\s\S]*?readonly subject: string[\s\S]*?readonly status: 'pending' \| 'in_progress' \| 'completed' \| 'deleted'/],
 ]
 
 
