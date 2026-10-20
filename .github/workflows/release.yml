@@ -27,6 +27,10 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+          # The registry is named here rather than left to npm's default,
+          # so the publish step cannot go somewhere else if the runner's
+          # configuration says otherwise.
+          registry-url: 'https://registry.npmjs.org'
 
       - run: pnpm install --frozen-lockfile
 
