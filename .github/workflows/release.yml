@@ -167,7 +167,13 @@ jobs:
           found=0
           unknown=0
           for attempt in 1 2 3 4 5; do
-            out="$(npm view "@moyu-good/dsh-lark-bridge@${ver}" version 2>&1)" || true
+            # The exit code is kept, not thrown away: npm prints the
+            # error text on stdout as well, and that text can contain
+            # something that looks like a version number - an
+            # unreachable registry prints 127.0.0.1 in the fetch error,
+            # and a check that looked only for a version-shaped string
+            # read that as the version being published.
+            out="$(npm view "@moyu-good/dsh-lark-bridge@${ver}" version 2>&1)" && rc=0 || rc=$?
             # Strip the colour codes npm may emit, so the version can be
             # recognised whatever the registry's client decided to print.
             out="$(printf '%s' "$out" | sed -e 's/\x1b\[[0-9;]*[A-Za-z]//g')"
@@ -187,7 +193,7 @@ jobs:
             # proxy that swallows the response, a registry that answers with
             # an empty body — and then the version would be reported as
             # published when nothing was actually confirmed.
-            if printf '%s' "$out" | grep -qE '[0-9]+\.[0-9]+\.[0-9]+'; then
+            if [ "$rc" = "0" ] && printf '%s' "$out" | grep -qE '[0-9]+\.[0-9]+\.[0-9]+'; then
               found=1
               break
             fi
