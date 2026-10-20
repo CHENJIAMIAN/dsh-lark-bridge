@@ -72,7 +72,20 @@ jobs:
             exit 1
           fi
           printf '%s\n' "$notes" > "$RUNNER_TEMP/notes.md"
-          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
+          # A release for this tag may already exist. It does whenever the
+          # tag is re-pushed — a rewritten history moves the tag, the
+          # workflow runs again, and "gh release create" answers "Release
+          # .tag_name already exists" and fails the job. The release was
+          # made; the run that came for it found it there.
+          #
+          # So the release is edited instead of created when it is already
+          # there, which also keeps the notes in step with the changelog.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "release for $GITHUB_REF_NAME already exists — updating its notes"
+            gh release edit "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
+          else
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
+          fi
 
       # The npm registry is the channel users actually install from: a fix
       # that never reaches the registry fixes nothing for the people who
