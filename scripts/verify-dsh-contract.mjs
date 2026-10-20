@@ -145,7 +145,10 @@ const arityChecks = [
     // four-argument shape, so a host that reports three is drift.
     accept: [4],
     find(source) {
-      const match = /async execute\(([^)]*)\)/s.exec(source)
+      // The method, not a mention of it: a comment in the upstream source
+      // that shows an example call would otherwise be counted as the
+      // signature, and a legal host would be reported as drifted.
+      const match = /^[ \t]*(?:public |private |protected )?async execute\(([^)]*)\)/m.exec(source)
       if (match === null) return null
       const params = match[1]
         .split(',')

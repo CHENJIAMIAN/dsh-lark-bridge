@@ -101,7 +101,12 @@ function isPlaceholderMatch(line, matchIndex, matchLength) {
   // The Windows form is different: the pattern matches only the
   // directory, so the user segment sits just after the match, on the
   // line. Look for it there.
-  const win = line.slice(matchIndex).match(/^[A-Za-z]:\\+[A-Za-z]+\\+([A-Za-z0-9._-]+)/i)
+  // The user segment may be spelled with angle brackets — `<win-user>` is
+  // one of the stand-ins this gate exempts, and the bracket form was
+  // unreachable here: the character class stopped at the bracket, so the
+  // segment read as empty and the placeholder path was reported as a real
+  // one. The bracketed form is captured whole.
+  const win = line.slice(matchIndex).match(/^[A-Za-z]:\\+[A-Za-z]+\\+(<[^>]+>|[A-Za-z0-9._-]+)/i)
   if (win && PLACEHOLDER_USERS.has(win[1].toLowerCase())) return true
   // The same allowance for a WSL mount: /mnt/c/<win-user>/... is a generic
   // Windows profile directory, not a real path.

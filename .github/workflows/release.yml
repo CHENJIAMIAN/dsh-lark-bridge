@@ -145,29 +145,33 @@ jobs:
           found=0
           unknown=0
           for attempt in 1 2 3 4 5; do
-            # The exit code alone is not an answer. npm can exit 0 while
-            # printing nothing — a proxy that swallows the response, a
-            # registry that answers with an empty body — and then the
-            # version would be reported as published when nothing was
-            # actually confirmed. A confirmed version is an exit code of
-            # zero AND output that is a version number.
             out="$(npm view "@moyu-good/dsh-lark-bridge@${ver}" version 2>&1)" || true
             # Strip the colour codes npm may emit, so the version can be
             # recognised whatever the registry's client decided to print.
             out="$(printf '%s' "$out" | sed -e 's/\x1b\[[0-9;]*[A-Za-z]//g')"
-            if printf '%s' "$out" | grep -qE '[0-9]+\.[0-9]+\.[0-9]+'; then
-              found=1
-              break
-            fi
-            # E404 is the registry's answer "this version does not exist".
-            # Anything else — a timeout, a 5xx, a refused connection, a DNS
-            # failure — is an unknown, not an absence, and must not be
-            # reported as "not published".
-            if printf '%s' "$out" | grep -qE 'E404|404 Not Found'; then
+            # E404 is the registry's answer "this version does not exist",
+            # and it is checked FIRST: the error text carries the version
+            # number ("404 No match found for version 0.9.1"), so a check
+            # that looks for a version number in the output matches the
+            # error and reports a version as published when the registry
+            # just said it is not there.
+            if printf '%s' "$out" | grep -qE 'E404|404 Not Found|No match found'; then
               found=0
               unknown=0
               break
             fi
+            # A confirmed version is an exit code of zero AND output that is
+            # a version number. npm can exit 0 while printing nothing — a
+            # proxy that swallows the response, a registry that answers with
+            # an empty body — and then the version would be reported as
+            # published when nothing was actually confirmed.
+            if printf '%s' "$out" | grep -qE '[0-9]+\.[0-9]+\.[0-9]+'; then
+              found=1
+              break
+            fi
+            # Anything else — a timeout, a 5xx, a refused connection, a DNS
+            # failure — is an unknown, not an absence, and must not be
+            # reported as "not published".
             unknown=1
             echo "::warning title=registry lookup failed (attempt ${attempt})::${out}"
             sleep $((attempt * 5))
