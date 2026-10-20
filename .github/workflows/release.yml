@@ -153,7 +153,17 @@ jobs:
           # Only the version string; the raw npm output can be hundreds of
           # lines of stack trace when the registry is unreachable, and that
           # noise must not end up in the job log.
-          latest="$(npm view @moyu-good/dsh-lark-bridge dist-tags.latest 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+          #
+          # npm colours its output when it thinks a terminal is attached, so
+          # the version can arrive wrapped in an escape sequence. Anchoring
+          # the match at the start of the line then fails and the tag is
+          # reported as "unknown" — a wrong fact in the very message that
+          # tells a reader what is installed. Strip the escapes first, and
+          # take the version out of the line rather than requiring it to be
+          # the whole line.
+          latest="$(npm view @moyu-good/dsh-lark-bridge dist-tags.latest 2>/dev/null \
+            | sed -e 's/\x1b\[[0-9;]*[A-Za-z]//g' \
+            | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
           [ -n "$latest" ] || latest=unknown
           if [ "$unknown" = "1" ]; then
             echo "::error title=registry unreachable::The registry did not answer after 5 attempts, so whether ${ver} is published is UNKNOWN — this is not evidence that it is missing. Re-run this workflow when the registry is reachable. (Latest tag seen: ${latest})"
