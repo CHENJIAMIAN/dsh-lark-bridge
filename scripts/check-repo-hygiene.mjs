@@ -107,7 +107,16 @@ function isPlaceholderMatch(line, matchIndex, matchLength) {
   // segment read as empty and the placeholder path was reported as a real
   // one. The bracketed form is captured whole.
   const win = line.slice(matchIndex).match(/^[A-Za-z]:\\+[A-Za-z]+\\+(<[^>]+>|[A-Za-z0-9._-]+)/i)
-  if (win && PLACEHOLDER_USERS.has(win[1].toLowerCase())) return true
+  if (win) {
+    const seg = win[1].toLowerCase()
+    // A bracketed segment is a stand-in whatever it is called: the
+    // brackets are the statement, and the name list below is only for
+    // the unbracketed form. Judging "<username>" against that list
+    // reported a placeholder path as a real one, because the list held
+    // one bracketed name and not the other.
+    if (/^<.+>$/.test(seg)) return true
+    if (PLACEHOLDER_USERS.has(seg)) return true
+  }
   // The same allowance for a WSL mount: /mnt/c/<win-user>/... is a generic
   // Windows profile directory, not a real path.
   //
@@ -290,7 +299,15 @@ function main() {
   } else {
     // No git here: walk the directories, including the root, so the check
     // still reports something rather than pretending to be clean.
-    for (const d of dirs) {
+    //
+    // The walk covers the full default set, not the reduced one. The
+    // reduced set belongs to the git path, where the file list is already
+    // exact; here the directories are the only thing known, and narrowing
+    // them meant a repository whose git could not be asked (dubious
+    // ownership, a checkout owned by another user) was checked in four
+    // directories, missed a real leak in another one, and reported itself
+    // clean.
+    for (const d of DEFAULT_DIRS) {
       const base = join(repo, d)
       if (!existsSync(base) || !statSync(base).isDirectory()) continue
       for (const f of walk(base, [])) scanFile(repo, f, patterns, hits)
@@ -306,6 +323,7 @@ function main() {
       }
       if (st.isFile() && SCAN_EXT.has(extname(name))) scanFile(repo, full, patterns, hits)
     }
+    console.log(`  git could not list the tracked files — walked ${DEFAULT_DIRS.length} directories instead`)
   }
   // Build output ships to npm, so it is scanned too — but only when asked,
   // since a minified bundle legitimately contains long opaque strings.

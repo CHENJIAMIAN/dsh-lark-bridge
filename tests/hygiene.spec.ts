@@ -134,6 +134,29 @@ describe("repo hygiene check", () => {
     })
   })
 
+  // A bracketed stand-in is a stand-in whatever it is called. The list of
+  // placeholder names held one bracketed entry and not the other, so a
+  // bracketed name that was not on the list was reported as a real path —
+  // a false alarm on a path that says on its face that it is an example.
+  it("does not report a Windows path under a bracketed placeholder", () => {
+    for (const stand in ["username", "win-user", "your-name"]) {
+      const body = 'const p = "C:' + "\\" + 'Users' + "\\" + '<' + stand + '>' + "\\" + 'docs"'
+      withFixture({ "src/a.ts": body }, dir => {
+        expect(runCheck([dir])).toBe(0)
+      })
+    }
+  })
+
+  // When git cannot list the tracked files the check falls back to walking
+  // directories. That fallback used to walk the reduced directory set,
+  // which left the configuration directory unchecked — so a real leak
+  // there went unreported and the check called the tree clean.
+  it("reports a leak in a configuration file when git cannot list the files", () => {
+    withFixture({ "config/leak.yaml": `token: ${FAKE_TOKEN}` }, dir => {
+      expect(runCheck([dir])).toBe(1)
+    })
+  })
+
   // A placeholder earlier on a line does not exempt the rest of the line.
   // The check used to look at the first match of a pattern on a line, so
   // a line whose first occurrence was a placeholder was skipped whole —
