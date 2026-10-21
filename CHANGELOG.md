@@ -4,6 +4,225 @@ All notable changes to dsh-lark-bridge are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.6] — 2026-10-21
+
+Eighteen commits since 0.9.5, in four themes: what the bridge had promised
+and did not do, the shapes it read from the host, the identity it gives this
+machine, and the gates that were watching the wrong tree.
+
+### Fixed
+
+- **A rename no longer looks like a new machine.** The digest that tells
+  this machine from another one folded the hostname in, while the comment
+  right above it said the hostname is not identity because it drifts. A host
+  that got renamed therefore looked like a copy of another machine: the
+  identity was re-minted, and a retirement an operator had set by hand was
+  cleared — the exact opposite of what that check was for. The digest now
+  takes only identifiers that survive a rename, and a state recorded under
+  the old rule is still recognised as this machine, so the change re-mints
+  nothing. The tests that covered this had every case pass a digest in by
+  hand, so the function production actually calls had never run in a test.
+
+- **Two arrivals with the same file name no longer overwrite each other.**
+  The inbound save became asynchronous so it would not hold the event loop
+  while a file lands on a bridged workspace. That opened a window the
+  synchronous version did not have: the check that a name is free and the
+  write that takes it are separated by a wait, so two messages carrying the
+  same name both see it as free and both write to it. The name is now
+  claimed before the check on disk, because a claim taken across a wait is
+  not a claim.
+
+- **A command's answer matches what the host actually returns.** The skill
+  list, the session list and the tool results were read with a flat shape
+  the host does not use, so those answers were empty or ordered wrongly in
+  production while their tests stayed green. The reads now use the host's
+  own shape, and a regression test drives the real shape through.
+
+- **A model switch no longer reports success when it did not happen.** The
+  deployment's own selection is now the truth, with the configured default
+  only as a fallback — otherwise a pinned model answered "switched" while
+  the session kept running on the old one.
+
+- **The capability listing no longer contradicts itself.** It answered with
+  the tools a deployment still has, and a tool someone had switched off was
+  listed beside the ones that are. The preset list is read from the host
+  rather than kept as a written-out list.
+
+- **A delivery that cannot be delivered is now said out loud.** A file
+  declared by a session that is not the one talking did not reach the chat,
+  and nothing said so. There is an announcement now. A team panel sends one
+  message instead of one per event, and a concurrent arrival no longer
+  freezes the first panel.
+
+- **A format the chat cannot carry in that shape arrives as a file, and the
+  result says so.** A recording arrives as a voice note only in a container
+  the transport can actually hold; anything else is sent as a file with a
+  note, instead of being uploaded as something it is not.
+
+### Added
+
+- **What this deployment can actually do.** A command lists the tools that
+  are available and the MCP servers it talks to — not only what someone
+  switched off.
+
+- **The files a turn declares are delivered.** A file a session declares as
+  delivered is sent to the chat, once per declaration.
+
+### Changed
+
+- **The contract gate now watches the release in production.** It fetched
+  the upstream branch, so it answered "will the bridge still fit the next
+  release" and stayed silent about the release actually running, which is
+  where a shape mismatch bites. It now checks the branch, the release the
+  deployment runs, and the tree on the machine when there is one, and the
+  conclusion line names the trees it checked.
+
+## [0.9.5] - 2026-10-20
+
+### Fixed
+
+- **The published package no longer carries this machine's names.** The
+  leak gate watched for private forms of address, this machine's paths and
+  its hostname; it did not watch for the name of an internal system, the
+  name of a local deployment script, or the name of the service unit. The
+  package that went out as 0.9.4 contained all three, and the gate
+  reported the repository clean. The pattern list now covers them, the
+  text no longer carries them, and the gate's own list is refreshed in the
+  workflow's secret so the check on the runner sees what the local check
+  sees.
+
+- **A change under the source that never reached the build output no
+  longer passes.** The build output is committed and the running plugin
+  loads it, so an edit that stopped at the source shipped the previous
+  behaviour with a green check. The workflow now rebuilds and asks git for
+  a difference, so a stale committed build fails the run. The check on
+  the runner's own path, where the source maps differ, is included.
+
+- **A push to a branch outside the listed names is checked.** The push
+  trigger named two patterns; a branch outside them got no check at all,
+  and the failure mode was invisible. Every branch is checked now.
+
+- **The registry check no longer reads an answer out of a failed
+  command.** It required the command to succeed and the output to look
+  like a version, but it never compared the two, and the registry treats
+  a version request as a range. A version that was never published could
+  therefore be reported as published. The output must now equal the
+  version, and a registry that cannot be reached is reported as unknown
+  rather than as missing.
+
+### Notes
+
+- **0.9.4 carries those names in its published tarball.** It was cut
+  before the fix above. Install from a later version, or from the git
+  source of the current main, which is clean.
+
+## [0.9.4] - 2026-10-20
+
+### Added
+- **A test for the sweep's failure path.** A session whose meter throws
+  must not stall the sweep for the others, and the failure must leave a
+  trace - a session that is silently skipped is a session nobody knows
+  is unmeasured. The test pins both, and removing the warning that
+  records the failure turns it red.
+- **A timing-sensitive wait no longer times out on a loaded machine.** The
+  new sweep test waited with the default one second, which the suite's own
+  configuration calls out as the flake it is; the inbound handler is
+  fire-and-forget, so the agent and its binding land after the message
+  returns. The wait now uses the same thirty seconds the rest of the
+  suite uses for that, and the test was run ten times to confirm.
+
+### Fixed
+- **The registry check reads npm's exit code.** It looked for a
+  version-shaped string in npm's output and called the version published
+  when it found one. npm prints its error text on stdout as well, and an
+  unreachable registry names the address it could not reach - 127.0.0.1 -
+  which looks like a version number, so a registry that could not be
+  reached was read as a version that was published. The exit code is now
+  read, and a version-shaped string counts only when the command
+  succeeded. A registry that does not answer is reported as unknown
+  rather than as missing.
+- **The pressure sweep leaves a line with what it measured.** It said
+  nothing when it succeeded, which made the fault it exists to catch
+  indistinguishable from a quiet system. It now writes a line with the
+  number the meter returned, when the number changes rather than on every
+  poll, so a non-zero total is proof that the meter read the session.
+
+
+## [0.9.3] - 2026-10-20
+
+### Fixed
+
+- **The release carries the package tarball.** The release had no assets at
+  all, which left the note in the issue thread pointing at something that was
+  not there. The tarball is built from the same tree the tag points at, and it
+  is the package as the registry would receive it, so there is a way to
+  install the release even before the registry carries it.
+
+### Changed
+
+
+## [0.9.2] - 2026-10-20
+
+### Fixed
+
+- **The bridge no longer guesses the host's argument shape.** 0.9.1 read the
+  host method's argument count and picked a call shape from it. That count
+  cannot tell the two shapes apart: a host that gives its `signal` a default
+  value reports three arguments while still having the attachments slot, and
+  the three-argument shape puts the signal where the attachments belong. That
+  is issue #2's failure again, except silent - the host falls back to its
+  default signal and the abort is lost with nothing to show for it. The third
+  argument is now both: an empty array for the host that wants attachments
+  there, and the signal's own members for the host that wants the signal
+  there. Each host shape is pinned by a regression test, and restoring the
+  argument-count choice turns the default-value case red.
+
+- **The registry check no longer reads a version number out of an error.**
+  npm's answer for a version that is not published contains the version
+  number ("404 No match found for version 0.9.1"), so the check reported a
+  missing version as published. The 404 is read first now. The check was
+  verified against the real registry in six cases: a missing version, a
+  published one, an empty answer, a refused connection, a version wrapped in
+  colour codes, and the error text that carries the version.
+
+- **The argument-count check in the contract gate counts the declaration.**
+  It matched the first "async execute(" in the upstream source, so a comment
+  showing an example call was counted instead of the method itself and a
+  legal host was reported as drifted.
+
+- **A failing read of a settled job's output leaves a trace.** It degraded
+  to "no tail" silently, which is how a wrong caller shape stayed invisible.
+  It still does not throw into the event stream.
+
+- **The release step updates a release that already exists.** Creating one
+  failed the job whenever the tag was pushed again - which is what a
+  rewritten history does - and the release had been made all the same.
+
+- **The install note's pnpm version was wrong.** The gate is
+  `strictDepBuilds`, on by default since pnpm 10.3, and `allowBuilds` arrived
+  in 10.26; neither is new in pnpm 11. The placeholder line is written by the
+  failed install, not shipped with the profile.
+
+- **The smoke check's reasoning no longer calls a locally inserted package
+  an upstream default,** and names the release that removed the package the
+  notes called long gone.
+
+- **The token meter was reading nothing.** The upstream meter prices a
+  context by replaying the session's event log, so it takes the session, not
+  the session id. The bridge handed it an id, the replay found nothing, and
+  every session measured zero tokens with no error to catch - the
+  context-pressure warning never fired, while `/context` kept working and
+  made it look healthy. The bridge now hands it the session, and the
+  contract gate asserts the upstream shape.
+
+- **The publish step names the registry** rather than leaving it to npm's
+  default.
+
+- **The public ledger no longer carries a private form of address,** and the
+  upstream ledger entries were corrected where the earlier ones claimed a fix
+  was in production when the running process was still on the old build.
+
+
 ## [0.9.1] — 2026-10-20
 
 ### Fixed
@@ -122,152 +341,6 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   warning. The upstream CLI prints a pointer to that file for git-hosted
   plugins only, so an npm-published plugin documents the step itself.
 
-
-## [0.9.2] - 2026-10-20
-
-### Fixed
-
-- **The bridge no longer guesses the host's argument shape.** 0.9.1 read the
-  host method's argument count and picked a call shape from it. That count
-  cannot tell the two shapes apart: a host that gives its `signal` a default
-  value reports three arguments while still having the attachments slot, and
-  the three-argument shape puts the signal where the attachments belong. That
-  is issue #2's failure again, except silent - the host falls back to its
-  default signal and the abort is lost with nothing to show for it. The third
-  argument is now both: an empty array for the host that wants attachments
-  there, and the signal's own members for the host that wants the signal
-  there. Each host shape is pinned by a regression test, and restoring the
-  argument-count choice turns the default-value case red.
-
-- **The registry check no longer reads a version number out of an error.**
-  npm's answer for a version that is not published contains the version
-  number ("404 No match found for version 0.9.1"), so the check reported a
-  missing version as published. The 404 is read first now. The check was
-  verified against the real registry in six cases: a missing version, a
-  published one, an empty answer, a refused connection, a version wrapped in
-  colour codes, and the error text that carries the version.
-
-- **The argument-count check in the contract gate counts the declaration.**
-  It matched the first "async execute(" in the upstream source, so a comment
-  showing an example call was counted instead of the method itself and a
-  legal host was reported as drifted.
-
-- **A failing read of a settled job's output leaves a trace.** It degraded
-  to "no tail" silently, which is how a wrong caller shape stayed invisible.
-  It still does not throw into the event stream.
-
-- **The release step updates a release that already exists.** Creating one
-  failed the job whenever the tag was pushed again - which is what a
-  rewritten history does - and the release had been made all the same.
-
-- **The install note's pnpm version was wrong.** The gate is
-  `strictDepBuilds`, on by default since pnpm 10.3, and `allowBuilds` arrived
-  in 10.26; neither is new in pnpm 11. The placeholder line is written by the
-  failed install, not shipped with the profile.
-
-- **The smoke check's reasoning no longer calls a locally inserted package
-  an upstream default,** and names the release that removed the package the
-  notes called long gone.
-
-- **The token meter was reading nothing.** The upstream meter prices a
-  context by replaying the session's event log, so it takes the session, not
-  the session id. The bridge handed it an id, the replay found nothing, and
-  every session measured zero tokens with no error to catch - the
-  context-pressure warning never fired, while `/context` kept working and
-  made it look healthy. The bridge now hands it the session, and the
-  contract gate asserts the upstream shape.
-
-- **The publish step names the registry** rather than leaving it to npm's
-  default.
-
-- **The public ledger no longer carries a private form of address,** and the
-  upstream ledger entries were corrected where the earlier ones claimed a fix
-  was in production when the running process was still on the old build.
-
-
-## [0.9.3] - 2026-10-20
-
-### Fixed
-
-- **The release carries the package tarball.** The release had no assets at
-  all, which left the note in the issue thread pointing at something that was
-  not there. The tarball is built from the same tree the tag points at, and it
-  is the package as the registry would receive it, so there is a way to
-  install the release even before the registry carries it.
-
-### Changed
-
-
-## [0.9.4] - 2026-10-20
-
-### Added
-- **A test for the sweep's failure path.** A session whose meter throws
-  must not stall the sweep for the others, and the failure must leave a
-  trace - a session that is silently skipped is a session nobody knows
-  is unmeasured. The test pins both, and removing the warning that
-  records the failure turns it red.
-- **A timing-sensitive wait no longer times out on a loaded machine.** The
-  new sweep test waited with the default one second, which the suite's own
-  configuration calls out as the flake it is; the inbound handler is
-  fire-and-forget, so the agent and its binding land after the message
-  returns. The wait now uses the same thirty seconds the rest of the
-  suite uses for that, and the test was run ten times to confirm.
-
-### Fixed
-- **The registry check reads npm's exit code.** It looked for a
-  version-shaped string in npm's output and called the version published
-  when it found one. npm prints its error text on stdout as well, and an
-  unreachable registry names the address it could not reach - 127.0.0.1 -
-  which looks like a version number, so a registry that could not be
-  reached was read as a version that was published. The exit code is now
-  read, and a version-shaped string counts only when the command
-  succeeded. A registry that does not answer is reported as unknown
-  rather than as missing.
-- **The pressure sweep leaves a line with what it measured.** It said
-  nothing when it succeeded, which made the fault it exists to catch
-  indistinguishable from a quiet system. It now writes a line with the
-  number the meter returned, when the number changes rather than on every
-  poll, so a non-zero total is proof that the meter read the session.
-
-
-## [0.9.5] - 2026-10-20
-
-### Fixed
-
-- **The published package no longer carries this machine's names.** The
-  leak gate watched for private forms of address, this machine's paths and
-  its hostname; it did not watch for the name of an internal system, the
-  name of a local deployment script, or the name of the service unit. The
-  package that went out as 0.9.4 contained all three, and the gate
-  reported the repository clean. The pattern list now covers them, the
-  text no longer carries them, and the gate's own list is refreshed in the
-  workflow's secret so the check on the runner sees what the local check
-  sees.
-
-- **A change under the source that never reached the build output no
-  longer passes.** The build output is committed and the running plugin
-  loads it, so an edit that stopped at the source shipped the previous
-  behaviour with a green check. The workflow now rebuilds and asks git for
-  a difference, so a stale committed build fails the run. The check on
-  the runner's own path, where the source maps differ, is included.
-
-- **A push to a branch outside the listed names is checked.** The push
-  trigger named two patterns; a branch outside them got no check at all,
-  and the failure mode was invisible. Every branch is checked now.
-
-- **The registry check no longer reads an answer out of a failed
-  command.** It required the command to succeed and the output to look
-  like a version, but it never compared the two, and the registry treats
-  a version request as a range. A version that was never published could
-  therefore be reported as published. The output must now equal the
-  version, and a registry that cannot be reached is reported as unknown
-  rather than as missing.
-
-### Notes
-
-- **0.9.4 carries those names in its published tarball.** It was cut
-  before the fix above. Install from a later version, or from the git
-  source of the current main, which is clean.
 
 ## [0.9.0] — 2026-09-13
 
