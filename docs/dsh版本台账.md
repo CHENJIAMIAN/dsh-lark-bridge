@@ -23,6 +23,32 @@
 
 ## 2026-10-20 收尾（0.9.5 发布 + 第七份复核核销 + npm 通道查证）
 
+### 0.9.6 已发布（Release 成，npm 未上——无 token）
+
+| 项 | 实测 |
+|---|---|
+| tag | `v0.9.6` → `fcf392b` |
+| Release | **已建**（`published_at` 2026-10-21T00:52:34Z），body 3767 字符 |
+| tarball | `moyu-good-dsh-lark-bridge-0.9.6.tgz`，**577261 bytes** |
+| 泄漏面 | 解包 **242 个文件**逐文件扫：词表 43 条 + 额外 12 类（私人称呼／本机路径／服务单元名／部署脚本名／内部系统名／另一处内部项目名）= **命中 0** |
+| CI | 绿；唯一红 = 「Verify the registry」＝**预期**（无 npm token） |
+| npm | **0.9.6 不在 registry**（直读 `https://registry.npmjs.org/@moyu-good%2Fdsh-lark-bridge` ⇒ HTTP 404；该包 latest 仍为 **0.6.1**） |
+
+★ **包名口径更正（此前记录一直漏了 scope）**：正确的包名是
+**`@moyu-good/dsh-lark-bridge`**，不是 `moyu-good/dsh-lark-bridge`。
+用错名字去查 registry 会拿到 **405**，容易被误读成「版本已存在」
+——**先判 404 再判版本号**这条铁则在带 scope 的包上尤其要紧。
+
+★ **registry 上的全部版本只有 0.3.1 / 0.4.0 / 0.4.1 / 0.5.0 / 0.6.0 / 0.6.1**
+⇒ **0.7.0 之后的全部能力从未上 npm** ⇒ README 的 Quick Start 从 npm 装，
+装到的是 0.6.1 ⇒ **新用户拿到的桥没有 `/tools`、没有团队面板、没有原生媒体**。
+⇒ 缺口清单第 2 条仍然成立，**解法只有 token**（不是技术问题）。
+
+★ **外部可用的干净路径（不依赖 npm）**：`npm i github:moyu-good/dsh-lark-bridge#v0.9.6`
+——但**本机 npm 拒绝 git 依赖**（`EALLOWGIT`，npm 11+ 默认禁），
+所以那条命令在**别人机器上**能不能成，取决于对方的 npm 版本与配置，
+**本机未验**。
+
 ### 0.9.5 已发布（包是干净的）
 
 | 项 | 实测 |
