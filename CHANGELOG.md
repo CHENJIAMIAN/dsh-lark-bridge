@@ -115,6 +115,16 @@ machine, and the gates that were watching the wrong tree.
   the child's own label, and its progress follows on a thirty-second
   window. A chat that would rather see the panel alone can turn it off.
 
+
+- **The listings say what is true, and they say all of it.** The repository
+  was listed in three directories and the README named three. It is listed
+  in nine, and the README now names nine, with how each one lists it —
+  an issue, a pull request, a form, or an automatic crawl. Every link was
+  fetched and confirmed reachable before it was written down. The version
+  numbers those pages show are not repeated in the README, because most of
+  them read the version from npm and npm still serves the older release;
+  the README says so instead of quoting a number that goes stale.
+
 ### Added
 
 - **What this deployment can actually do.** A command lists the tools that

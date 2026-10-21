@@ -497,10 +497,26 @@ permission and preset choices ride with the session state.
 
 ## 🌍 Listings & Community
 
-- [dshbase.com](https://dshbase.com/plugins/moyu-good-dsh-lark-bridge/) — listed & **verified**
-  (headless L3: install + load + Q&A) · [中文页](https://dshbase.com/zh/plugins/moyu-good-dsh-lark-bridge/)
-- [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/2160) — merged
-- [dsh-suite catalog](https://github.com/whyihaveyou/dsh-suite/issues/32) — accepted (orchestration)
+Listed in the following directories (every link below was fetched and confirmed
+reachable on 2026-10-21):
+
+| Directory | How it is listed | Link |
+|---|---|---|
+| **dshbase** | issue (#59, closed) · **verified** (headless L3: install + load + Q&A) | [entry](https://dshbase.com/plugins/moyu-good-dsh-lark-bridge/) · [中文](https://dshbase.com/zh/plugins/moyu-good-dsh-lark-bridge/) |
+| **awesome-dsh-plugin** | PR ([#2160](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/2160), merged) | [list](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) · [card](https://awesome-dsh-plugin.com/p/moyu-good/dsh-lark-bridge/) |
+| **dsh-market** (in-DSH market) | reads the `dsh-plugin-catalog` index — **no separate submission** | [site](https://dshmarket.com) · [card](https://dshmarket.com/p/moyu-good/dsh-lark-bridge/) |
+| **dsh.so** | web form, **L5 runtime-verified** (0.2.1-rc.2) | [entry](https://www.dsh.so/artifact/dsh-lark-bridge-4/) |
+| **dshfind** | automatic, by repository (Chinese community) | [entry](https://dshfind.com/zh/plugins/moyu-good/dsh-lark-bridge) |
+| **dsh.directory** | issue, hand-reviewed (small and curated) | [entry](https://dsh.directory/plugins/moyu-good/dsh-lark-bridge) |
+| **dsh-plugin.org** | automatic crawl (public repo + `dsh-plugin` topic + manual review) | [entry](https://dsh-plugin.org/plugins/moyu-good/dsh-lark-bridge/) |
+| **dsh-suite** | issue ([#32](https://github.com/whyihaveyou/dsh-suite/issues/32), closed, orchestration) | [catalog](https://github.com/whyihaveyou/dsh-suite) |
+| **deepseek404 plugin store** | automatic, aggregates GitHub | [entry](https://dsh.deepseek404.com/detail.php?id=moyu-good%2Fdsh-lark-bridge) |
+
+**About the version numbers**: most of these directories read the version from npm,
+and npm still serves `0.6.1` while this repository is at `v0.9.6` — so a directory
+page will show a version behind the repository. **The repository tag is the truth.**
+Install with `npm i github:moyu-good/dsh-lark-bridge#v0.9.6`, or take the tarball
+from the release.
 
 Issues and PRs welcome — design cards first, please.
 

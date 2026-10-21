@@ -412,10 +412,23 @@ node scripts/verify-dsh-contract.mjs   # 把桥的宿主镜像与上游比对
 
 ## 🌍 生态与收录
 
-- [dshbase.com](https://dshbase.com/plugins/moyu-good-dsh-lark-bridge/) —— 已收录且 **verified**
-  （headless L3：安装＋加载＋问答实测）· [中文页](https://dshbase.com/zh/plugins/moyu-good-dsh-lark-bridge/)
-- [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/2160) —— 已合并
-- [dsh-suite 目录](https://github.com/whyihaveyou/dsh-suite/issues/32) —— 核实通过（orchestration 类）
+已在以下目录收录（链接均为实访可达，2026-10-21 复核）：
+
+| 目录 | 收录方式 | 链接 |
+|---|---|---|
+| **dshbase** | 提 issue（#59 已关闭）· **verified**（headless L3：安装＋加载＋问答实测） | [条目](https://dshbase.com/plugins/moyu-good-dsh-lark-bridge/) · [中文页](https://dshbase.com/zh/plugins/moyu-good-dsh-lark-bridge/) |
+| **awesome-dsh-plugin** | 提 PR（[#2160](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/2160) 已合并） | [列表](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) · [卡片](https://awesome-dsh-plugin.com/p/moyu-good/dsh-lark-bridge/) |
+| **dsh-market**（in-DSH 市场） | 读 `dsh-plugin-catalog` 索引，**无需单独提交** | [站点](https://dshmarket.com) · [卡片](https://dshmarket.com/p/moyu-good/dsh-lark-bridge/) |
+| **dsh.so** | 网页表单提交，**L5 运行验证**（0.2.1-rc.2） | [条目](https://www.dsh.so/artifact/dsh-lark-bridge-4/) |
+| **dshfind** | 按仓库自动收录（中文社区） | [条目](https://dshfind.com/zh/plugins/moyu-good/dsh-lark-bridge) |
+| **dsh.directory** | 提 issue，人工审核（小而精） | [条目](https://dsh.directory/plugins/moyu-good/dsh-lark-bridge) |
+| **dsh-plugin.org** | 自动爬取（公开仓库 ＋ `dsh-plugin` topic ＋ 人工复核） | [条目](https://dsh-plugin.org/plugins/moyu-good/dsh-lark-bridge/) |
+| **dsh-suite** | 提 issue（[#32](https://github.com/whyihaveyou/dsh-suite/issues/32) 已关闭，orchestration 类） | [目录](https://github.com/whyihaveyou/dsh-suite) |
+| **deepseek404 插件商店** | 自动聚合 GitHub | [条目](https://dsh.deepseek404.com/detail.php?id=moyu-good%2Fdsh-lark-bridge) |
+
+**关于版本号**：这些目录大多从 npm 读版本，而 npm 上仍是 `0.6.1`（本仓已到 `v0.9.6`），
+所以目录页显示的版本会落后于仓库 —— **以仓库 tag 为准**。安装请走
+`npm i github:moyu-good/dsh-lark-bridge#v0.9.6` 或 release 上的 tarball。
 
 欢迎 Issue 与 PR——请先立设计卡。
 
