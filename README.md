@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://github.com/moyu-good/dsh-lark-bridge/actions/workflows/ci.yml"><img src="https://github.com/moyu-good/dsh-lark-bridge/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-563%20passing-brightgreen" alt="tests">
+  <img src="https://img.shields.io/badge/tests-568%20passing-brightgreen" alt="tests">
   <a href="https://dshbase.com/plugins/moyu-good-dsh-lark-bridge/"><img src="https://img.shields.io/badge/dshbase-verified-blue" alt="dshbase verified"></a>
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-blue" alt="license">
   <img src="https://img.shields.io/badge/transport-WebSocket%20long--connection-orange" alt="transport">
@@ -380,7 +380,7 @@ plugin-contract-test.mjs   43 contract checks on the host contract surface
 **Quality gates**
 
 ```sh
-pnpm test                        # 563 unit/integration tests
+pnpm test                        # 568 unit/integration tests
 node plugin-contract-test.mjs    # 43 host-contract checks
 node scripts/verify-dsh-contract.mjs   # drift check against upstream master
 pnpm typecheck && pnpm run build # tsc + tsdown (lib/ is committed)

@@ -39,6 +39,15 @@ jobs:
             node scripts/check-repo-hygiene.mjs . --lib
           fi
       - run: node plugin-contract-test.mjs
+      # The documentation is part of the release: a promise the code does not
+      # keep is a defect, and it has shipped four times — a "no login
+      # needed" line that returned 401, a transcript that carried one side
+      # of the conversation, a harness floor the code did not support, a
+      # test count that was wrong. This step catches the mechanical part of
+      # that drift: the two READMEs disagreeing with each other, a command
+      # the bridge implements but no README mentions, a badge that no
+      # longer matches the tests that run.
+      - run: node scripts/check-docs-consistency.mjs
       - run: pnpm typecheck
       - run: node scripts/verify-dsh-contract.mjs
       - run: pnpm test

@@ -59,6 +59,18 @@ machine, and the gates that were watching the wrong tree.
   the transport can actually hold; anything else is sent as a file with a
   note, instead of being uploaded as something it is not.
 
+
+- **The manual and the chat copy of it are the same words now.** They were
+  not: the manual listed a different set of commands in its quick
+  reference, wrote one sentence with a word missing, and addressed the
+  reader as "bot" where the chat copy says "I". The chat copy is what a
+  user actually receives, so the manual was brought to it.
+
+- **The mode list names modes that exist.** The quick reference offered
+  "standard / PTC / minimal / create", and the deployment has
+  "standard / code / minimal / cordis" — one name was wrong and one was
+  not a mode the deployment has.
+
 ### Added
 
 - **What this deployment can actually do.** A command lists the tools that

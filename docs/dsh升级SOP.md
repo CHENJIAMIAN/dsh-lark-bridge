@@ -11,7 +11,7 @@
 - 但 rc 意味着 API 可能变，必须用验证兜住
 - 稳定版与 rc 版**都走同一套验证流程**（rc 的风险靠验证消化，不靠"不升"规避）
 
-## 二、标准流程（五步，缺一不可）
+## 二、标准流程（五步 + 发布前文档门，缺一不可）
 
 升级 dsh 前，在 `dsh-lark-bridge` 目录依次执行：
 
@@ -33,6 +33,9 @@ npm run build
 systemctl restart <桥接服务>
 #   ★ 必须真的发一条飞书消息给生产 bot，确认会话能建、能回复
 ```
+
+**步骤 6｜文档与 README（打 tag 之前）**：见第九节。代码对了、门禁全绿，但对外文案还停在上一版，
+等于发了一份错的说明书——这一节就是防这个。**它不是收尾事项，是发版流程里的一步。**
 
 ## 三、验证的三道闸门
 
@@ -105,3 +108,200 @@ node scripts/audit-host-contract.mjs   # 需 DSH_HOME 或默认定位 0.1.7 目�
 5. **重启前先查活动（2026-10-19 增补）**：`systemctl restart` 会掐断正在跑的 turn——用户的任务会停在半路、最终汇报永远发不出来。
    重启（含为部署而重启）前必须查：会话文件 mtime（`ls -l ~/.dsh/sessions/.../session.v*.jsonl.zstd`）、`journalctl` 近几分钟有无活动。
    活跃则等它跑完或先问用户；这比"马上部署"重要。
+
+## 九、文档与 README（发布即更新）
+
+**这一节是第 6 步：在步骤 5 之后、打 tag 之前。**
+
+理由三条，按分量排：
+
+1. **测试数与台账结论是步骤 4/5 跑完才存在的事实。** 先写文档就是先编数字——本仓这么错过一次（见 9.5）。
+2. **tag 一推，README 就固化了。** `package.json` 的 `files` 里含两份 README，npm 页面与 GitHub Release
+   展示的就是 tag 里那一份。tag 之后再补，改的是下一版；**已发布的版本永远带着错的说明书**。
+3. **步骤 5 的「真发一条消息」是唯一能证明功能表为真的动作。** 功能表照刚验过的行为写，不照设计意图写。
+
+只发桥、不换引擎的版本，步骤 2/3 不适用，**本节整节照跑**：它是发版闸门，不是升级的附属品。
+
+### 9.1 什么改动必须改 README（判据）
+
+**一句话判据：只要用户能观察到行为变化，就有一处对外文案要改。找不到是哪一处，说明这个改动对外是什么还没想清楚。**
+
+| 改动性质 | 必改位置（`README.md` 与 `README.zh.md` **两侧**） |
+|---|---|
+| 新增 / 改名 / 删除一条斜杠命令 | 斜杠命令表、`/bot` 子命令行、`docs/用户手册.md` 第三节、`src/user-guide.ts` |
+| 新增 / 删除一个 `/bot` 子命令 | 命令表下的子命令行 + 手册 |
+| 新增 / 改名配置项，或改默认值 | 配置表（字段 / 默认 / 含义三列都要对；默认值以 `src/config.ts` 的 schema 为准） |
+| 媒体、工具、能力的语义变化 | 功能表对应行（亮点表 + 「全部能力」表）。语义变了而描述没变 = 对外撒谎 |
+| 测试数变化 | 徽章 `tests-N passing`、仓库地图 `vitest suites (N)`、质量门注释 `# N ...`（两侧共 6 处） |
+| 宿主契约检查项数变化 | 仓库地图 + 质量门注释（共 4 处 `43`） |
+| 宿主版本下限变化 | 两侧「Harness 版本」行 + **写清为什么是硬下限**（哪一处 API 在哪一版才有 / 没了）+ EN 的 `Moving to a new harness version` |
+| Node / pnpm 要求变化 | 两侧 Prerequisites，且与 `package.json` 的 `engines` 一致 |
+| `src/` 下增删文件或目录 | 两侧仓库地图 |
+| 扩展点、钩子或其载荷变化 | 两侧 Extend It + 配置表对应项（载荷字段要逐个点名） |
+| 飞书应用权限变化 | 两侧权限表——手动建应用的人只能照它授权 |
+| 发布流程、门禁命令变化 | 两侧「开发与 MR 流程」+ 本文档 |
+
+### 9.2 必查清单（逐项打勾，缺一项不算发版）
+
+| # | 查什么 | 合格判据 |
+|---|---|---|
+| 1 | 版本三处一致 | `package.json` 的 `version`、`CHANGELOG.md` 顶部最新段、待打的 tag，三个字符串相同 |
+| 2 | 测试数六处一致 | 徽章 ×2、仓库地图 ×2、质量门注释 ×2，同一个数，且等于步骤 4 实测 |
+| 3 | 命令表两侧 | 命令集合完全相同（9.3 脚本；`/bot` 子命令行也逐个数） |
+| 4 | 功能表两侧 | 亮点行数相同；每条能力在两侧都有对应描述；**新增能力必须在两侧同时出现** |
+| 5 | 配置表两侧 | 字段集合相同；每个默认值与 `src/config.ts` 一致（语义项要人读） |
+| 6 | 仓库地图两侧 | `src/` 条目集合相同，条目说明与当前职责相符 |
+| 7 | 扩展说明两侧 | 两侧都存在对等小节（现状见 9.4 第四行） |
+| 8 | 版本台账 | `docs/dsh版本台账.md` 追加一行，四字段必填（日期 / 版本 / 变更要点 / 验证结果），验证写命令与结论 |
+| 9 | 手册 ↔ `/manual` 源 | `docs/用户手册.md` 与 `src/user-guide.ts` 归一化后逐行一致（9.3 脚本） |
+| 10 | CHANGELOG | 有对应版本段；条目按「首现于哪个 tag」归属，不按主观分类 |
+| 11 | 泄漏门 | `node scripts/check-repo-hygiene.mjs . --lib --patterns-file .leak-patterns` 退出 0 |
+
+第 8 项的格式见第五节；这里只强调它是**本节清单的一项**，不是升级之余的随笔。
+
+### 9.3 怎么验（可直接复制）
+
+```bash
+# ① 测试数（权威口径）：跑一遍，读末行 "Tests  N passed"
+node node_modules/vitest/vitest.mjs run --reporter=dot   # 平时用 npm test，等价
+#   2026-10-21 实测：57 文件 / 563 例 / 645 秒（单 fork 串行，慢是正常的）
+
+# ② 测试数（静态口径，用来交叉核对；与①应是同一个数）
+grep -ohE '(^|[^.[:alnum:]_])(it|test)(\.(each|skip|only|todo|concurrent))?\(' tests/*.ts | wc -l
+#   ★ 别写成 grep "it("：会漏掉与 describe 同行的 it(，又会把 /re/.test( 数进来。
+#     2026-10-21 实测：错写法 562，对写法 563（差的那条在 feishu-tools.spec.ts 的 describe 同一行）。
+
+# ③ 契约检查项数（应与 README 的 43 一致）
+node plugin-contract-test.mjs | tail -1
+
+# ④ 仓库自带的文档门（CI 已在跑）：命令表两侧 + 与 src/commands.ts 对账 + 徽章
+node scripts/check-docs-consistency.mjs
+
+# ⑤ 补它不管的三项：徽章以外的 4 处测试数、配置表字段集、手册逐行（带顺序）
+node --experimental-strip-types /tmp/doc-parity.mjs
+
+# ⑥ 泄漏门
+node scripts/check-repo-hygiene.mjs . --lib --patterns-file .leak-patterns
+```
+
+`/tmp/doc-parity.mjs` 补的是 ④ 没覆盖的部分——**不要另起第二个门**：它抓到的东西若反复出现，
+就并进 `scripts/check-docs-consistency.mjs`，别养两套。全文如下（临时脚本，不进仓）：
+
+<details>
+<summary><b>doc-parity.mjs</b>（复制到 /tmp 后按 ⑤ 执行）</summary>
+
+```js
+// 文档一致性门（在仓库根目录执行）：
+//   node --experimental-strip-types /tmp/doc-parity.mjs [期望测试数]
+import fs from 'node:fs'
+import path from 'node:path'
+import { pathToFileURL } from 'node:url'
+
+const fail = []
+const ok = (m) => console.log(`  ok    ${m}`)
+const bad = (m) => { fail.push(m); console.log(`  FAIL  ${m}`) }
+const en = fs.readFileSync('README.md', 'utf8')
+const zh = fs.readFileSync('README.zh.md', 'utf8')
+
+// 1) 测试数：徽章 / 仓库地图 / 质量门注释，两侧共六处必须同一个数
+const pick = (s, re) => { const m = s.match(re); return m ? Number(m[1]) : null }
+const counts = {
+  'badge EN': pick(en, /tests-(\d+)%20passing/),
+  'badge ZH': pick(zh, /tests-(\d+)%20passing/),
+  'map EN': pick(en, /vitest suites \((\d+)\)/),
+  'map ZH': pick(zh, /vitest 套件（(\d+) 个）/),
+  'gate EN': pick(en, /pnpm test\s+#\s*(\d+)/),
+  'gate ZH': pick(zh, /pnpm test\s+#\s*(\d+)/),
+}
+const testRe = /(?:^|[^\w.])(?:it|test)(?:\.(?:each|skip|only|todo|concurrent))?\(/
+const statics = fs.readdirSync('tests').filter((f) => f.endsWith('.ts'))
+  .flatMap((f) => fs.readFileSync(path.join('tests', f), 'utf8').split('\n'))
+  .filter((l) => testRe.test(l)).length
+const expected = process.argv[2] ? Number(process.argv[2]) : statics
+const uniq = [...new Set(Object.values(counts))]
+if (uniq.length === 1 && uniq[0] === expected) ok(`测试数 ${expected}：六处一致`)
+else bad(`测试数不一致 ${JSON.stringify(counts)}；源码静态 ${statics}；期望 ${expected}`)
+
+// 2) 斜杠命令表：两侧命令集合必须相同
+const cmds = (s) => new Set([...s.matchAll(/^\| `(\/[a-z-]+)`/gm)].map((m) => m[1]))
+const cEn = cmds(en)
+const cZh = cmds(zh)
+const miss = [...cEn].filter((c) => !cZh.has(c))
+const extra = [...cZh].filter((c) => !cEn.has(c))
+if (!miss.length && !extra.length) ok(`命令表两侧一致（${cEn.size} 条）`)
+else bad(`命令表不一致：ZH 缺 [${miss}] / ZH 多 [${extra}]`)
+
+// 3) 配置表：字段集合必须相同（默认值要人核，语义读不了）
+const fields = (s, from, to) => {
+  const body = s.slice(s.indexOf(from), s.indexOf(to, s.indexOf(from)))
+  return new Set([...body.matchAll(/^\| ([^|]+?) \|/gm)]
+    .flatMap((m) => [...m[1].matchAll(/`([a-zA-Z.]+)`/g)].map((x) => x[1])))
+}
+const fEn = fields(en, '## ⚙️ Configuration', '<details>')
+const fZh = fields(zh, '## ⚙️ 配置速查', '<details>')
+const fMiss = [...fEn].filter((f) => !fZh.has(f))
+const fExtra = [...fZh].filter((f) => !fEn.has(f))
+if (!fMiss.length && !fExtra.length) ok(`配置表两侧一致（${fEn.size} 项）`)
+else bad(`配置表不一致：ZH 缺 [${fMiss}] / ZH 多 [${fExtra}]`)
+
+// 4) 手册 ↔ src/user-guide.ts：去掉标题/引用块/列表符号与 `**使用说明**` 后逐行一致
+const { USER_GUIDE } = await import(pathToFileURL(path.resolve('src/user-guide.ts')).href)
+const norm = (s, isDoc) => s.split('\n')
+  .filter((l) => !(isDoc && (l.startsWith('>') || l.startsWith('# '))))
+  .map((l) => l.replace(/^- /, '').trimEnd())
+  .filter((l) => l !== '' && l !== '**使用说明**').join('\n').trim()
+const a = norm(USER_GUIDE, false).split('\n')
+const b = norm(fs.readFileSync('docs/用户手册.md', 'utf8'), true).split('\n')
+const diff = a.map((l, i) => (l === b[i] ? null : i + 1)).filter(Boolean)
+if (!diff.length) ok(`手册与 /manual 源逐行一致（${a.length} 行）`)
+else bad(`手册与 /manual 源有 ${diff.length} 行不同（行号 ${diff}）`)
+
+console.log(fail.length ? `\n${fail.length} 项未过` : '\n全部通过')
+process.exit(fail.length ? 1 : 0)
+```
+
+</details>
+
+脚本只管**机械可判**的项。功能表、仓库地图的文字、配置默认值这三样判的是语义，机器判不了——它们靠 9.2 的人读，
+所以清单不能只写「跑脚本」。
+
+### 9.4 这张单子第一次跑抓到了什么（2026-10-21）
+
+四类，同一天抓到的：
+
+| # | 位置 | 抓到的东西 | 性质 |
+|---|---|---|---|
+| 1 | `README.zh.md` 仓库地图 | `tests/ vitest 套件（0 个）`，而徽章与源码静态计数都是 `563` | 数字错 |
+| 2 | `docs/用户手册.md` 第 13 行 | 把 `/balance` 并进「钱袋与说明」一行；源里 `/balance` 只在「钱袋」一节，「反馈」是单独一行 | 同一句话的两种结构 |
+| 3 | `docs/用户手册.md` 第 16、33 行 | 「批量重活会优先」对「批量重活**我**会优先」；「bot 和你」对「我和你」 | 同一句话的两种写法 |
+| 4 | EN / ZH 结构 | EN 有 `### Moving to a new harness version`（切树、profile 只声明自己的依赖两条规则），ZH 无对应小节 | 一侧有、一侧没有 |
+
+**第 1 类最值得记：仓库的文档门读徽章，而徽章是对的**——所以这一类只能靠 9.3 ⑤ 的六处核对，
+任何单一数字的门都救不了它。**四类都不会让任何测试变红。**
+
+另一个盲区在测试本身：`tests/user-guide.spec.ts` 第四条只断言手册包含 8 个小节标题和 4 个命令，
+**不比对正文**。实测 33 行里 3 行不同，它照样绿。仓库的文档门按「行集合」比（不按顺序），
+能抓到增删、抓不到错位与顺序。
+
+修没修、修到哪，看提交与台账。**本节只记「清单抓到了什么」——判据是从这些样本里长出来的。**
+
+### 9.5 为什么不能省：两次实证都在本仓
+
+**一、2026-10-20 的批次**：对外文案四处与真实行为不符——「无需登录」（实际裸开地址 401）、
+`chronicle` 写成 `full-transcript`（实际只发入站用户文本）、宿主版本下限写 `>=0.1.5-rc.2`
+（代码硬依赖 0.1.7 才有的 `acquireScope`，在旧宿主上组建会话直接抛错）、测试数与契约项数的**名词**写错
+（`43` 是「契约检查项数」，不是断言数）。**四条都不影响构建，所以门禁一处都没抓到**；
+逐条见 `docs/功能缺口清单_20261020.md` 第 23 条。
+
+**二、同一类错的第二个样本**：`ca82e4a` 把 `README.zh.md` 的测试数写成 `0`，同一批把英文的 `562`
+改成 `563`。两侧朝相反方向改，没有任何门拦——**因为徽章一直绿着，没人会回头数一个自己刚写下的数字**。
+
+两次的共同点：**错的不是代码，是发布出去的那份说明书**。用户拿到的第一条信息是 README，不是测试报告；
+文档错的代价不是重启一次，是他照文档操作失败之后不再相信这个仓库。
+
+### 9.6 与沉淀纪律的接口
+
+- 新增命令 / 配置项时，**改 README 与改代码在同一个提交里**。发版前只该剩「核对」，不该还有「补写」。
+- 台账那一行的「变更要点」要写清改了哪张对外文案，不写「更新文档」这种无信息量的话。
+- 本节新增的检查项若抓到一次真问题，把判据补进 9.1 的表——**判据是从事故里长出来的，不是想出来的**。
+
