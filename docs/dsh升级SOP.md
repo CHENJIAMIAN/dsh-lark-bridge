@@ -146,14 +146,14 @@ node scripts/audit-host-contract.mjs   # 需 DSH_HOME 或默认定位 0.1.7 目�
 | # | 查什么 | 合格判据 |
 |---|---|---|
 | 1 | 版本三处一致 | `package.json` 的 `version`、`CHANGELOG.md` 顶部最新段、待打的 tag，三个字符串相同 |
-| 2 | 测试数六处一致 | 徽章 ×2、仓库地图 ×2、质量门注释 ×2，同一个数，且等于步骤 4 实测 |
-| 3 | 命令表两侧 | 命令集合完全相同（9.3 脚本；`/bot` 子命令行也逐个数） |
+| 2 | 计数两口径都对 | **测试数**（徽章 ×2、质量门注释 ×2）等于步骤 4 实测；**套件数**（仓库地图 ×2）等于 `tests/*.spec.ts` 的文件数。两者不是一回事，混用过一次（仓库地图里写了测试数）⇒ `node scripts/sync-test-count.mjs` 一次改齐 6 处 |
+| 3 | 命令表两侧 | 命令集合完全相同；`/bot` 子命令也逐个写下来了。**门会验这一项**（命令表 ⊇ 代码里的命令、且每条都是真命令） |
 | 4 | 功能表两侧 | 亮点行数相同；每条能力在两侧都有对应描述；**新增能力必须在两侧同时出现** |
 | 5 | 配置表两侧 | 字段集合相同；每个默认值与 `src/config.ts` 一致（语义项要人读） |
 | 6 | 仓库地图两侧 | `src/` 条目集合相同，条目说明与当前职责相符 |
 | 7 | 扩展说明两侧 | 两侧都存在对等小节（现状见 9.4 第四行） |
 | 8 | 版本台账 | `docs/dsh版本台账.md` 追加一行，四字段必填（日期 / 版本 / 变更要点 / 验证结果），验证写命令与结论 |
-| 9 | 手册 ↔ `/manual` 源 | `docs/用户手册.md` 与 `src/user-guide.ts` 归一化后逐行一致（9.3 脚本） |
+| 9 | 手册 ↔ `/manual` 源 | `docs/用户手册.md` 与 `src/user-guide.ts` 归一化后逐行一致。**门会验这一项**（chat 版是运行时真给用户的那份，以它为准） |
 | 10 | CHANGELOG | 有对应版本段；条目按「首现于哪个 tag」归属，不按主观分类 |
 | 11 | 泄漏门 | `node scripts/check-repo-hygiene.mjs . --lib --patterns-file .leak-patterns` 退出 0 |
 
@@ -170,100 +170,32 @@ node node_modules/vitest/vitest.mjs run --reporter=dot   # 平时用 npm test，
 grep -ohE '(^|[^.[:alnum:]_])(it|test)(\.(each|skip|only|todo|concurrent))?\(' tests/*.ts | wc -l
 #   ★ 别写成 grep "it("：会漏掉与 describe 同行的 it(，又会把 /re/.test( 数进来。
 #     2026-10-21 实测：错写法 562，对写法 563（差的那条在 feishu-tools.spec.ts 的 describe 同一行）。
+#   套件数是另一回事（仓库地图里写的是它）：ls tests/*.spec.ts | wc -l
 
 # ③ 契约检查项数（应与 README 的 43 一致）
 node plugin-contract-test.mjs | tail -1
 
-# ④ 仓库自带的文档门（CI 已在跑）：命令表两侧 + 与 src/commands.ts 对账 + 徽章
-node scripts/check-docs-consistency.mjs
+# ④ 改完代码后先把计数同步到位（一条命令，6 处数字）
+#   —— 不在 CI 里跑：CI 要的就是「忘了改就红」，本地才自动改。
+node scripts/sync-test-count.mjs
 
-# ⑤ 补它不管的三项：徽章以外的 4 处测试数、配置表字段集、手册逐行（带顺序）
-node --experimental-strip-types /tmp/doc-parity.mjs
+# ⑤ 仓库自带的文档门（CI 已在跑）：命令表两侧 + 与 src/commands.ts 对账 + 徽章
+#   + 套件数 + 章节数 + /bot 子命令 + 手册与 /manual 源逐行
+node scripts/check-docs-consistency.mjs
 
 # ⑥ 泄漏门
 node scripts/check-repo-hygiene.mjs . --lib --patterns-file .leak-patterns
 ```
 
-`/tmp/doc-parity.mjs` 补的是 ④ 没覆盖的部分——**不要另起第二个门**：它抓到的东西若反复出现，
-就并进 `scripts/check-docs-consistency.mjs`，别养两套。全文如下（临时脚本，不进仓）：
+**门管不到、要人读的两处**：配置表的字段集合与默认值（对着 `src/config.ts` 的 schema 看）、
+功能表每条描述是否仍与真实行为相符（对着刚才实测过的行为看，不对着设计意图看）。
 
-<details>
-<summary><b>doc-parity.mjs</b>（复制到 /tmp 后按 ⑤ 执行）</summary>
+**门管不到的一处**：配置表的字段集合与默认值（要跟 `src/config.ts` 的 schema 对）、
+`/bot` 的**子命令在正文里**（门已覆盖，但正文的**语义**是否仍然对，要人读）。
+这两处靠人读，门给不了。
 
-```js
-// 文档一致性门（在仓库根目录执行）：
-//   node --experimental-strip-types /tmp/doc-parity.mjs [期望测试数]
-import fs from 'node:fs'
-import path from 'node:path'
-import { pathToFileURL } from 'node:url'
-
-const fail = []
-const ok = (m) => console.log(`  ok    ${m}`)
-const bad = (m) => { fail.push(m); console.log(`  FAIL  ${m}`) }
-const en = fs.readFileSync('README.md', 'utf8')
-const zh = fs.readFileSync('README.zh.md', 'utf8')
-
-// 1) 测试数：徽章 / 仓库地图 / 质量门注释，两侧共六处必须同一个数
-const pick = (s, re) => { const m = s.match(re); return m ? Number(m[1]) : null }
-const counts = {
-  'badge EN': pick(en, /tests-(\d+)%20passing/),
-  'badge ZH': pick(zh, /tests-(\d+)%20passing/),
-  'map EN': pick(en, /vitest suites \((\d+)\)/),
-  'map ZH': pick(zh, /vitest 套件（(\d+) 个）/),
-  'gate EN': pick(en, /pnpm test\s+#\s*(\d+)/),
-  'gate ZH': pick(zh, /pnpm test\s+#\s*(\d+)/),
-}
-const testRe = /(?:^|[^\w.])(?:it|test)(?:\.(?:each|skip|only|todo|concurrent))?\(/
-const statics = fs.readdirSync('tests').filter((f) => f.endsWith('.ts'))
-  .flatMap((f) => fs.readFileSync(path.join('tests', f), 'utf8').split('\n'))
-  .filter((l) => testRe.test(l)).length
-const expected = process.argv[2] ? Number(process.argv[2]) : statics
-const uniq = [...new Set(Object.values(counts))]
-if (uniq.length === 1 && uniq[0] === expected) ok(`测试数 ${expected}：六处一致`)
-else bad(`测试数不一致 ${JSON.stringify(counts)}；源码静态 ${statics}；期望 ${expected}`)
-
-// 2) 斜杠命令表：两侧命令集合必须相同
-const cmds = (s) => new Set([...s.matchAll(/^\| `(\/[a-z-]+)`/gm)].map((m) => m[1]))
-const cEn = cmds(en)
-const cZh = cmds(zh)
-const miss = [...cEn].filter((c) => !cZh.has(c))
-const extra = [...cZh].filter((c) => !cEn.has(c))
-if (!miss.length && !extra.length) ok(`命令表两侧一致（${cEn.size} 条）`)
-else bad(`命令表不一致：ZH 缺 [${miss}] / ZH 多 [${extra}]`)
-
-// 3) 配置表：字段集合必须相同（默认值要人核，语义读不了）
-const fields = (s, from, to) => {
-  const body = s.slice(s.indexOf(from), s.indexOf(to, s.indexOf(from)))
-  return new Set([...body.matchAll(/^\| ([^|]+?) \|/gm)]
-    .flatMap((m) => [...m[1].matchAll(/`([a-zA-Z.]+)`/g)].map((x) => x[1])))
-}
-const fEn = fields(en, '## ⚙️ Configuration', '<details>')
-const fZh = fields(zh, '## ⚙️ 配置速查', '<details>')
-const fMiss = [...fEn].filter((f) => !fZh.has(f))
-const fExtra = [...fZh].filter((f) => !fEn.has(f))
-if (!fMiss.length && !fExtra.length) ok(`配置表两侧一致（${fEn.size} 项）`)
-else bad(`配置表不一致：ZH 缺 [${fMiss}] / ZH 多 [${fExtra}]`)
-
-// 4) 手册 ↔ src/user-guide.ts：去掉标题/引用块/列表符号与 `**使用说明**` 后逐行一致
-const { USER_GUIDE } = await import(pathToFileURL(path.resolve('src/user-guide.ts')).href)
-const norm = (s, isDoc) => s.split('\n')
-  .filter((l) => !(isDoc && (l.startsWith('>') || l.startsWith('# '))))
-  .map((l) => l.replace(/^- /, '').trimEnd())
-  .filter((l) => l !== '' && l !== '**使用说明**').join('\n').trim()
-const a = norm(USER_GUIDE, false).split('\n')
-const b = norm(fs.readFileSync('docs/用户手册.md', 'utf8'), true).split('\n')
-const diff = a.map((l, i) => (l === b[i] ? null : i + 1)).filter(Boolean)
-if (!diff.length) ok(`手册与 /manual 源逐行一致（${a.length} 行）`)
-else bad(`手册与 /manual 源有 ${diff.length} 行不同（行号 ${diff}）`)
-
-console.log(fail.length ? `\n${fail.length} 项未过` : '\n全部通过')
-process.exit(fail.length ? 1 : 0)
-```
-
-</details>
-
-脚本只管**机械可判**的项。功能表、仓库地图的文字、配置默认值这三样判的是语义，机器判不了——它们靠 9.2 的人读，
-所以清单不能只写「跑脚本」。
+**不要养第二套门。** 门抓到的东西若反复出现，就并进 `scripts/check-docs-consistency.mjs`；
+并进去时连测试一起写（`tests/docs-consistency.spec.ts`），否则下一个改门的人会把它改坏。
 
 ### 9.4 这张单子第一次跑抓到了什么（2026-10-21）
 
@@ -271,13 +203,14 @@ process.exit(fail.length ? 1 : 0)
 
 | # | 位置 | 抓到的东西 | 性质 |
 |---|---|---|---|
-| 1 | `README.zh.md` 仓库地图 | `tests/ vitest 套件（0 个）`，而徽章与源码静态计数都是 `563` | 数字错 |
+| 1 | `README.zh.md` 仓库地图 | `tests/ vitest 套件（0 个）`，而徽章与源码静态计数都是 `563`（当时的数；现在门会直接比套件文件数） | 数字错 |
 | 2 | `docs/用户手册.md` 第 13 行 | 把 `/balance` 并进「钱袋与说明」一行；源里 `/balance` 只在「钱袋」一节，「反馈」是单独一行 | 同一句话的两种结构 |
 | 3 | `docs/用户手册.md` 第 16、33 行 | 「批量重活会优先」对「批量重活**我**会优先」；「bot 和你」对「我和你」 | 同一句话的两种写法 |
 | 4 | EN / ZH 结构 | EN 有 `### Moving to a new harness version`（切树、profile 只声明自己的依赖两条规则），ZH 无对应小节 | 一侧有、一侧没有 |
 
-**第 1 类最值得记：仓库的文档门读徽章，而徽章是对的**——所以这一类只能靠 9.3 ⑤ 的六处核对，
-任何单一数字的门都救不了它。**四类都不会让任何测试变红。**
+**第 1 类最值得记：徽章是对的，套件栏是错的**——同一个仓库地图里两个数字，一真一假。
+**四类都不会让任何测试变红。** 修法是把这四类都变成门里的判据（徽章、套件数、章节数、`/bot` 子命令），
+所以现在跑门就会红；下面 9.4 记的是「门长出来之前」抓到的东西。
 
 另一个盲区在测试本身：`tests/user-guide.spec.ts` 第四条只断言手册包含 8 个小节标题和 4 个命令，
 **不比对正文**。实测 33 行里 3 行不同，它照样绿。仓库的文档门按「行集合」比（不按顺序），

@@ -133,6 +133,74 @@ for (const [label, listed] of [['README.md', enCommands], ['README.zh.md', zhCom
   }
 }
 
+// 2e. The `/bot` subcommands the bridge implements are written down. This
+//     one is not a table row — it is a sentence — so the table check above
+//     cannot see it, and a subcommand that exists but is not written down
+//     is a subcommand nobody finds.
+function botSubcommands() {
+  const source = read('src/sync/bot-command.ts')
+  const match = source.match(/const SUBCOMMANDS = new Set\(\[([^\]]+)\]/)
+  if (match === null) return []
+  return [...match[1].matchAll(/'([^']+)'/g)].map((m) => m[1]).sort()
+}
+
+function documentedBotSubcommands(markdown) {
+  const line = markdown.split('\n').find((l) => l.includes('`/bot` subcommands') || l.includes('`/bot` 子命令'))
+  if (line === undefined) return []
+  const names = [...line.matchAll(/`([a-z-]+)`/g)].map((m) => m[1])
+  return [...new Set(names)].sort()
+}
+
+const botCommands = botSubcommands()
+for (const [label, markdown] of [['README.md', en], ['README.zh.md', zh]]) {
+  const documented = documentedBotSubcommands(markdown)
+  const missing = botCommands.filter((c) => !documented.includes(c))
+  if (missing.length === 0) {
+    pass(`${label} writes down every /bot subcommand`, `${botCommands.length} subcommands`)
+  } else {
+    fail(`${label} writes down every /bot subcommand`, `missing: ${missing.join(', ')}`)
+  }
+}
+
+// 2c. The suite count in the repository map matches the number of test
+//     files. The badge is not the only place a number is written down,
+//     and a number that says zero is worse than one that is merely
+//     stale: it tells the reader the tests do not exist.
+function suiteCount(markdown) {
+  const english = markdown.match(/vitest suites \((\d+)\)/)
+  if (english !== null) return Number(english[1])
+  const chinese = markdown.match(/vitest 套件（(\d+) 个）/)
+  return chinese === null ? undefined : Number(chinese[1])
+}
+
+const suiteFiles = readdirSync(join(ROOT, 'tests')).filter((f) => f.endsWith('.spec.ts')).length
+for (const [label, markdown] of [['README.md', en], ['README.zh.md', zh]]) {
+  const suites = suiteCount(markdown)
+  if (suites === undefined) {
+    fail(`${label} states how many test suites there are`, 'no suite count in the repository map')
+  } else if (suites === suiteFiles) {
+    pass(`${label} suite count matches the test files`, `${suites}`)
+  } else {
+    fail(`${label} suite count matches the test files`,
+      `says ${suites}, there are ${suiteFiles}`)
+  }
+}
+
+// 2d. The two documents have the same sections. A section that exists in
+//     one and not the other is a promise the other language never made.
+function sections(markdown) {
+  return [...markdown.matchAll(/^#{2,3} (.+)$/gm)].map((m) => m[1].trim())
+}
+
+const enSections = sections(en)
+const zhSections = sections(zh)
+if (enSections.length === zhSections.length) {
+  pass('the two documents have the same number of sections', `${enSections.length} each`)
+} else {
+  fail('the two documents have the same number of sections',
+    `english has ${enSections.length}, chinese has ${zhSections.length}`)
+}
+
 // 3. The badge matches the number of tests that run.
 const { count, source } = actualTestCount()
 for (const [label, markdown] of [['README.md', en], ['README.zh.md', zh]]) {

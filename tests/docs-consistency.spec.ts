@@ -1,20 +1,49 @@
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 /**
  * The documentation gate is a script; a script nobody runs on purpose is a
  * script that only runs when something else breaks. These tests keep the
  * gate honest from both sides: it passes on the repository as it stands,
  * and it still catches each kind of drift it is there to catch.
+ *
+ * The gate reads the repository, so the drift has to be introduced into a
+ * copy — not into the repository itself. Editing the real files would
+ * mean two runs of this suite at the same time could overwrite each
+ * other's changes, and a test that damages the working tree when it
+ * fails is a test that costs more than it saves.
  */
 const ROOT = path.resolve(import.meta.dirname ?? '.', '..')
-const GATE = path.join(ROOT, 'scripts', 'check-docs-consistency.mjs')
+const GATE = 'scripts/check-docs-consistency.mjs'
 
-function runGate() {
+/** A throwaway copy of the parts of the repository the gate reads. */
+function copyForGate(): string {
+  const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-docs-gate-'))
+  fs.mkdirSync(path.join(copy, 'scripts'), { recursive: true })
+  fs.mkdirSync(path.join(copy, 'src', 'sync'), { recursive: true })
+  fs.mkdirSync(path.join(copy, 'docs'), { recursive: true })
+  fs.mkdirSync(path.join(copy, 'tests'), { recursive: true })
+  for (const file of ['README.md', 'README.zh.md', 'docs/\u7528\u6237\u624b\u518c.md', 'src/commands.ts', 'src/sync/bot-command.ts', 'src/user-guide.ts']) {
+    fs.copyFileSync(path.join(ROOT, file), path.join(copy, file))
+  }
+  for (const file of fs.readdirSync(path.join(ROOT, 'tests'))) {
+    if (file.endsWith('.spec.ts')) fs.copyFileSync(path.join(ROOT, 'tests', file), path.join(copy, 'tests', file))
+  }
+  fs.copyFileSync(path.join(ROOT, GATE), path.join(copy, GATE))
+  return copy
+}
+
+const copies: string[] = []
+afterEach(() => {
+  for (const copy of copies.splice(0)) fs.rmSync(copy, { recursive: true, force: true })
+})
+
+function runGate(copy: string) {
   try {
-    const stdout = execFileSync('node', [GATE], { cwd: ROOT, encoding: 'utf8' })
+    const stdout = execFileSync('node', [GATE], { cwd: copy, encoding: 'utf8' })
     return { code: 0, stdout }
   } catch (error) {
     const e = error as { status?: number, stdout?: string }
@@ -22,20 +51,20 @@ function runGate() {
   }
 }
 
-function withFile(relative: string, change: (text: string) => string, assertion: () => void) {
-  const file = path.join(ROOT, relative)
-  const original = fs.readFileSync(file, 'utf8')
-  try {
-    fs.writeFileSync(file, change(original), 'utf8')
-    assertion()
-  } finally {
-    fs.writeFileSync(file, original, 'utf8')
-  }
+/** Copy the repository, change one file in the copy, and run the gate there. */
+function withChanged(relative: string, change: (text: string) => string, assertion: (result: { code: number, stdout: string }) => void) {
+  const copy = copyForGate()
+  copies.push(copy)
+  const file = path.join(copy, relative)
+  fs.writeFileSync(file, change(fs.readFileSync(file, 'utf8')), 'utf8')
+  assertion(runGate(copy))
 }
 
 describe('the documentation gate', () => {
   it('passes on the repository as it stands', () => {
-    const result = runGate()
+    const copy = copyForGate()
+    copies.push(copy)
+    const result = runGate(copy)
     expect(result.stdout).toContain('documentation is in step with the code')
     expect(result.code).toBe(0)
   })
@@ -44,43 +73,56 @@ describe('the documentation gate', () => {
     // The number is not written down here on purpose: the badge moves every
     // time a test is added, and a test that replaces one fixed number
     // silently stops replacing anything once the badge has moved past it.
-    withFile('README.md', (text) => text.replace(/tests-\d+%20passing/, 'tests-1%20passing'), () => {
-      const result = runGate()
+    withChanged('README.md', (text) => text.replace(/tests-\d+%20passing/, 'tests-1%20passing'), (result) => {
       expect(result.code).not.toBe(0)
       expect(result.stdout).toContain('test count')
     })
   })
 
   it('catches a command that is written down but does not exist', () => {
-    withFile('README.md', (text) => `${text}\n| \`/nosuchcommand\` | Does not exist |\n`, () => {
-      const result = runGate()
+    withChanged('README.md', (text) => `${text}\n| \`/nosuchcommand\` | Does not exist |\n`, (result) => {
       expect(result.code).not.toBe(0)
       expect(result.stdout).toContain('lists no command that does not exist')
     })
   })
 
   it('catches a command the bridge implements but no README mentions', () => {
-    withFile('README.md', (text) => text.replace('| `/tools` |', '| `/tools` |'), () => {
-      // Remove the row entirely rather than rewriting it.
-      const original = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8')
-      const without = original
-        .split('\n')
-        .filter((line) => !line.startsWith('| `/tools` |'))
-        .join('\n')
-      fs.writeFileSync(path.join(ROOT, 'README.md'), without, 'utf8')
-      try {
-        const result = runGate()
-        expect(result.code).not.toBe(0)
-        expect(result.stdout).toContain('documents every command the bridge implements')
-      } finally {
-        fs.writeFileSync(path.join(ROOT, 'README.md'), original, 'utf8')
-      }
+    withChanged('README.md', (text) => text.split('\n').filter((line) => !line.startsWith('| `/tools` |')).join('\n'), (result) => {
+      expect(result.code).not.toBe(0)
+      expect(result.stdout).toContain('documents every command the bridge implements')
+    })
+  })
+
+  it('catches a suite count that says zero', () => {
+    withChanged('README.zh.md', (text) => text.replace(/vitest 套件（\d+ 个）/, 'vitest 套件（0 个）'), (result) => {
+      expect(result.code).not.toBe(0)
+      expect(result.stdout).toContain('suite count')
+    })
+  })
+
+  it('catches a suite count that is the test count rather than the file count', () => {
+    withChanged('README.md', (text) => text.replace(/vitest suites \(\d+\)/, 'vitest suites (999)'), (result) => {
+      expect(result.code).not.toBe(0)
+      expect(result.stdout).toContain('suite count')
+    })
+  })
+
+  it('catches one document having a section the other does not', () => {
+    withChanged('README.zh.md', (text) => `${text}\n## 另一个小节\n\n多出来的一节。\n`, (result) => {
+      expect(result.code).not.toBe(0)
+      expect(result.stdout).toContain('same number of sections')
+    })
+  })
+
+  it('catches a /bot subcommand that is not written down', () => {
+    withChanged('README.md', (text) => text.replace('`/bot` subcommands** (bridge admin): `set`', '`/bot` subcommands** (bridge admin):'), (result) => {
+      expect(result.code).not.toBe(0)
+      expect(result.stdout).toContain('/bot subcommand')
     })
   })
 
   it('catches the manual and the chat copy of it drifting apart', () => {
-    withFile('docs/\u7528\u6237\u624b\u518c.md', (text) => text.replace('\u53cd\u9988\uff1a`/feedback`', '\u53cd\u9988\uff1a`/feedback`\uff08\u53e6\u52a0\u4e00\u53e5\uff09'), () => {
-      const result = runGate()
+    withChanged('docs/\u7528\u6237\u624b\u518c.md', (text) => text.replace('\u53cd\u9988\uff1a`/feedback`', '\u53cd\u9988\uff1a`/feedback`\uff08\u53e6\u52a0\u4e00\u53e5\uff09'), (result) => {
       expect(result.code).not.toBe(0)
       expect(result.stdout).toContain('agree')
     })

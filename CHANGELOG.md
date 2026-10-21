@@ -71,6 +71,27 @@ machine, and the gates that were watching the wrong tree.
   "standard / code / minimal / cordis" — one name was wrong and one was
   not a mode the deployment has.
 
+
+- **The two documents now say the same things.** The Chinese README's
+  repository map said the test suites numbered zero; the English one put
+  the number of tests where the number of suites belongs; and a section
+  that explains how to move to a new engine version existed only in
+  English. The gate asks about those now too, and the Chinese copy gained
+  the missing section.
+
+- **A command that only exists in a sentence is now watched too.** The
+  subcommands of the admin command are written in prose, not in a table,
+  so the table check could not see them. The gate now reads the set the
+  code declares and checks that each one is written down, in both
+  languages.
+
+- **One command puts the counts where they belong.** The test count is
+  written in three places per document, and every test added makes all of
+  them wrong. A script now does the writing, and it is not part of the
+  pipeline on purpose: in the pipeline the gate should fail when someone
+  forgets, and only on a developer's machine should the fixing be
+  automatic.
+
 ### Added
 
 - **What this deployment can actually do.** A command lists the tools that

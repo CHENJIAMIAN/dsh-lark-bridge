@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://github.com/moyu-good/dsh-lark-bridge/actions/workflows/ci.yml"><img src="https://github.com/moyu-good/dsh-lark-bridge/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-568%20passing-brightgreen" alt="tests">
+  <img src="https://img.shields.io/badge/tests-572%20passing-brightgreen" alt="tests">
   <a href="https://dshbase.com/zh/plugins/moyu-good-dsh-lark-bridge/"><img src="https://img.shields.io/badge/dshbase-verified-blue" alt="dshbase verified"></a>
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-blue" alt="license">
   <img src="https://img.shields.io/badge/transport-WebSocket%20long--connection-orange" alt="transport">
@@ -310,7 +310,7 @@ src/
   user-guide.ts      /manual 的单一内容源
   chronicle.ts       外部台账写入钩子（集成扩展示例；只写入站用户文本）
   config.ts          schema 与默认值
-tests/               vitest 套件（0 个），含 harness 注入式假件
+tests/               vitest 套件（58 个），含 harness 注入式假件
 scripts/             verify-dsh-contract.mjs —— 对上游 master 的漂移校验
 plugin-contract-test.mjs     43 条宿主契约检查
 ```
@@ -318,7 +318,7 @@ plugin-contract-test.mjs     43 条宿主契约检查
 **质量门**
 
 ```sh
-pnpm test                        # 568 单测/集成
+pnpm test                        # 572 单测/集成
 node plugin-contract-test.mjs    # 43 条契约检查
 node scripts/verify-dsh-contract.mjs   # 对上游 master 的漂移检查
 pnpm typecheck && pnpm run build # tsc + tsdown（lib/ 已提交）
@@ -345,6 +345,22 @@ CI 每次 push / PR 都跑全套，其中漂移检查钉在上游 dsh master—�
 这条规矩是被逼出来的：过去直接改 `main` 的实验，最后只能作为一个多提交的批量回滚收场 —— 特性分支才能让 `main` 永远可发布。
 
 ## 📦 版本与升级策略
+
+### 换到新版引擎
+
+桥是通过插件接缝（plugin seam）吃进引擎的，所以换引擎可能把接缝挪到它脚下。检查只有一条命令：
+
+```sh
+node scripts/verify-dsh-contract.mjs   # 把桥的宿主镜像与上游比对
+```
+
+它会去取桥声明契约的那份引擎源码，一旦桥所镜像的某个条目挪了位置或消失了就失败——升级前后各跑一次。失败时的修法在桥里（`src/bridge.ts`、`src/questions.ts`），不是改版本钉：桥跟着最新的引擎走，而这两个文件里的宿主契约镜像，是接缝上一次被核实时的样子留下的唯一记录。
+
+两条规则让升级不失真：
+
+1. **换引擎靠换树，不靠叠层。** dsh profile 是从 CLI 所在的那棵树解析引擎自己的包的；把新版装进旧树之上，解析出来的仍是旧版。
+2. **升级完必须重新核实契约。** 接缝挪了位置而契约门没红，等于没查。
+
 
 双轨制，写明白免得靠猜：
 
