@@ -106,10 +106,81 @@ function cotEvent(eventType: string, content: object): CotEvent {
   }
 }
 
-/** Bound a value a tool produced before it rides an event. */
-function boundResult(text: string): string {
-  const limit = 1500
-  return text.length <= limit ? text : `${text.slice(0, limit - 1)}…`
+/**
+ * What one tool call's arguments are worth showing.
+ *
+ * The arguments of a file write are the whole file. Putting them in the
+ * chat means the file's contents are copied into a conversation that
+ * already has the file on disk, and a chat client renders a megabyte of
+ * JSON as a wall. What a reader needs from a tool call is which tool ran
+ * and on what — the path, the command, the query — not the payload.
+ *
+ * So the arguments are summarised: the keys whose values identify the
+ * call are kept, and the ones that carry bulk are replaced by their size.
+ * The full arguments stay in the session log, where the run can be read
+ * later.
+ */
+const SUMMARY_KEYS = [
+  'path', 'file_path', 'filePath', 'command', 'cmd', 'query', 'url', 'pattern',
+  'pathPattern', 'glob', 'description', 'name', 'prompt', 'old_str', 'new_str',
+  'subagent_type', 'description',
+]
+
+/** How much of a kept value the summary shows. */
+const SUMMARY_VALUE_CHARS = 120
+
+/**
+ * Summarise one tool call's arguments for the chat.
+ *
+ * @param argumentsJson - the arguments as the host delivered them.
+ * @returns a short description of what the call was for.
+ */
+export function summariseArguments(argumentsJson: string): string {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(argumentsJson)
+  } catch {
+    // Not JSON: the first line says what it was, which is enough.
+    const first = argumentsJson.split('\n')[0]?.trim() ?? ''
+    return first.length > SUMMARY_VALUE_CHARS ? `${first.slice(0, SUMMARY_VALUE_CHARS - 1)}…` : first
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return String(parsed).slice(0, SUMMARY_VALUE_CHARS)
+  }
+  const entries = Object.entries(parsed as Record<string, unknown>)
+  const kept: string[] = []
+  for (const [key, value] of entries) {
+    if (!SUMMARY_KEYS.includes(key)) {
+      const size = typeof value === 'string' ? value.length : JSON.stringify(value)?.length ?? 0
+      if (size > 200) kept.push(`${key}: ${size} 字符`)
+      continue
+    }
+    const text = typeof value === 'string' ? value : JSON.stringify(value)
+    kept.push(`${key}: ${text.length > SUMMARY_VALUE_CHARS ? `${text.slice(0, SUMMARY_VALUE_CHARS - 1)}…` : text}`)
+  }
+  if (kept.length === 0) return `${entries.length} 个参数`
+  return kept.join(' · ')
+}
+
+/**
+ * What one tool result is worth showing.
+ *
+ * A command's output is output, not prose: the reader wants to know what
+ * came back and whether it worked, not to read a thousand lines of it in
+ * the chat. The first lines carry the answer; the rest stays in the
+ * session log.
+ */
+const RESULT_HEAD_CHARS = 240
+const RESULT_HEAD_LINES = 3
+
+function summariseResult(text: string): string {
+  const trimmed = text.trim()
+  if (trimmed === '') return '（无输出）'
+  const head = trimmed.split('\n').slice(0, RESULT_HEAD_LINES).join('\n')
+  const bounded = head.length > RESULT_HEAD_CHARS ? `${head.slice(0, RESULT_HEAD_CHARS - 1)}…` : head
+  const lines = trimmed.split('\n').length
+  if (lines > RESULT_HEAD_LINES) return `${bounded}\n…（共 ${lines} 行，完整结果见会话记录）`
+  return bounded
 }
 
 /** Options for {@link createCotRenderer}. */
@@ -138,6 +209,43 @@ interface LiveRun {
   reasoningOpen: boolean
   /** Whether the run was already closed by a terminal event. */
   finished: boolean
+  /** When the turn opened, so the closing line can say how long it took. */
+  readonly startedAt: number
+  /** How many tool calls the turn made, so the closing line can say. */
+  toolCalls: number
+}
+
+/**
+ * The closing line, as an event the answer half can send.
+ *
+ * @param run - the finished run.
+ * @param failure - the failure detail, empty when the turn succeeded.
+ * @returns the event carrying the line.
+ */
+function closingEvent(run: LiveRun, failure: string | undefined): HostSessionEvent {
+  const text = failure === undefined ? closingLine(run) : `⚠️ 本轮失败 · ${failure}`
+  return {
+    type: 'assistant/message',
+    data: {
+      turn: run.turn,
+      message: { role: 'assistant', content: [{ type: 'text', text }] },
+    },
+  } as HostSessionEvent
+}
+
+/**
+ * The line that says the turn is over.
+ *
+ * A reader watching twenty-six tool calls scroll past has no way to tell
+ * that the run ended — the process closes, but nothing says so in words.
+ * The count and the elapsed time are the two facts a reader wants at that
+ * moment: how much happened, and how long it took.
+ */
+function closingLine(run: LiveRun): string {
+  const seconds = Math.max(0, Math.round((Date.now() - run.startedAt) / 1000))
+  const duration = seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`
+  const calls = run.toolCalls === 0 ? '无工具调用' : `${run.toolCalls} 次工具调用`
+  return `✅ 本轮完成 · ${calls} · 用时 ${duration}`
 }
 
 /**
@@ -211,6 +319,8 @@ export function createCotRenderer(
       draining: Promise.resolve(),
       reasoningOpen: false,
       finished: false,
+      startedAt: Date.now(),
+      toolCalls: 0,
     }
     enqueue(live, cotEvent('RUN_STARTED', { threadId: chatId, runId: `turn-${turn}` }))
     return live
@@ -224,6 +334,12 @@ export function createCotRenderer(
       enqueue(run, cotEvent('REASONING_MESSAGE_END', { messageId: `reasoning-${run.turn}` }))
       run.reasoningOpen = false
     }
+    // The line that says the run is over goes to the answer half, NOT into
+    // the process: the platform hides the process when the run ends, so a
+    // closing line written there would vanish with it. A reader who watched
+    // twenty-six calls scroll past needs to be told, in a message that
+    // stays, that the run finished.
+    answer.handle(closingEvent(run, failure))
     enqueue(run, failure === undefined
       ? cotEvent('RUN_FINISHED', { threadId: chatId, runId: `turn-${run.turn}`, status: 'done' })
       : cotEvent('RUN_ERROR', { message: failure, code: 'TURN_FAILED' }))
@@ -323,6 +439,7 @@ export function createCotRenderer(
         const run = ensure(event.data.turn)
         const shown = presentCall(event.data.name, event.data.arguments)
         const toolCallId = event.data.callId
+        run.toolCalls += 1
         if (run.reasoningOpen) {
           run.reasoningOpen = false
           enqueue(run, cotEvent('REASONING_MESSAGE_END', { messageId: `reasoning-${run.turn}` }))
@@ -335,7 +452,9 @@ export function createCotRenderer(
             title: subagentTitle(event.data.name, shown.title),
             toolCallName: event.data.name,
           }),
-          cotEvent('TOOL_CALL_ARGS', { toolCallId, delta: event.data.arguments }),
+          // The summary, not the arguments: a file write's arguments are
+          // the whole file, and the chat already has the file.
+          cotEvent('TOOL_CALL_ARGS', { toolCallId, delta: summariseArguments(event.data.arguments) }),
           cotEvent('TOOL_CALL_END', { toolCallId }),
         )
         return
@@ -349,8 +468,10 @@ export function createCotRenderer(
           messageId: `result-${callId}`,
           toolCallId: callId,
           role: 'tool',
-          // A command's output reads as output, not prose.
-          content: { type: 'code', code: boundResult(text) },
+          // A command's output reads as output, not prose — and not a
+          // thousand lines of it either. The head carries the answer; the
+          // rest is in the session log.
+          content: { type: 'code', code: summariseResult(text) },
           ...event.data.error === undefined ? {} : { error: event.data.error.code },
         }))
         return

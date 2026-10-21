@@ -67,3 +67,78 @@ describe('multi-agent panel follows a child session', () => {
     await harness.dispose()
   })
 })
+
+
+/**
+ * A delegation has to be visible in the chat, not only in the panel card.
+ *
+ * The panel is a card the reader has to find; the chat is where the
+ * question was asked. A child that is announced only in the panel leaves
+ * the chat saying nothing happened until the answer arrives — which reads
+ * as a stall, and the reader starts asking what happened.
+ */
+describe('a delegation is announced in the chat', () => {
+  it('says what was delegated, when the delegation happens', async () => {
+    const harness = await mountChannel()
+    await harness.fake.emitMessage(fakeMessage({ content: 'bind me' }))
+    await vi.waitFor(() => { expect(harness.agents.created).toHaveLength(1) }, { timeout: 20_000, interval: 50 })
+    const session = harness.agents.created[0]!.agent.session
+    const sentBefore = harness.fake.sent.length
+
+    harness.ctx.emit('session/event', session, {
+      type: 'subagent/catalog',
+      data: { version: 0, childId: 'child-1', childCreatedAt: Date.now(), mode: 'one-shot', label: '书评检索' },
+    })
+
+    await vi.waitFor(() => {
+      const lines = harness.fake.sent.slice(sentBefore)
+        .map((m) => (m.input as { markdown?: string }).markdown ?? '')
+      expect(lines.some((l) => l.includes('派出子代理') && l.includes('书评检索'))).toBe(true)
+    }, { timeout: 20_000, interval: 100 })
+    await harness.dispose()
+  })
+
+  it('carries the child\'s progress into the chat', async () => {
+    const harness = await mountChannel()
+    await harness.fake.emitMessage(fakeMessage({ content: 'bind me' }))
+    await vi.waitFor(() => { expect(harness.agents.created).toHaveLength(1) }, { timeout: 20_000, interval: 50 })
+    const session = harness.agents.created[0]!.agent.session
+    const sentBefore = harness.fake.sent.length
+
+    harness.ctx.emit('session/event', session, {
+      type: 'subagent/catalog',
+      data: { version: 0, childId: 'child-2', childCreatedAt: Date.now(), mode: 'one-shot', label: '架构设计' },
+    })
+    const childSession = { id: 'child-2' }
+    harness.ctx.emit('session/event', childSession, {
+      type: 'tool/call',
+      data: { turn: 1, step: 1, name: 'read', arguments: { path: 'docs/设计.md' } },
+    })
+
+    await vi.waitFor(() => {
+      const lines = harness.fake.sent.slice(sentBefore)
+        .map((m) => (m.input as { markdown?: string }).markdown ?? '')
+      expect(lines.some((l) => l.includes('架构设计') && l.includes('docs/设计.md'))).toBe(true)
+    }, { timeout: 20_000, interval: 100 })
+    await harness.dispose()
+  })
+
+  it('stays silent when the announcement is switched off', async () => {
+    const harness = await mountChannel({ announceSubagents: false })
+    await harness.fake.emitMessage(fakeMessage({ content: 'bind me' }))
+    await vi.waitFor(() => { expect(harness.agents.created).toHaveLength(1) }, { timeout: 20_000, interval: 50 })
+    const session = harness.agents.created[0]!.agent.session
+    const sentBefore = harness.fake.sent.length
+
+    harness.ctx.emit('session/event', session, {
+      type: 'subagent/catalog',
+      data: { version: 0, childId: 'child-3', childCreatedAt: Date.now(), mode: 'one-shot', label: '不announce' },
+    })
+
+    await new Promise((r) => setTimeout(r, 300))
+    const lines = harness.fake.sent.slice(sentBefore)
+      .map((m) => (m.input as { markdown?: string }).markdown ?? '')
+    expect(lines.some((l) => l.includes('派出子代理'))).toBe(false)
+    await harness.dispose()
+  })
+})

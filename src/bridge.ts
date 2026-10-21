@@ -747,6 +747,17 @@ export function installBridge(
   const teamTrackers = new Map<string, { state: teamCard.TeamCardState; messageId?: string; updatedAt?: number; sending?: boolean; pending?: boolean }>()
   /** 外勤会话镜像 (P141)：未绑定且非子会话的独立会话，按会话节流推一行进度。 */
   const externalMirrorAt = new Map<string, number>()
+  /**
+   * When each child's last progress line reached the chat, per chat+child.
+   *
+   * A child's work is worth saying out loud, but every one of its tool
+   * calls is not: a child that reads twenty files would otherwise put
+   * twenty lines into the chat between the question and the answer. One
+   * line per child per window is what a reader can actually use.
+   */
+  const childProgressAt = new Map<string, number>()
+  /** How often one child's progress reaches the chat, in milliseconds. */
+  const CHILD_PROGRESS_WINDOW_MS = 30_000
   /** childId → chatId. 0.1.5 runs every child in its OWN session — the id
    * `subagent/catalog` reports as `childId` IS that session id (verified against
    * this install: each of the 20 catalog ids had a matching session directory),
@@ -917,6 +928,19 @@ export function installBridge(
     // The first thing a child does is worth an immediate redraw — otherwise the
     // row sits at「进行中」with no detail until the throttle window passes.
     void flushSubagentCard(chatId, tracker, entry.chunks <= 1).catch(reportSendFailure)
+    // And one line of it reaches the chat, on a window: the delegation was
+    // announced there, so the progress belongs there too. Without it the
+    // chat says a child was sent and then goes quiet until the answer.
+    if (config.announceSubagents === false) return
+    const key = `${chatId}|${childId}`
+    const now = Date.now()
+    const last = childProgressAt.get(key)
+    if (last !== undefined && now - last < CHILD_PROGRESS_WINDOW_MS) return
+    childProgressAt.set(key, now)
+    const label = entry.label.trim() === '' ? '子代理' : entry.label
+    void replay.send(chatId, {
+      markdown: `🔀 ${label} · ${line.trim()}`,
+    }).catch(reportSendFailure)
   }
 
   /**
@@ -2422,6 +2446,19 @@ export function installBridge(
       // session id, so its activity can be attributed later.
       // Register the child so its OWN session events can find this chat.
       childChat.set(event.data.childId, binding.chatId)
+      // Say the delegation out loud. A child that is announced only in the
+      // panel is invisible to a reader who is looking at the chat: the panel
+      // is a card that must be found, and the chat is where the question was
+      // asked. The label is the child's own description of its work, so the
+      // line says what is being done rather than that something is.
+      if (config.announceSubagents !== false) {
+        const label = event.data.label === undefined || event.data.label.trim() === ''
+          ? '未命名任务'
+          : event.data.label.trim()
+        void replay.send(binding.chatId, {
+          markdown: `🔀 派出子代理 · ${label}\n（进展会实时更新，完成后一并汇报）`,
+        }).catch(reportSendFailure)
+      }
       upsertSubagent(binding.chatId, event.data.childId, {
         mode: event.data.mode,
         ...event.data.label === undefined ? {} : { label: event.data.label },

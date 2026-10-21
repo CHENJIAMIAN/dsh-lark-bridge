@@ -122,6 +122,14 @@ export interface Config {
    * file path, so the same directory policy and the same failure text apply.
    */
   presentBridge?: boolean
+  /**
+   * Whether a delegation is announced in the chat when it is made.
+   *
+   * A child that is announced only in the panel card is invisible to a
+   * reader looking at the chat, so this is on by default. Turn it off for
+   * a chat that would rather see the panel alone.
+   */
+  announceSubagents?: boolean
   /** Auto-save inbound file messages into the agent workspace. Default true. */
   autoSaveFiles?: boolean
   /**
@@ -254,6 +262,8 @@ export interface ResolvedConfig {
   briefingFile: string
   /** Whether declared deliverables are delivered to the chat. */
   presentBridge: boolean
+  /** Whether a delegation is announced in the chat when it is made. */
+  announceSubagents: boolean
   /** Whether inbound files are auto-saved to the workspace. */
   autoSaveFiles: boolean
   /** Numbered model menu for /model command. */
@@ -301,6 +311,7 @@ export const Config: z<Config> = z.object({
   briefingFile: z.string().default(''),
   autoSaveFiles: z.boolean().default(true),
   presentBridge: z.boolean().default(true),
+  announceSubagents: z.boolean().default(true),
   modelCatalog: z.array(z.string()).default([]),
   chronicleSource: z.string().default('lark-bridge'),
   onboarding: z.boolean().default(true),
@@ -357,6 +368,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     briefingFile: config.briefingFile ?? '',
     autoSaveFiles: config.autoSaveFiles ?? true,
     presentBridge: config.presentBridge ?? true,
+    announceSubagents: config.announceSubagents ?? true,
     modelCatalog: config.modelCatalog ?? [],
     onboarding: config.onboarding ?? true,
     denyTools: config.denyTools ?? [...DEFAULT_DENY_TOOLS],

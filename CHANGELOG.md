@@ -92,6 +92,29 @@ machine, and the gates that were watching the wrong tree.
   forgets, and only on a developer's machine should the fixing be
   automatic.
 
+
+- **The chat carries the process, not the payload.** A tool call's arguments
+  and a tool's output were both copied into the chat in full: the arguments
+  of a file write are the whole file, so the file's contents were copied
+  into a conversation that already had the file on disk. They are
+  summarised now — the path, the command, the query — and a result shows
+  its first lines with a count of what was left. The full text stays in
+  the session log, where a run can be read afterwards.
+
+- **A turn says when it is over.** Twenty-six tool calls scrolling past
+  looked the same as a run that had stalled, because nothing said the run
+  had finished. A turn now ends with one plain line: how many tool calls
+  it made and how long it took. It is a message of its own rather than a
+  line inside the process, because the platform hides the process when
+  the run ends and the line would have vanished with it.
+
+- **A delegation is announced where the question was asked.** A child
+  running in its own session was visible only in the panel card, so a
+  reader looking at the chat saw nothing happen until the answer arrived.
+  The delegation is now said out loud in the chat when it is made, with
+  the child's own label, and its progress follows on a thirty-second
+  window. A chat that would rather see the panel alone can turn it off.
+
 ### Added
 
 - **What this deployment can actually do.** A command lists the tools that

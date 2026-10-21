@@ -33,6 +33,13 @@ export interface CotPort {
     /** Append events to one thinking process, in order. */
     writeCotEvents(handle: CotHandle, events: readonly CotEvent[]): Promise<void>;
 }
+/**
+ * Summarise one tool call's arguments for the chat.
+ *
+ * @param argumentsJson - the arguments as the host delivered them.
+ * @returns a short description of what the call was for.
+ */
+export declare function summariseArguments(argumentsJson: string): string;
 /** Options for {@link createCotRenderer}. */
 export interface CotRendererOptions {
     /** Whether the agent's reasoning and tool calls appear at all. */

@@ -109,7 +109,59 @@ describe('thinking process (CoT)', () => {
     const written = events(harness).map((e) => e.type)
     expect(written).toContain('TOOL_CALL_ARGS')
     expect(written).toContain('TOOL_CALL_END')
-    expect(contentOf(harness, 'TOOL_CALL_ARGS')).toMatchObject({ delta: '{"command":"ls -la"}' })
+    // The arguments are summarised, not copied. A file write's arguments
+    // are the whole file, and the chat already has the file on disk; the
+    // session log keeps the full arguments.
+    expect(contentOf(harness, 'TOOL_CALL_ARGS')).toMatchObject({ delta: 'command: ls -la' })
+    await harness.dispose()
+  })
+
+  it('never puts a tool\'s payload into the chat', async () => {
+    const harness = await mountChannel()
+    const emit = await chat(harness)
+    const payload = 'x'.repeat(5000)
+    emit('tool/call', { turn: 1, callId: 'c1', name: 'write', arguments: JSON.stringify({ path: '/tmp/a.txt', content: payload }) })
+
+    await vi.waitFor(() => { expect(contentOf(harness, 'TOOL_CALL_ARGS')).toBeDefined() })
+    const written = JSON.stringify(events(harness))
+    expect(written).not.toContain(payload)
+    // What identifies the call is kept.
+    expect(contentOf(harness, 'TOOL_CALL_ARGS')).toMatchObject({ delta: 'path: /tmp/a.txt · content: 5000 字符' })
+    await harness.dispose()
+  })
+
+  it('shows a tool result as its head, not as the whole output', async () => {
+    const harness = await mountChannel()
+    const emit = await chat(harness)
+    const output = Array.from({ length: 40 }, (_, i) => `line ${i}`).join('\n')
+    emit('tool/call', { turn: 1, callId: 'c1', name: 'bash', arguments: '{}' })
+    emit('tool/result', {
+      turn: 1,
+      message: { source: { callId: 'c1' }, content: [{ type: 'text', text: output, toolCallId: 'c1' }] },
+    })
+
+    await vi.waitFor(() => { expect(contentOf(harness, 'TOOL_CALL_RESULT')).toBeDefined() })
+    const code = (contentOf(harness, 'TOOL_CALL_RESULT') as { content: { code: string } }).content.code
+    expect(code).toContain('line 0')
+    expect(code).toContain('共 40 行')
+    expect(code).not.toContain('line 39')
+    await harness.dispose()
+  })
+
+  it('says the turn is over, in a message that stays', async () => {
+    const harness = await mountChannel()
+    const emit = await chat(harness)
+    emit('tool/call', { turn: 1, callId: 'c1', name: 'bash', arguments: '{}' })
+    emit('tool/call', { turn: 1, callId: 'c2', name: 'bash', arguments: '{}' })
+    emit('assistant/message', { turn: 1, message: { content: [{ type: 'text', text: '结论。' }] } })
+    emit('turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+    await vi.waitFor(() => { expect(harness.fake.sent.length).toBeGreaterThan(0) })
+    await vi.waitFor(() => { expect(harness.fake.sent.length).toBe(2) })
+    const texts = harness.fake.sent.map((m) => (m.input as { markdown?: string }).markdown ?? '')
+    // The closing line is a message of its own, not part of the process the
+    // platform hides when the run ends.
+    expect(texts.some((t) => t.includes('本轮完成') && t.includes('2 次工具调用'))).toBe(true)
     await harness.dispose()
   })
 
@@ -173,9 +225,12 @@ describe('thinking process (CoT)', () => {
     emit('assistant/message', { turn: 1, message: { content: [{ type: 'text', text: '分析完成，结论如下。' }] } })
     emit('turn/end', { turn: 1, reason: { kind: 'completed' } })
 
-    await vi.waitFor(() => { expect(harness.fake.sent).toHaveLength(1) })
+    await vi.waitFor(() => { expect(harness.fake.sent.length).toBeGreaterThanOrEqual(1) })
     // The chat carries the text the turn ended on, once.
-    expect((harness.fake.sent[0]!.input as { markdown: string }).markdown).toBe('分析完成，结论如下。')
+    const answer = harness.fake.sent
+      .map((m) => (m.input as { markdown?: string }).markdown ?? '')
+      .find((t) => t === '分析完成，结论如下。')
+    expect(answer).toBe('分析完成，结论如下。')
     // The narration it replaced is in the process instead; writes are queued,
     // so this is where the queue has drained.
     await vi.waitFor(() => {

@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://github.com/moyu-good/dsh-lark-bridge/actions/workflows/ci.yml"><img src="https://github.com/moyu-good/dsh-lark-bridge/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-572%20passing-brightgreen" alt="tests">
+  <img src="https://img.shields.io/badge/tests-578%20passing-brightgreen" alt="tests">
   <a href="https://dshbase.com/plugins/moyu-good-dsh-lark-bridge/"><img src="https://img.shields.io/badge/dshbase-verified-blue" alt="dshbase verified"></a>
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-blue" alt="license">
   <img src="https://img.shields.io/badge/transport-WebSocket%20long--connection-orange" alt="transport">
@@ -43,7 +43,10 @@ your coding agent work right inside a chat. Each conversation (DM or group) driv
 dsh agent, and everything the desktop UI shows lives in the chat:
 
 - 🧠 **Native thinking process** — reasoning renders as Feishu's own "thinking" message;
-  tool calls with icons, results as code blocks. No black box.
+  tool calls with icons, results showing their first few lines (the whole output stays
+  in the session log). No black box.
+- 🏁 **Every turn says it is over** — a turn ends with one plain line: how many tool
+  calls it made and how long it took, so nothing has to be counted by hand.
 - ✅ **Interactive approval cards** — risky operations become Allow-once / Deny cards,
   decision and decider written back.
 - 🎯 **Live goal & todo cards** — long-running tasks update a card in real time instead of
@@ -219,7 +222,7 @@ Highlights — the ones other bridges don't have:
 | 🖥️ **Self-healing slash panel** | the panel has a single writer (the arbitration-active endpoint), bilingual, kept in step with what actually runs |
 | 🧰 **Capability inventory** | `/tools` lists what this deployment can actually do — the visible tools and the MCP servers it talks to, not only what someone switched off |
 | 🎙️ **Media delivered in kind** | an ogg or opus recording arrives as a voice note and an mp4 or m4v clip as a video — playable in the chat, not a download link (the extension decides, and a named `kind` can narrow it but never widen it). A format the chat cannot carry in that shape arrives as a file, and the result says so |
-| 👥 **Team panel** | when the host runs a team, one card shows the members, the shared tasks and the messages passed between them, updated in place |
+| 👥 **Team panel** | when the host runs a team, one card shows the members, the shared tasks and the messages passed between them, updated in place; a delegation is also announced in the chat, with progress on a 30-second window |
 
 <details>
 <summary><b>All capabilities</b></summary>
@@ -311,6 +314,7 @@ Essentials:
 | `requireMention` | `true` | In groups, respond only when @-mentioned |
 | `outbound.allowedFileDirs` | unset → disabled | Local dirs `send_file` may read from |
 | `chronicleEndpoint` | `''` | Optional external ledger: one POST per accepted inbound user message (`source`/`text`/`chatId`); the bridge's replies are not included |
+| `announceSubagents` | `true` | Announce a delegation in the chat when it is made, with progress on a 30-second window; off leaves it to the team panel alone |
 
 Full option reference: [README.zh.md 配置](README.zh.md#️-配置) · credentials resolve in three
 layers (bundle patch config → settings document plugin section → first-boot QR registration).
@@ -380,7 +384,7 @@ plugin-contract-test.mjs   43 contract checks on the host contract surface
 **Quality gates**
 
 ```sh
-pnpm test                        # 572 unit/integration tests
+pnpm test                        # 578 unit/integration tests
 node plugin-contract-test.mjs    # 43 host-contract checks
 node scripts/verify-dsh-contract.mjs   # drift check against upstream master
 pnpm typecheck && pnpm run build # tsc + tsdown (lib/ is committed)
@@ -507,6 +511,18 @@ Issues and PRs welcome — design cards first, please.
 - Events during a long-connection outage are not replayed (no cursor); outbound sends are
   queued by the replay port
 - `schedule_*` model tools need composing `@deepseek-ai/dsh-schedule` in your profile
+
+## 🤝 Contributing
+
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — how to get a change in: the branch shape, the
+  three layers of tests, and what a change has to come with.
+- **[SECURITY.md](SECURITY.md)** — how to report a vulnerability, and what counts as one.
+  Please do not open a public issue for it.
+- **[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)** — how people are expected to treat each other here.
+- **Issue templates** — a bug report and a feature request, under
+  [.github/ISSUE_TEMPLATE](.github/ISSUE_TEMPLATE). A report that fills in the
+  environment section is answered faster; a report that does not is usually a
+  question about the host rather than about the bridge.
 
 ## 📄 License
 

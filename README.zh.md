@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://github.com/moyu-good/dsh-lark-bridge/actions/workflows/ci.yml"><img src="https://github.com/moyu-good/dsh-lark-bridge/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-572%20passing-brightgreen" alt="tests">
+  <img src="https://img.shields.io/badge/tests-578%20passing-brightgreen" alt="tests">
   <a href="https://dshbase.com/zh/plugins/moyu-good-dsh-lark-bridge/"><img src="https://img.shields.io/badge/dshbase-verified-blue" alt="dshbase verified"></a>
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-blue" alt="license">
   <img src="https://img.shields.io/badge/transport-WebSocket%20long--connection-orange" alt="transport">
@@ -38,7 +38,8 @@
 
 `dsh-lark-bridge` 是一个 **飞书/Lark 即时通讯机器人通道**，让 DeepSeek Harness 的编码代理直接在聊天里工作。每个聊天（私聊/群聊）驱动一个独立的 dsh agent，桌面版能看到的过程，聊天里全部可见——而且**飞书、网页端、桌面端共享同一套会话库，三端接力干活**：
 
-- 🧠 **思考过程实时可见** —— 飞书原生「思考中」消息渲染 reasoning，工具调用带图标、结果代码块展示，不黑盒
+- 🧠 **思考过程实时可见** —— 飞书原生「思考中」消息渲染 reasoning，工具调用带图标、结果只显示头几行（完整结果在会话记录里），不黑盒
+- 🏁 **每轮有收束** —— 一轮结束时给一句明确的「✅ 本轮完成 · N 次工具调用 · 用时 M」，不用自己数到第几步
 - 🌐 **三端舰队同步** —— web（浏览器）/ desktop（DSH Desktop）/ CLI 同一套 `~/.dsh` 会话库；云端仲裁保证**同一时刻只有一端回复**，活跃端掉线自动改选
 - 🔄 **账号一键切换** —— `/bot account` 弹出账号库卡片，点「使用」两下完成换飞书应用，凭证共享同步
 - 💰 **余额与峰谷计价感知** —— `/balance` 查 DeepSeek 余额（带查询时刻）；提示词内置峰/谷时段表，批量重活自动排进半价时段
@@ -120,7 +121,7 @@ pnpm dlx @deepseek-ai/dsh plugin --profile web add @moyu-good/dsh-lark-bridge \
 | 🌐 **双语斜杠面板** | 国际版 Lark 英文、国内版飞书中文，自动切换 |
 | 🧰 **能力全景** | `/tools` 列出这台机器此刻真能做什么——可见工具与接的 MCP 服务器，不只是「谁禁用了什么」 |
 | 🎙️ **媒体按形态送达** | ogg/opus 录音按语音条、mp4/m4v 视频按视频送达，聊天里直接能播，不是下载链接（按扩展名自动判；显式 `kind` 只能收窄、不能放宽）。聊天端承载不了的格式会降级为文件发送，并在结果里说明 |
-| 👥 **团队面板** | 宿主跑起多 agent 团队时，一张卡片显示成员、共享任务与队内往来消息，就地刷新 |
+| 👥 **团队面板** | 宿主跑起多 agent 团队时，一张卡片显示成员、共享任务与队内往来消息，就地刷新；派出子代理时聊天里也播报一行，进展按 30 秒窗口跟进 |
 
 <details>
 <summary><b>全部能力</b></summary>
@@ -251,6 +252,7 @@ pnpm dlx @deepseek-ai/dsh plugin --profile web add @moyu-good/dsh-lark-bridge \
 | `requireMention` | `true` | 群聊仅被 @ 时响应 |
 | `outbound.allowedFileDirs` | 未配置=禁用 | `send_file` 允许读取的本地目录 |
 | `chronicleEndpoint` | `''` | 可选：每条被受理的入站用户消息 POST 一次（`source`/`text`/`chatId`，不含桥的回复） |
+| `announceSubagents` | `true` | 派出子代理时在聊天里播报一行（并按 30 秒窗口带进度）；关掉则只在团队面板里显示 |
 
 完整字段说明见 [English README Configuration](README.md#️-configuration)。凭据三层解析（后者覆盖前者）：bundle patch 配置 → settings 文档插件区 → 首次扫码注册。
 
@@ -318,7 +320,7 @@ plugin-contract-test.mjs     43 条宿主契约检查
 **质量门**
 
 ```sh
-pnpm test                        # 572 单测/集成
+pnpm test                        # 578 单测/集成
 node plugin-contract-test.mjs    # 43 条契约检查
 node scripts/verify-dsh-contract.mjs   # 对上游 master 的漂移检查
 pnpm typecheck && pnpm run build # tsc + tsdown（lib/ 已提交）
@@ -423,6 +425,14 @@ node scripts/verify-dsh-contract.mjs   # 把桥的宿主镜像与上游比对
 - 长连接中断期间到达的事件不重放（传输层无游标；出站由 replay 队列兜底）
 - `schedule_*` 模型工具需要在 profile 里组合 `@deepseek-ai/dsh-schedule`
 - Desktop 宿主（2.0.x 内嵌 harness）暂缺 `hostQuestions` 提供方——提问卡在 desktop 形态降级，web 形态不受影响
+
+## 🤝 参与
+
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** —— 怎么把改动合进来：分支形状、三层测试、一次改动要带什么。
+- **[SECURITY.md](SECURITY.md)** —— 怎么报漏洞、什么算漏洞。**别开公开 issue**。
+- **[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)** —— 这里的人与人之间怎么相处。
+- **Issue 模板** —— [`.github/ISSUE_TEMPLATE`](.github/ISSUE_TEMPLATE) 下有故障报告与功能请求两份。
+  填了环境信息的那份回得更快；没填的通常问的是宿主而不是桥。
 
 ## 📄 许可
 
