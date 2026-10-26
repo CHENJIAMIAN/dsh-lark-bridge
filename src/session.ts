@@ -34,6 +34,142 @@ function failureDetail(error: unknown): string {
 }
 
 /**
+ * Error names the host's session-persistence seam gives a stored session that
+ * is THERE but cannot be opened. Matched by name, never by import: this
+ * package builds without the host's persistence packages (the same reason
+ * `host.ts` keeps structural copies), so `instanceof` is unavailable — while
+ * `name` is a string literal each host class sets in its constructor, which
+ * survives bundling and realm boundaries alike.
+ */
+const CORRUPT_LOG_NAME = 'SessionPersistenceCorruptionError'
+const UNREADABLE_FORMAT_NAME = 'SessionFormatUnsupportedError'
+const SESSION_EXISTS_NAME = 'SessionAlreadyExistsError'
+const SESSION_ABSENT_NAME = 'SessionPersistenceNotFoundError'
+
+/**
+ * Message fragments that name those same refusals for a rejection whose class
+ * was lost on the way up. Each is phrasing only these refusals produce.
+ */
+const CORRUPT_LOG_PHRASES = ['stored log is corrupt', 'corrupt session log', 'failed validation:']
+const UNREADABLE_FORMAT_PHRASES = ['unknown to this harness', 'upgrade the harness', 'log format v']
+
+/**
+ * Why an existing stored session cannot be opened: damage, a log format this
+ * build does not read, or a refusal that named neither.
+ */
+type ArchiveFailure = 'corrupt' | 'format' | 'unreadable'
+
+/**
+ * Every class name and message reachable from one rejection, outermost first.
+ * The host wraps a parse failure in the error it classifies (an
+ * `AggregateError` carries several), so the record that failed — and the line
+ * number that names it — only exists one link down.
+ * @param error - the rejection value.
+ * @returns the names and messages found, in breadth-first order.
+ */
+function errorChain(error: unknown): { names: string[]; messages: string[] } {
+  const names: string[] = []
+  const messages: string[] = []
+  const seen = new Set<unknown>()
+  const queue: unknown[] = [error]
+  while (queue.length > 0 && seen.size < 8) {
+    const current = queue.shift()
+    if (current === undefined || current === null || seen.has(current)) continue
+    seen.add(current)
+    if (typeof current === 'string') {
+      messages.push(current)
+    } else if (current instanceof Error) {
+      names.push(current.name)
+      messages.push(current.message)
+      const { cause, errors } = current as { cause?: unknown; errors?: unknown }
+      if (cause !== undefined && cause !== null) queue.push(cause)
+      if (Array.isArray(errors)) queue.push(...errors)
+    }
+  }
+  return { names, messages }
+}
+
+/**
+ * Classify one rejection that proves a stored session exists.
+ * @param error - the rejection value.
+ * @returns the failure class, or undefined when the rejection says nothing
+ * about a stored session — a conversation never served here, a permission
+ * error, a cancellation.
+ */
+function classifyArchive(error: unknown): ArchiveFailure | undefined {
+  const { names, messages } = errorChain(error)
+  const text = messages.join('\n')
+  if (names.includes(CORRUPT_LOG_NAME) || CORRUPT_LOG_PHRASES.some(phrase => text.includes(phrase))) return 'corrupt'
+  if (names.includes(UNREADABLE_FORMAT_NAME) || UNREADABLE_FORMAT_PHRASES.some(phrase => text.includes(phrase))) return 'format'
+  return undefined
+}
+
+/**
+ * Whether one rejection is the host's "no stored session under this id".
+ * @param error - the rejection value.
+ * @returns true when nothing is stored there.
+ */
+function isAbsentSession(error: unknown): boolean {
+  const { names, messages } = errorChain(error)
+  return names.includes(SESSION_ABSENT_NAME) || messages.some(message => message.endsWith('not found'))
+}
+
+/**
+ * Whether one rejection is the host's "this id is taken".
+ * @param error - the rejection value.
+ * @returns true when a stored session already owns the id.
+ */
+function isExistingSession(error: unknown): boolean {
+  const { names, messages } = errorChain(error)
+  return names.includes(SESSION_EXISTS_NAME) || messages.some(message => message.includes('already exists'))
+}
+
+/**
+ * The one line a chat reads when its stored session cannot be opened: what
+ * broke, where, and what this conversation does about it. The failing record
+ * is read from the innermost link, which names the row; the outer links only
+ * repeat the session id and a raw-log path the human cannot act on.
+ * @param failure - the recognised class of refusal.
+ * @param error - the rejection that named it.
+ * @returns one Chinese paragraph, ready to be shown as the chat's error.
+ */
+function archiveNotice(failure: ArchiveFailure, error: unknown): string {
+  const { messages } = errorChain(error)
+  const line = /line (\d+)/.exec(messages.join(' '))?.[1]
+  let detail = (messages.at(-1) ?? '')
+    .replace(/\(raw log: [^)]*\)/g, '')
+    .replace(/^session "[^"]*"[:：]?\s*/, '')
+    .replace(/^corrupt session log:\s*/, '')
+    .replace(/^stored (session|log)[^:]*:\s*/, '')
+    .trim()
+  // The line number is reported on its own, so drop the wrapper repeating it.
+  if (line !== undefined) detail = detail.replace(new RegExp(`^.*?line ${line}[:：]\\s*`), '')
+  if (detail.length > 180) detail = `${detail.slice(0, 179)}…`
+  const why = failure === 'corrupt'
+    ? '会话存档损坏'
+    : failure === 'format'
+      ? '会话存档是当前版本读不了的格式，可能由更新版本的 harness 写成'
+      : '会话存档存在但打不开'
+  const reason = detail === '' ? '' : `（${line === undefined ? '' : `第 ${line} 行：`}${detail}）`
+  return `${why}${reason}。旧存档原样保留、没动过；下一条消息会自动开一个新会话，请把刚才的话再发一次。`
+}
+
+/**
+ * Persist one resume rejection where an operator can still read it after the
+ * chat has forgotten it. Diagnostics must never mask the original failure.
+ * @param key - the conversation key whose session failed to resume.
+ * @param error - the rejection value.
+ */
+function recordResumeFailure(key: string, error: unknown): void {
+  try {
+    appendFileSync(
+      '/tmp/dsh-session-crash.log',
+      `[${new Date().toISOString()}] resume ${key}\n${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n\n`,
+    )
+  } catch { /* diagnostics must never mask the original failure */ }
+}
+
+/**
  * Derive the stable conversation key one session owns. Pure: the same
  * conversation facet yields the same key in every process.
  * @param scope - the facet a session is bound to.
@@ -118,6 +254,9 @@ export interface SessionLadder {
  * per key so a burst of messages cannot race two sessions into existence.
  * Bindings live until {@link ConversationSessions.close}, which disposes every
  * agent this store owns.
+ *
+ * A conversation whose stored session exists but cannot be opened is moved to
+ * a fresh session instead of being left unreachable — see {@link reach}.
  */
 export class ConversationSessions {
   /** Resolved sessions by conversation key. */
@@ -126,6 +265,11 @@ export class ConversationSessions {
   private readonly keys = new Map<string, string>()
   /** Acquisitions still walking the ladder, joined by concurrent messages. */
   private readonly opening = new Map<string, Promise<OpenedSession>>()
+  /**
+   * Conversation key → the session id it moved to, for a rotation record that
+   * never reached disk. This is what keeps a move a move after a failed write.
+   */
+  private readonly revived = new Map<string, string>()
   private closed = false
 
   /**
@@ -160,7 +304,10 @@ export class ConversationSessions {
    * Resolve the agent for one inbound message.
    * @param msg - normalized inbound chat message.
    * @returns the bound session, the same object for every later message of its key.
-   * @throws {Error} when this store is closed, or when no ladder rung yielded an agent.
+   * @throws {Error} when this store is closed, or when no ladder rung yielded an
+   * agent — including a stored session this build cannot open, whose message is
+   * the reason the chat should read (the conversation has then already been
+   * moved off that session, so the next message works).
    */
   async acquire(msg: NormalizedMessage): Promise<OpenedSession> {
     if (this.closed) throw new Error('dsh-lark-bridge: sessions are closed')
@@ -229,7 +376,7 @@ export class ConversationSessions {
     }
     // A failed record still rotates this process; the caller decides how to
     // warn the human about the restart-time fallback.
-    const persisted = this.rotation === undefined || this.rotation.record(key, newId)
+    const persisted = this.rebind(key, newId)
     const previous = this.opened.get(key)
     if (previous !== undefined) {
       this.opened.delete(key)
@@ -301,36 +448,111 @@ export class ConversationSessions {
   }
 
   /**
+   * Point one conversation at a different session id: in memory always, on
+   * disk when the rotation store accepts it. The memory copy is what makes a
+   * failed record a restart-time risk instead of an in-process one — the very
+   * next message must not look at the id this process just left.
+   * @param key - the conversation key.
+   * @param sessionId - the id the conversation now lives on.
+   * @returns whether the mapping reached disk.
+   */
+  private rebind(key: string, sessionId: string): boolean {
+    this.revived.set(key, sessionId)
+    return this.rotation?.record(key, sessionId) ?? true
+  }
+
+  /**
+   * The session id one conversation currently lives on.
+   * @param key - the conversation key.
+   * @returns the moved id, else the original derived home.
+   */
+  private currentSessionId(key: string): string {
+    // Memory first: it is never older than the file, and a fresh process starts
+    // with it empty, so the persisted store still wins across restarts.
+    return this.revived.get(key) ?? this.rotation?.current(key) ?? sessionIdFor(key)
+  }
+
+  /**
+   * Move one conversation off a stored session this build cannot open, and say
+   * what actually broke. The stored log is never renamed or edited: it stays
+   * addressable by id (`/sessions`), so the escape costs the conversation its
+   * old session, not its history on disk.
+   * @param key - the conversation key whose archive is unreadable.
+   * @param sessionId - the unreadable session id.
+   * @param failure - the recognised class of refusal.
+   * @param error - the rejection that named it.
+   * @returns the error to raise at the caller, carrying the chat-facing notice.
+   */
+  private quarantine(key: string, sessionId: string, failure: ArchiveFailure, error: unknown): Error {
+    const fresh = rotatedSessionId(sessionIdFor(key))
+    const persisted = this.rebind(key, fresh)
+    this.ladder.report(
+      `dsh-lark-bridge: session ${sessionId} cannot be opened (${failure}); conversation ${key} moves to ${fresh}${persisted ? '' : ' — rotation not recorded, so a restart falls back to the unreadable id'}: ${failureDetail(error)}`,
+    )
+    return new Error(archiveNotice(failure, error))
+  }
+
+  /**
    * Reach the agent for one key: an already live one, else the stored session,
    * else a fresh one.
+   *
+   * A resume rejection means one of two very different things, and the
+   * registry offers no existence probe to tell them apart: the conversation
+   * was never served here (create on that id is right), or it was served and
+   * its stored log cannot be read (create on that id can only answer
+   * `already exists`, which buries the damage — that is the deadlock issue #6
+   * reports, where every later message, `/new` included, replays the
+   * collision). The two are told apart by what the rejection IS, and only the
+   * second class moves the conversation off its archive.
    * @param key - the conversation key.
    * @returns the first rung that yielded an agent, with its ownership.
-   * @throws when creation — the last rung — also fails.
+   * @throws when a stored session cannot be opened (the error's message is the
+   * chat-facing reason) or when creation — the last rung — fails.
    */
   private async reach(key: string): Promise<OpenedSession> {
-    // A conversation may have been rotated by `/new`: the persisted store is
-    // authoritative across restarts, the derived id is the original home.
-    const sessionId = this.rotation?.current(key) ?? sessionIdFor(key)
+    // A conversation may have been rotated by `/new` or moved off a damaged
+    // archive: the persisted store is authoritative across restarts, the
+    // derived id is the original home.
+    const sessionId = this.currentSessionId(key)
     const live = this.ladder.lookup(sessionId)
     // Whoever created a live agent still owns taking it down.
     if (live !== undefined) return { handle: live, owned: false }
+    let resumeError: unknown
     try {
       return { handle: await this.ladder.resume(sessionId), owned: true }
     } catch (error) {
-      // The registry offers no existence probe, so a rejection is the only
-      // signal that this conversation was never served here — and an unreadable
-      // log looks exactly the same. Reporting it keeps a corrupt session log
-      // from passing silently as first contact.
-      // A resumed failure is normally a benign "never served here", but when
-      // the follow-up create fails too, the chat shows only its message — so
+      resumeError = error
+      // A resume failure is normally a benign "never served here", but when the
+      // follow-up create fails too, the chat shows only its message — so
       // persist this side's stack for the operator before moving on.
-      try {
-        appendFileSync('/tmp/dsh-session-crash.log', `[${new Date().toISOString()}] resume ${key}\n${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n\n`)
-      } catch { /* diagnostics must never mask the original failure */ }
+      recordResumeFailure(key, error)
+      const failure = classifyArchive(error)
+      if (failure !== undefined) throw this.quarantine(key, sessionId, failure, error)
       this.ladder.report(
         `dsh-lark-bridge: resuming session for ${key} failed, starting a new one: ${failureDetail(error)}`,
       )
     }
-    return { handle: await this.ladder.create(sessionId), owned: true }
+    try {
+      return { handle: await this.ladder.create(sessionId), owned: true }
+    } catch (error) {
+      // Any other create failure is the truth as it stands.
+      if (!isExistingSession(error)) throw error
+      // `already exists` is the one answer that proves an archive is there. If
+      // resume had said the session was absent, it appeared between the two
+      // rungs — another owner created it — so take that agent instead of
+      // moving a healthy conversation off its session.
+      if (isAbsentSession(resumeError)) {
+        const retried = await this.ladder.resume(sessionId).then(
+          handle => ({ handle }),
+          (retryError: unknown) => ({ retryError }),
+        )
+        if ('handle' in retried) return { handle: retried.handle, owned: true }
+        resumeError = retried.retryError
+        recordResumeFailure(key, resumeError)
+      }
+      // Either it appeared and is still unreadable, or nothing else can be
+      // learnt from this id: report what the resume rejection actually said.
+      throw this.quarantine(key, sessionId, classifyArchive(resumeError) ?? 'unreadable', resumeError)
+    }
   }
 }

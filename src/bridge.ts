@@ -20,7 +20,7 @@ import type {
   RejectEvent,
   SendResult,
 } from '@larksuite/channel'
-import type { ResolvedConfig } from './config.ts'
+import type { BusyPolicy, ResolvedConfig } from './config.ts'
 import type {
   HostAgent,
   HostAgentHandle,
@@ -625,6 +625,54 @@ export function chatUserMessage(msg: NormalizedMessage, images: CollectedImages)
     content: Object.freeze(content),
     source: Object.freeze({ kind: 'user' } as const),
   })
+}
+
+/** What one chat message becomes, and what the chat is told about it. */
+export interface BusyDelivery {
+  /** The inbox boundary the message actually takes. */
+  readonly policy: BusyPolicy
+  /** One line telling the chat where the message went; '' when it needs none. */
+  readonly receipt: string
+}
+
+/**
+ * Choose the inbox boundary for one chat message (issue #5).
+ *
+ * A message that lands while a turn is running used to be queued
+ * unconditionally: the chat read the wait as a hang, and the only way to change
+ * direction was `/stop`, which throws the running turn's work away. `steer`
+ * lands the message at the running driver's next step boundary, so a
+ * correction takes effect inside the turn it corrects.
+ *
+ * An idle agent keeps the original semantics — an ordinary follow-up turn that
+ * opens one — whatever the policy says, because there is nothing to steer.
+ *
+ * A policy the host cannot honour (an agent double with no `steer`, a host old
+ * enough to predate it) degrades to `queue` and says so: the message must still
+ * arrive, one turn later.
+ *
+ * @param busy - whether a turn is running (`agent.status === 'running'`).
+ * @param policy - the deployment's `busyPolicy`.
+ * @param agent - the live agent, inspected for the boundary it accepts.
+ * @returns the policy to apply and the receipt line for it.
+ */
+export function busyDelivery(
+  busy: boolean,
+  policy: BusyPolicy,
+  agent: Pick<HostAgent, 'steer' | 'inject'>,
+): BusyDelivery {
+  if (!busy) return { policy: 'queue', receipt: '' }
+  if (policy === 'steer') {
+    return typeof agent.steer === 'function'
+      ? { policy: 'steer', receipt: '🎯 已插话：下一个 step 边界生效，当前进度保留；要立即中止请发 /stop。' }
+      : { policy: 'queue', receipt: '⚠️ 本宿主不支持中途插话（steer），已退回排队：当前任务完成后处理这条。' }
+  }
+  if (policy === 'inject') {
+    return typeof agent.inject === 'function'
+      ? { policy: 'inject', receipt: '📎 已作为上下文注入：模型下一步会读到，不打断当前任务。' }
+      : { policy: 'queue', receipt: '⚠️ 本宿主不支持上下文注入（inject），已退回排队：当前任务完成后处理这条。' }
+  }
+  return { policy: 'queue', receipt: '⏳ 已排队：当前任务完成后自动处理这条。' }
 }
 
 /**
@@ -1804,11 +1852,17 @@ export function installBridge(
         }
         return
       }
-      // Queue visibility (2026-09-12 operator report, P140): a follow-up sent
-      // while a turn is running is silent by design — the chat reads the wait
-      // as a hang. One short line says the message is queued, not lost.
-      if (opened.handle.agent.status === 'running') {
-        void replay.send(binding.chatId, { markdown: '⏳ 已排队：当前任务完成后自动处理这条。' }).catch(reportSendFailure)
+      // Busy-input routing (issue #5, `busyPolicy`) and its visibility
+      // (2026-09-12 operator report, P140: a message sent mid-turn used to be
+      // silent, and the chat read the wait as a hang). One short line names the
+      // boundary the message actually took.
+      const busyPlan = busyDelivery(
+        opened.handle.agent.status === 'running',
+        config.busyPolicy,
+        opened.handle.agent,
+      )
+      if (busyPlan.receipt !== '') {
+        void replay.send(binding.chatId, { markdown: busyPlan.receipt }).catch(reportSendFailure)
       }
       // Aimed before the turn starts: the reply belongs to the message that
       // asked for it, and in a topic group an unaimed reply leaves the thread.
@@ -1875,7 +1929,20 @@ export function installBridge(
             { type: 'text' as const, text: prefix },
             ...turn.content,
           ])
-      opened.handle.agent.followup({ ...turn, content })
+      // `inject` only attaches to a live driver: a turn that closed while the
+      // images or the briefing were being read would leave the note parked in
+      // the inbox with nothing to wake it, so a message that is no longer
+      // mid-turn becomes the ordinary follow-up it has now become. Steering
+      // needs no such check — an idle driver starts a turn for it.
+      const parkedInject = busyPlan.policy === 'inject' && opened.handle.agent.status !== 'running'
+      if (parkedInject) {
+        notify(`dsh-lark-bridge: inject downgraded to followup for session ${opened.handle.agent.session.id} (turn closed before delivery)`)
+      }
+      const delivery: BusyPolicy = parkedInject ? 'queue' : busyPlan.policy
+      const message = { ...turn, content }
+      if (delivery === 'steer') opened.handle.agent.steer?.(message)
+      else if (delivery === 'inject') opened.handle.agent.inject?.(message)
+      else opened.handle.agent.followup(message)
     }
     } catch (error) {
       notify(`dsh-lark-bridge: agent creation failed for chat ${msg.chatId}: ${String(error)}`)

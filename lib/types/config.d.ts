@@ -4,6 +4,12 @@
  */
 import z from '@deepseek-ai/schemastery';
 import type { SessionScope } from './session.ts';
+/**
+ * Inbox boundary a message takes when a turn is already running: an ordinary
+ * queued turn (`queue`), steering at the next step boundary (`steer`), or
+ * model-facing context for the next pre-step (`inject`).
+ */
+export type BusyPolicy = 'queue' | 'steer' | 'inject';
 /** Plugin configuration supplied by the profile composition. */
 export interface Config {
     /** Lark/Feishu app id (`cli_…`); absent (with no stored credential) starts first-boot QR registration. */
@@ -54,6 +60,23 @@ export interface Config {
      * in one typewriter card, for clients older than that surface.
      */
     output?: 'cot' | 'stream';
+    /**
+     * Which inbox boundary a message takes when it arrives while a turn is
+     * already running.
+     *
+     * `queue` (default) is an ordinary follow-up turn: it waits for the running
+     * one to close, which is what every deployment did before this option
+     * existed. `steer` submits the message as steering instead, so the running
+     * driver reads it at its next step boundary — a chat can change direction
+     * without `/stop` throwing away the work already done. `inject` queues it as
+     * model-facing context for the next pre-step without waking the driver: the
+     * right boundary for a note the model should take into account, not an
+     * instruction that has to run.
+     *
+     * A host without `steer`/`inject` (or a double that omits them) falls back to
+     * `queue`, so the message still arrives one turn later.
+     */
+    busyPolicy?: BusyPolicy;
     /**
      * Show what the agent did on its way to an answer: its reasoning and the
      * tools it called. Off sends the answer alone.
@@ -236,6 +259,8 @@ export interface ResolvedConfig {
     locale: 'zh' | 'en';
     sessionScope: SessionScope;
     output: 'cot' | 'stream';
+    /** Inbox boundary a message takes while a turn is running. */
+    busyPolicy: BusyPolicy;
     showProcess: boolean;
     attachImages: boolean;
     hideProcessWhenDone: boolean;

@@ -46,7 +46,7 @@ export type HostContentBlock =
   | { readonly type: 'text'; readonly text: string }
   | { readonly type: 'image'; readonly attachment: HostImageRef }
 
-/** A user-role message accepted by {@link HostAgent.followup}. */
+/** A user-role message accepted by every {@link HostAgent} inbox boundary. */
 export interface HostUserMessage {
   /** Stable message identity; a fresh UUID per message. */
   readonly id: string
@@ -85,6 +85,23 @@ export interface HostAgent {
   readonly status?: string
   /** Queue an ordinary follow-up turn and wake the driver. */
   followup(message: HostUserMessage): void
+  /**
+   * Submit steering for the nearest step. An idle driver starts a turn; a
+   * running driver consumes it at its next step boundary, so a chat can change
+   * direction without discarding the work already done.
+   *
+   * Optional: absent on a host old enough to predate steering, and a test
+   * double need not model it. The bridge's `busyPolicy` falls back to
+   * `followup` when the boundary it asked for is missing.
+   */
+  steer?(message: HostUserMessage): void
+  /**
+   * Queue model-facing context for the next pre-step WITHOUT waking the
+   * driver. A running driver claims it at the nearest later step boundary, so
+   * it is the boundary for a note the model should read, not an instruction
+   * that must run. Optional for the same reason as {@link steer}.
+   */
+  inject?(message: HostUserMessage): void
   /**
    * Clear queued work and abort the active turn. A no-op when nothing is
    * active, so a chat may offer it unconditionally.

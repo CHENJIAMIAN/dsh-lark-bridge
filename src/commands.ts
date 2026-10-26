@@ -12,7 +12,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { AuditStats, HostAgent, HostAgentPresets, HostCommands, HostDefaultModel, HostJobs, HostLoaderEntry, HostMessageFeedback, HostSessionPersistence, HostSessionQuery, HostSkills, HostTokenMeter, HostWorkspaceRegistry, ScheduleEntry,
   HostTools,} from './host.ts'
-import type { ResolvedConfig } from './config.ts'
+import type { BusyPolicy, ResolvedConfig } from './config.ts'
 import { describeCommand, helpHeading } from './i18n.ts'
 import type { SyncCommandContext } from './sync/bot-command.ts'
 import { runBotCommand } from './sync/bot-command.ts'
@@ -541,6 +541,13 @@ async function runSessionsCommand(
   return { reply: `**会话历史**（${owned.length} 个）\n${rows.join('\n')}\n\n发消息即继续最近的会话；\`/new\` 开新会话。`, resolved: true }
 }
 
+/** How `/config` names each `busyPolicy`, for a reader who does not know the enum. */
+const BUSY_POLICY_LABELS: Record<BusyPolicy, string> = {
+  queue: '排队（queue）',
+  steer: '中途插话（steer）',
+  inject: '上下文注入（inject）',
+}
+
 /**
  * Handle `/config`: show the bridge's live configuration, credentials redacted.
  * @param config - the bridge's resolved configuration.
@@ -558,6 +565,7 @@ function runConfigCommand(config: ResolvedConfig | undefined): CommandOutcome {
     config.preset !== undefined ? `· 模式：${config.preset}` : '· 模式：agent-presets 默认',
     `· 语言：${config.locale === 'en' ? 'English' : '简体中文'}`,
     `· 输出：${config.output === 'cot' ? '思考过程（cot）' : '流式卡片'}`,
+    `· 忙时策略：${BUSY_POLICY_LABELS[config.busyPolicy]}`,
     `· 会话维度：${config.sessionScope}`,
     `· 显示过程：${on(config.showProcess)}${config.hideProcessWhenDone ? '（完成后隐藏）' : ''}`,
     `· 图片传递：${on(config.attachImages)}`,

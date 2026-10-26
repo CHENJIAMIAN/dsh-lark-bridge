@@ -6,8 +6,8 @@
  */
 import type { Context } from '@deepseek-ai/cordis';
 import type { CardActionEvent, CardActionResponse, LarkChannelError, NormalizedMessage, RejectEvent } from '@larksuite/channel';
-import type { ResolvedConfig } from './config.ts';
-import type { HostUserMessage } from './host.ts';
+import type { BusyPolicy, ResolvedConfig } from './config.ts';
+import type { HostAgent, HostUserMessage } from './host.ts';
 import type { CotPort } from './cot.ts';
 import type { OutboundPort } from './outbound.ts';
 import type { Authorization } from './authorization.ts';
@@ -104,6 +104,35 @@ export interface ChannelPort extends OutboundPort, SlashPanelPort, ImagePort, Co
  * @returns a frozen user message for `agent.followup()`.
  */
 export declare function chatUserMessage(msg: NormalizedMessage, images: CollectedImages): HostUserMessage;
+/** What one chat message becomes, and what the chat is told about it. */
+export interface BusyDelivery {
+    /** The inbox boundary the message actually takes. */
+    readonly policy: BusyPolicy;
+    /** One line telling the chat where the message went; '' when it needs none. */
+    readonly receipt: string;
+}
+/**
+ * Choose the inbox boundary for one chat message (issue #5).
+ *
+ * A message that lands while a turn is running used to be queued
+ * unconditionally: the chat read the wait as a hang, and the only way to change
+ * direction was `/stop`, which throws the running turn's work away. `steer`
+ * lands the message at the running driver's next step boundary, so a
+ * correction takes effect inside the turn it corrects.
+ *
+ * An idle agent keeps the original semantics — an ordinary follow-up turn that
+ * opens one — whatever the policy says, because there is nothing to steer.
+ *
+ * A policy the host cannot honour (an agent double with no `steer`, a host old
+ * enough to predate it) degrades to `queue` and says so: the message must still
+ * arrive, one turn later.
+ *
+ * @param busy - whether a turn is running (`agent.status === 'running'`).
+ * @param policy - the deployment's `busyPolicy`.
+ * @param agent - the live agent, inspected for the boundary it accepts.
+ * @returns the policy to apply and the receipt line for it.
+ */
+export declare function busyDelivery(busy: boolean, policy: BusyPolicy, agent: Pick<HostAgent, 'steer' | 'inject'>): BusyDelivery;
 /**
  * Install the bridge on a scoped plugin context. Every registration is owned
  * by the context's fiber: disposal disconnects the transport, disposes every

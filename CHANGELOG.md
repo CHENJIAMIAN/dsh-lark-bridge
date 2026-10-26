@@ -4,6 +4,43 @@ All notable changes to dsh-lark-bridge are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`busyPolicy` chooses how a message arriving mid-turn is delivered.** The
+  bridge only ever called `followup`, so an instruction sent while a turn was
+  running ("stop, don't touch that file") sat in the inbox until the turn
+  finished — by which time the direction was stale, and the only real
+  intervention was `/stop`, which throws the whole turn away. The new setting
+  takes `queue` (the default, and the previous behaviour), `steer` (delivered
+  at the nearest step boundary, so progress is kept) or `inject` (context
+  only, the driver is not woken). A host that does not expose `steer`/`inject`
+  falls back to queueing and says so rather than failing.
+- **A plugin icon and locale files.** `icon.svg`, `locale/en.json` and
+  `locale/zh.json` give the bundle a face and a title wherever a plugin is
+  listed, instead of falling back to the npm package name. Both are exported
+  and listed in `files` so a published tarball carries them.
+- **`engines.dsh`.** The manifest declared only `engines.node`, and its peer
+  range names `@deepseek-ai/cordis` — which the compatibility check does not
+  treat as a DSH version — so the package implicitly claimed to work with
+  every harness version. It now states `>=0.2.1-rc.1 <0.3.0`.
+
+### Fixed
+
+- **A corrupt session log no longer deadlocks the conversation forever.**
+  `reach()` treated every `resume()` failure as "this conversation was never
+  served here" and fell through to `create()`, which then collided with the
+  file that was still on disk: the user got `already exists` on every message
+  and the real cause — `SessionPersistenceCorruptionError` with the line and
+  seq numbers — was swallowed. Worse, `/new` was decided after `acquire()`, so
+  the one escape hatch the error message implied did not work either.
+  Corruption and unreadable-format failures are now recognised (by error name,
+  with the message and the `cause` chain as fallbacks) and reported in their
+  own words; the conversation is moved to a fresh session from then on, and
+  the old archive is left exactly as it was — not renamed, not edited — so it
+  can still be found under `/sessions` if it is ever repaired.
+
 ## [0.9.6] — 2026-10-21
 
 Eighteen commits since 0.9.5, in four themes: what the bridge had promised

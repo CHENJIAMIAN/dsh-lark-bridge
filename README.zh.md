@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://github.com/moyu-good/dsh-lark-bridge/actions/workflows/ci.yml"><img src="https://github.com/moyu-good/dsh-lark-bridge/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-578%20passing-brightgreen" alt="tests">
+  <img src="https://img.shields.io/badge/tests-594%20passing-brightgreen" alt="tests">
   <a href="https://dshbase.com/zh/plugins/moyu-good-dsh-lark-bridge/"><img src="https://img.shields.io/badge/dshbase-verified-blue" alt="dshbase verified"></a>
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-blue" alt="license">
   <img src="https://img.shields.io/badge/transport-WebSocket%20long--connection-orange" alt="transport">
@@ -115,6 +115,7 @@ pnpm dlx @deepseek-ai/dsh plugin --profile web add @moyu-good/dsh-lark-bridge \
 | 💰 **余额与峰谷感知** | `/balance` 实时查 DeepSeek 余额（分币种、带查询时刻）；提示词内置峰谷时段表，重活自动排半价时段 |
 | 📋 **审批卡片＋决策人留痕** | 点击即决策，谁批的写得清清楚楚 |
 | 🎯 **goal/todo 实时卡＋自动续跑** | 阶段变化实时进聊天；`autoResumeGoals` 重启后自动恢复 |
+| ✋ **任务中插话** | 跑到一半再发消息按 `busyPolicy` 走：`queue`（默认）排队等下一轮，`steer` 在下一个 step 边界接管方向、不丢已做的工作，`inject` 只作上下文、不唤醒驱动器 |
 | 🛠️ **飞书原生 agent 工具** | `feishu_notify` 主动发消息、`feishu_drive_*` 用应用云盘当跨设备便签 |
 | 🔍 **会话历史检索** | `/sessions <关键词>` 对本聊天历史全文搜索 |
 | 🖥️ **面板自愈** | 命令面板由活跃端单写者维护，双语、与实际能力对齐；待命端不抢写 |
@@ -312,7 +313,7 @@ src/
   user-guide.ts      /manual 的单一内容源
   chronicle.ts       外部台账写入钩子（集成扩展示例；只写入站用户文本）
   config.ts          schema 与默认值
-tests/               vitest 套件（58 个），含 harness 注入式假件
+tests/               vitest 套件（59 个），含 harness 注入式假件
 scripts/             verify-dsh-contract.mjs —— 对上游 master 的漂移校验
 plugin-contract-test.mjs     43 条宿主契约检查
 ```
@@ -320,7 +321,7 @@ plugin-contract-test.mjs     43 条宿主契约检查
 **质量门**
 
 ```sh
-pnpm test                        # 578 单测/集成
+pnpm test                        # 594 单测/集成
 node plugin-contract-test.mjs    # 43 条契约检查
 node scripts/verify-dsh-contract.mjs   # 对上游 master 的漂移检查
 pnpm typecheck && pnpm run build # tsc + tsdown（lib/ 已提交）

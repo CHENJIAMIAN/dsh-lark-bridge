@@ -20,10 +20,62 @@ interface LadderBehavior {
   live?: string[]
   /** Session ids `resume` loads; every other id rejects as unstored. */
   resumable?: string[]
+  /** Session ids whose stored log is damaged: `resume` rejects the way the host does. */
+  corrupt?: string[]
+  /** Session ids whose stored log carries a format this build does not read. */
+  foreign?: string[]
+  /** Session ids whose log exists and is unreadable for a reason that names no class. */
+  denied?: string[]
+  /** Session ids stored under an id `resume` will not load, so `create` collides. */
+  existing?: string[]
+  /** Session ids that appear between our `resume` and our `create` (another owner). */
+  race?: string[]
+  /** Session ids whose every `resume` says plainly that nothing is stored. */
+  absent?: string[]
   /** Reject `create` instead of producing an agent. */
   failCreate?: boolean
   /** Reject every produced agent's `dispose`. */
   failDispose?: boolean
+}
+
+/**
+ * The stored-log failures dsh 0.2.1-rc.2's jsonl backend raises, in the shapes
+ * measured from it: a damaged log reports the failing line and the two seqs,
+ * and every refusal sets its own class `name`.
+ * @param sessionId - the stored id the refusal is about.
+ * @returns the rejection the host would raise.
+ */
+function corruptionError(sessionId: string): Error {
+  const cause = new Error('corrupt session log: invalid committed event at line 2520: released v2 row 2519 has seq gap (expected 2519, got 2515)')
+  const error = new Error(
+    `session "${sessionId}": stored log is corrupt: ${String(cause)} (raw log: /var/dsh/sessions/session.v4.jsonl)`,
+    { cause },
+  )
+  error.name = 'SessionPersistenceCorruptionError'
+  return error
+}
+
+/** A log written by a newer harness: intact, but this build will not read it. */
+function formatRefusal(sessionId: string): Error {
+  const error = new Error(
+    `session "${sessionId}" uses log format v9, but this harness reads only v4: the log was written by a newer harness — upgrade the harness to open it (raw log: /var/dsh/sessions/session.v9.jsonl)`,
+  )
+  error.name = 'SessionFormatUnsupportedError'
+  return error
+}
+
+/** Nothing is stored under this id. */
+function absentError(sessionId: string): Error {
+  const error = new Error(`session "${sessionId}" not found`)
+  error.name = 'SessionPersistenceNotFoundError'
+  return error
+}
+
+/** A stored session already owns this id. */
+function existsError(sessionId: string): Error {
+  const error = new Error(`session "${sessionId}" already exists`)
+  error.name = 'SessionAlreadyExistsError'
+  return error
 }
 
 /**
@@ -37,6 +89,16 @@ function createFakeLadder(behavior: LadderBehavior = {}) {
   const reports: string[] = []
   const disposals: string[] = []
   const handles = new Map<string, HostAgentHandle>()
+  /** Resume attempts per id, so a race can answer differently the second time. */
+  const attempts = new Map<string, number>()
+
+  /** Whether an archive occupies this id, which is what makes `create` collide. */
+  const stored = (sessionId: string): boolean => behavior.existing?.includes(sessionId) === true
+    || behavior.resumable?.includes(sessionId) === true
+    || behavior.corrupt?.includes(sessionId) === true
+    || behavior.foreign?.includes(sessionId) === true
+    || behavior.denied?.includes(sessionId) === true
+    || behavior.race?.includes(sessionId) === true
 
   /** One stub agent per session id, so a second rung yields the same handle. */
   const handleFor = (sessionId: string): HostAgentHandle => {
@@ -61,12 +123,26 @@ function createFakeLadder(behavior: LadderBehavior = {}) {
     },
     async resume(sessionId) {
       calls.push({ rung: 'resume', sessionId })
-      if (behavior.resumable?.includes(sessionId) !== true) throw new Error(`no stored session (fake): ${sessionId}`)
+      const attempt = (attempts.get(sessionId) ?? 0) + 1
+      attempts.set(sessionId, attempt)
+      if (behavior.corrupt?.includes(sessionId) === true) throw corruptionError(sessionId)
+      if (behavior.foreign?.includes(sessionId) === true) throw formatRefusal(sessionId)
+      if (behavior.denied?.includes(sessionId) === true) throw new Error("EACCES: permission denied, open '/var/dsh/sessions/session.v4.jsonl'")
+      // A session another owner created between our resume and our create: the
+      // first attempt still sees nothing stored.
+      if (behavior.race?.includes(sessionId) === true && attempt === 1) throw absentError(sessionId)
+      if (behavior.absent?.includes(sessionId) === true) throw absentError(sessionId)
+      if (behavior.resumable?.includes(sessionId) !== true && behavior.race?.includes(sessionId) !== true) {
+        throw new Error(`no stored session (fake): ${sessionId}`)
+      }
       return handleFor(sessionId)
     },
     async create(sessionId) {
       calls.push({ rung: 'create', sessionId })
       if (behavior.failCreate === true) throw new Error(`create rejected (fake): ${sessionId}`)
+      // The host's create refuses an id whose log is already on disk, whatever
+      // shape that log is in — this is the answer that buried the damage.
+      if (stored(sessionId)) throw existsError(sessionId)
       return handleFor(sessionId)
     },
     report(line) { reports.push(line) },
@@ -259,6 +335,134 @@ describe('conversation sessions', () => {
       await expect(sessions.acquire(fakeMessage())).rejects.toThrow('create rejected (fake)')
       expect(host.reports).toHaveLength(1)
       expect(host.disposals).toEqual([])
+    })
+
+    it('says the log is damaged instead of replaying the create collision', async () => {
+      const sessionId = sessionIdFor('oc_chat_1')
+      const host = createFakeLadder({ corrupt: [sessionId] })
+      const sessions = new ConversationSessions('chat', host.ladder)
+
+      const failure = await sessions.acquire(fakeMessage()).then(() => undefined, (error: unknown) => error as Error)
+
+      // The chat reads the record that failed, not the collision it caused.
+      expect(failure?.message).toContain('会话存档损坏')
+      expect(failure?.message).toContain('第 2520 行')
+      expect(failure?.message).toContain('seq gap (expected 2519, got 2515)')
+      expect(failure?.message).not.toContain('already exists')
+      // create() is never asked: its only possible answer is what buried the cause.
+      expect(host.asked('create')).toEqual([])
+      expect(host.reports.join('\n')).toContain(`session ${sessionId} cannot be opened (corrupt)`)
+      expect(host.reports.join('\n')).toContain('seq gap (expected 2519, got 2515)')
+      await sessions.close()
+    })
+
+    it('moves a conversation off its damaged session so the next message works', async () => {
+      const sessionId = sessionIdFor('oc_chat_1')
+      const host = createFakeLadder({ corrupt: [sessionId] })
+      const home = mkdtempSync(join(tmpdir(), 'dsh-quarantine-'))
+      const sessions = new ConversationSessions('chat', host.ladder, createRotationStore(home))
+
+      await expect(sessions.acquire(fakeMessage())).rejects.toThrow('会话存档损坏')
+
+      // The escape: the conversation now lives on a fresh id, and the damaged
+      // log is left exactly where it was.
+      const opened = await sessions.acquire(fakeMessage())
+      const moved = opened.handle.agent.session.id
+      expect(moved).not.toBe(sessionId)
+      expect(moved.startsWith(`${sessionId}:r`)).toBe(true)
+      expect(host.asked('resume')).toEqual([sessionId, moved])
+      expect(host.asked('create')).toEqual([moved])
+      await sessions.close()
+
+      // A restart reads the move back, so the deadlock does not return with it.
+      const restarted = new ConversationSessions('chat', host.ladder, createRotationStore(home))
+      const again = await restarted.acquire(fakeMessage())
+      expect(again.handle.agent.session.id).toBe(moved)
+      expect(again.handle.agent.session.id).not.toBe(sessionId)
+      await restarted.close()
+    })
+
+    it('reports a log format this build cannot read as such, not as absence', async () => {
+      const sessionId = sessionIdFor('oc_chat_1')
+      const host = createFakeLadder({ foreign: [sessionId] })
+      const sessions = new ConversationSessions('chat', host.ladder)
+
+      const failure = await sessions.acquire(fakeMessage()).then(() => undefined, (error: unknown) => error as Error)
+
+      expect(failure?.message).toContain('读不了的格式')
+      expect(failure?.message).toContain('upgrade the harness')
+      expect(failure?.message).not.toContain('already exists')
+      expect(host.asked('create')).toEqual([])
+      await sessions.close()
+    })
+
+    it('falls back to the resume rejection when a taken id names no class', async () => {
+      const sessionId = sessionIdFor('oc_chat_1')
+      const host = createFakeLadder({ denied: [sessionId] })
+      const sessions = new ConversationSessions('chat', host.ladder)
+
+      const failure = await sessions.acquire(fakeMessage()).then(() => undefined, (error: unknown) => error as Error)
+
+      // `create` proved an archive is there, so its `already exists` must not be
+      // the last word: the permission failure is.
+      expect(failure?.message).toContain('会话存档存在但打不开')
+      expect(failure?.message).toContain('permission denied')
+      expect(failure?.message).not.toContain('already exists')
+      // And the conversation still escapes on the next message.
+      const opened = await sessions.acquire(fakeMessage())
+      expect(opened.handle.agent.session.id).not.toBe(sessionId)
+      await sessions.close()
+    })
+
+    it('still creates when the host says the session is absent', async () => {
+      const sessionId = sessionIdFor('oc_chat_1')
+      const host = createFakeLadder({ absent: [sessionId] })
+      const sessions = new ConversationSessions('chat', host.ladder)
+
+      const opened = await sessions.acquire(fakeMessage())
+
+      expect(opened.owned).toBe(true)
+      expect(opened.handle.agent.session.id).toBe(sessionId)
+      expect(host.asked('create')).toEqual([sessionId])
+      // The benign rejection is still reported: an unreadable log we cannot
+      // classify must not pass silently as first contact.
+      expect(host.reports).toHaveLength(1)
+      await sessions.close()
+    })
+
+    it('takes the agent when the session appeared between resume and create', async () => {
+      const sessionId = sessionIdFor('oc_chat_1')
+      const host = createFakeLadder({ race: [sessionId] })
+      const sessions = new ConversationSessions('chat', host.ladder)
+
+      const opened = await sessions.acquire(fakeMessage())
+
+      // Another owner created the session after our resume said absent: adopt
+      // it rather than move a healthy conversation onto a fresh id.
+      expect(opened.handle.agent.session.id).toBe(sessionId)
+      expect(host.asked('resume')).toEqual([sessionId, sessionId])
+      expect(host.asked('create')).toEqual([sessionId])
+      expect(host.reports.join('\n')).not.toContain('cannot be opened')
+      await sessions.close()
+    })
+
+    it('leaves a healthy stored session alone', async () => {
+      const sessionId = sessionIdFor('oc_chat_1')
+      const host = createFakeLadder({ resumable: [sessionId] })
+      const home = mkdtempSync(join(tmpdir(), 'dsh-healthy-'))
+      const rotation = createRotationStore(home)
+      const sessions = new ConversationSessions('chat', host.ladder, rotation)
+
+      const opened = await sessions.acquire(fakeMessage())
+
+      expect(opened.handle.agent.session.id).toBe(sessionId)
+      expect(host.asked('resume')).toEqual([sessionId])
+      expect(host.asked('create')).toEqual([])
+      expect(host.reports).toEqual([])
+      // Nothing moved: a store that reports a session and quietly rotates it
+      // would cost every restart its history.
+      expect(rotation.current('oc_chat_1')).toBeUndefined()
+      await sessions.close()
     })
 
     it('disposes owned agents once and refuses later acquisitions', async () => {

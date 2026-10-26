@@ -73,6 +73,9 @@ export interface SessionLadder {
  * per key so a burst of messages cannot race two sessions into existence.
  * Bindings live until {@link ConversationSessions.close}, which disposes every
  * agent this store owns.
+ *
+ * A conversation whose stored session exists but cannot be opened is moved to
+ * a fresh session instead of being left unreachable — see {@link reach}.
  */
 export declare class ConversationSessions {
     private readonly scope;
@@ -84,6 +87,11 @@ export declare class ConversationSessions {
     private readonly keys;
     /** Acquisitions still walking the ladder, joined by concurrent messages. */
     private readonly opening;
+    /**
+     * Conversation key → the session id it moved to, for a rotation record that
+     * never reached disk. This is what keeps a move a move after a failed write.
+     */
+    private readonly revived;
     private closed;
     /**
      * @param scope - the conversation facet every session is keyed by.
@@ -105,7 +113,10 @@ export declare class ConversationSessions {
      * Resolve the agent for one inbound message.
      * @param msg - normalized inbound chat message.
      * @returns the bound session, the same object for every later message of its key.
-     * @throws {Error} when this store is closed, or when no ladder rung yielded an agent.
+     * @throws {Error} when this store is closed, or when no ladder rung yielded an
+     * agent — including a stored session this build cannot open, whose message is
+     * the reason the chat should read (the conversation has then already been
+     * moved off that session, so the next message works).
      */
     acquire(msg: NormalizedMessage): Promise<OpenedSession>;
     /**
@@ -144,11 +155,49 @@ export declare class ConversationSessions {
      */
     private bind;
     /**
+     * Point one conversation at a different session id: in memory always, on
+     * disk when the rotation store accepts it. The memory copy is what makes a
+     * failed record a restart-time risk instead of an in-process one — the very
+     * next message must not look at the id this process just left.
+     * @param key - the conversation key.
+     * @param sessionId - the id the conversation now lives on.
+     * @returns whether the mapping reached disk.
+     */
+    private rebind;
+    /**
+     * The session id one conversation currently lives on.
+     * @param key - the conversation key.
+     * @returns the moved id, else the original derived home.
+     */
+    private currentSessionId;
+    /**
+     * Move one conversation off a stored session this build cannot open, and say
+     * what actually broke. The stored log is never renamed or edited: it stays
+     * addressable by id (`/sessions`), so the escape costs the conversation its
+     * old session, not its history on disk.
+     * @param key - the conversation key whose archive is unreadable.
+     * @param sessionId - the unreadable session id.
+     * @param failure - the recognised class of refusal.
+     * @param error - the rejection that named it.
+     * @returns the error to raise at the caller, carrying the chat-facing notice.
+     */
+    private quarantine;
+    /**
      * Reach the agent for one key: an already live one, else the stored session,
      * else a fresh one.
+     *
+     * A resume rejection means one of two very different things, and the
+     * registry offers no existence probe to tell them apart: the conversation
+     * was never served here (create on that id is right), or it was served and
+     * its stored log cannot be read (create on that id can only answer
+     * `already exists`, which buries the damage — that is the deadlock issue #6
+     * reports, where every later message, `/new` included, replays the
+     * collision). The two are told apart by what the rejection IS, and only the
+     * second class moves the conversation off its archive.
      * @param key - the conversation key.
      * @returns the first rung that yielded an agent, with its ownership.
-     * @throws when creation — the last rung — also fails.
+     * @throws when a stored session cannot be opened (the error's message is the
+     * chat-facing reason) or when creation — the last rung — fails.
      */
     private reach;
 }

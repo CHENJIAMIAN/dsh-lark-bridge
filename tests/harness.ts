@@ -311,6 +311,10 @@ export interface CreatedAgent {
     id: string
     session: FakeSession
     followup: ReturnType<typeof vi.fn<(m: HostUserMessage) => void>>
+    /** Steering submitted for the nearest step boundary (issue #5). */
+    steer: ReturnType<typeof vi.fn<(m: HostUserMessage) => void>>
+    /** Model-facing context queued for the next pre-step (issue #5). */
+    inject: ReturnType<typeof vi.fn<(m: HostUserMessage) => void>>
     cancel: ReturnType<typeof vi.fn<(cause: string) => void>>
   }
   dispose: ReturnType<typeof vi.fn<() => Promise<void>>>
@@ -344,6 +348,8 @@ export function createFakeAgents(extraServices: { jobs?: object } = {}) {
       id: sessionId,
       session,
       followup: vi.fn<(m: HostUserMessage) => void>(),
+      steer: vi.fn<(m: HostUserMessage) => void>(),
+      inject: vi.fn<(m: HostUserMessage) => void>(),
       cancel: vi.fn<(cause: string) => void>(),
     }
   }

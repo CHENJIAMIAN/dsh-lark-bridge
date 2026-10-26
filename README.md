@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://github.com/moyu-good/dsh-lark-bridge/actions/workflows/ci.yml"><img src="https://github.com/moyu-good/dsh-lark-bridge/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-578%20passing-brightgreen" alt="tests">
+  <img src="https://img.shields.io/badge/tests-594%20passing-brightgreen" alt="tests">
   <a href="https://dshbase.com/plugins/moyu-good-dsh-lark-bridge/"><img src="https://img.shields.io/badge/dshbase-verified-blue" alt="dshbase verified"></a>
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-blue" alt="license">
   <img src="https://img.shields.io/badge/transport-WebSocket%20long--connection-orange" alt="transport">
@@ -213,6 +213,7 @@ Highlights — the ones other bridges don't have:
 | 🧠 **Native Feishu CoT** | Reasoning renders as the platform's own thinking message (`cot`), typewriter card fallback (`stream`) |
 | 📋 **Approval cards + decider trail** | Click to decide; who decided is written back |
 | 🎯 **Live goal / todo cards + auto-resume** | Phase changes stream into chat; `autoResumeGoals` re-arms after restarts |
+| ✋ **Mid-turn steering** | A message sent while a turn runs follows `busyPolicy`: `queue` (default) waits its turn, `steer` takes over at the next step boundary without discarding the work, `inject` adds context without waking the driver |
 | 🔍 **Session history search** | `/sessions <keyword>` full-text search over this chat's stored history |
 | 🌐 **Bilingual slash panel** | English on international Lark, Chinese on domestic Feishu — auto |
 | 🌐 **Three-surface fleet sync** | web/desktop/CLI share one session library; per-endpoint cloud arbitration (`deviceId:form:profile`) — no double replies, automatic failover election |
@@ -376,7 +377,7 @@ src/
   user-guide.ts      single source of the /manual content
   chronicle.ts     inbound-message ledger hook (integration example; user text only)
   config.ts        schema + defaults
-tests/             vitest suites (58) incl. harness-based fakes
+tests/             vitest suites (59) incl. harness-based fakes
 scripts/           verify-dsh-contract.mjs — asserts no drift vs upstream master
 plugin-contract-test.mjs   43 contract checks on the host contract surface
 ```
@@ -384,7 +385,7 @@ plugin-contract-test.mjs   43 contract checks on the host contract surface
 **Quality gates**
 
 ```sh
-pnpm test                        # 578 unit/integration tests
+pnpm test                        # 594 unit/integration tests
 node plugin-contract-test.mjs    # 43 host-contract checks
 node scripts/verify-dsh-contract.mjs   # drift check against upstream master
 pnpm typecheck && pnpm run build # tsc + tsdown (lib/ is committed)

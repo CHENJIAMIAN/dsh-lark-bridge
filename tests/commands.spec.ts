@@ -457,6 +457,7 @@ describe('/config command', () => {
     appSecret: 'top-secret',
     sessionScope: 'chat',
     output: 'cot',
+    busyPolicy: 'queue',
     showProcess: true,
     attachImages: false,
     hideProcessWhenDone: false,
@@ -492,6 +493,7 @@ describe('/config command', () => {
     expect(outcome.reply).toContain('禁用工具：web_search')
     expect(outcome.reply).toContain('审批提醒：120s')
     expect(outcome.reply).toContain('自动恢复目标：开')
+    expect(outcome.reply).toContain('忙时策略：排队（queue）')
     // Credentials never reach the chat.
     expect(outcome.reply).not.toContain('cli_secret')
     expect(outcome.reply).not.toContain('top-secret')
@@ -1113,6 +1115,7 @@ describe('/restart command', () => {
     appSecret: 'top-secret',
     sessionScope: 'chat',
     output: 'cot',
+    busyPolicy: 'queue',
     showProcess: true,
     attachImages: false,
     hideProcessWhenDone: false,
