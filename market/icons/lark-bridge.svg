@@ -1,0 +1,18 @@
+<svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- 桥面：一条安静的底线 -->
+  <path d="M5 27H31" stroke="#658EFF" stroke-width="2" stroke-linecap="round" opacity="0.35" />
+  <!-- 桥拱：连接两岸，渐变 -->
+  <path d="M6 24C6 24 10.5 13 18 13C25.5 13 30 24 30 24" stroke="url(#lark-bridge-arc)" stroke-width="3" stroke-linecap="round" />
+  <!-- 岸：两端锚点 -->
+  <circle cx="6" cy="24" r="2.5" fill="#41E1AC" />
+  <circle cx="30" cy="24" r="2.5" fill="#41E1AC" />
+  <!-- 桥中：消息往返的节点 -->
+  <circle cx="18" cy="13" r="3" fill="#658EFF" />
+  <defs>
+    <linearGradient id="lark-bridge-arc" x1="6" y1="24" x2="30" y2="24" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#41E1AC" />
+      <stop offset="0.5" stop-color="#658EFF" />
+      <stop offset="1" stop-color="#41E1AC" />
+    </linearGradient>
+  </defs>
+</svg>

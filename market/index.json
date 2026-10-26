@@ -1,0 +1,88 @@
+{
+  "format": 1,
+  "title": {
+    "en": "dsh-lark-bridge",
+    "zh": "飞书桥"
+  },
+  "description": {
+    "en": "Feishu (Lark) channel bundles for DeepSeek Harness",
+    "zh": "DeepSeek Harness 的飞书渠道组合包"
+  },
+  "metadata": {
+    "categories": {
+      "channels": {
+        "title": {
+          "en": "Channels",
+          "zh": "渠道"
+        }
+      }
+    },
+    "labels": {
+      "author-tested": {
+        "title": {
+          "en": "Author-tested",
+          "zh": "作者实测"
+        }
+      }
+    },
+    "sortKeys": {
+      "updated": {
+        "title": {
+          "en": "Updated",
+          "zh": "更新"
+        },
+        "order": "desc"
+      }
+    }
+  },
+  "plugins": [
+    {
+      "name": "@moyu-good/dsh-lark-bridge",
+      "title": {
+        "en": "Feishu / Lark bridge",
+        "zh": "飞书桥"
+      },
+      "description": {
+        "en": "Feishu IM bot channel: per-chat sessions, live thinking process, approval cards, mid-turn steering, WebSocket long connection.",
+        "zh": "飞书 IM 机器人渠道：按会话隔离、实时思考过程、审批卡片、任务中插话、WebSocket 长连接。"
+      },
+      "icon": "icons/lark-bridge.svg",
+      "author": "dsh-lark-bridge contributors",
+      "homepage": "https://github.com/moyu-good/dsh-lark-bridge#readme",
+      "repository": {
+        "url": "https://github.com/moyu-good/dsh-lark-bridge"
+      },
+      "metadata": {
+        "category": "channels",
+        "labels": [
+          "author-tested"
+        ],
+        "keywords": [
+          "dsh-plugin",
+          "dsh",
+          "deepseek-harness",
+          "feishu",
+          "lark",
+          "messaging"
+        ],
+        "sortKeys": {
+          "updated": 20261027
+        }
+      },
+      "versions": [
+        {
+          "version": "0.9.6",
+          "publishTimestamp": 1793029097,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/moyu-good/dsh-lark-bridge",
+            "commit": "3821f757544b6f17bfd48585e71799107ff33320"
+          },
+          "engines": {
+            "dsh": ">=0.2.1-rc.1 <0.3.0"
+          }
+        }
+      ]
+    }
+  ]
+}
