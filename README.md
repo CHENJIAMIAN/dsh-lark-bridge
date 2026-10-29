@@ -1,260 +1,83 @@
 <p align="center">
+  <img src="icon.svg" width="56" alt="dsh-lark-bridge">
+</p>
+
+<h1 align="center">dsh-lark-bridge</h1>
+
+<p align="center">
+  <b>在飞书里跟一个能干活的编码 agent 说话。</b><br/>
+  它跑在你自己机器上，动你的真实代码，思考过程全程可见。<br/>
+  一条命令装好，扫码即用 —— 不需要公网地址，不需要服务器。
+</p>
+
+<p align="center">
   <a href="https://github.com/moyu-good/dsh-lark-bridge/actions/workflows/ci.yml"><img src="https://github.com/moyu-good/dsh-lark-bridge/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-594%20passing-brightgreen" alt="tests">
-  <a href="https://dshbase.com/plugins/moyu-good-dsh-lark-bridge/"><img src="https://img.shields.io/badge/dshbase-verified-blue" alt="dshbase verified"></a>
+  <a href="https://www.npmjs.com/package/@moyu-good/dsh-lark-bridge"><img src="https://img.shields.io/npm/v/@moyu-good/dsh-lark-bridge?label=npm" alt="npm"></a>
   <img src="https://img.shields.io/badge/license-BSD--3--Clause-blue" alt="license">
-  <img src="https://img.shields.io/badge/transport-WebSocket%20long--connection-orange" alt="transport">
-  <img src="https://img.shields.io/badge/fleet-web%20%7C%20desktop%20%7C%20CLI-7c5cff" alt="fleet">
-</p>
-
-<h1 align="center">🕊️ dsh-lark-bridge</h1>
-
-<p align="center">
-  <b>Run a full DeepSeek Harness coding agent inside Feishu / Lark</b><br/>
-  <i>Native thinking process · approval cards · web/desktop/CLI fleet sync · one-tap
-  account switching · balance &amp; peak/off-peak awareness — no public webhook URL needed.</i>
 </p>
 
 <p align="center">
-  <a href="README.zh.md">中文文档</a> ·
-  <a href="#-quick-start-in-60-seconds">Quick Start</a> ·
-  <a href="#-use-it-like-a-user">User Guide</a> ·
-  <a href="#-features">Features</a> ·
-  <a href="#-extend-it">Extend It</a> ·
+  <a href="README.zh.md">中文</a> ·
+  <a href="#-quick-start">Quick Start</a> ·
+  <a href="#-what-it-does">What it does</a> ·
   <a href="#-faq">FAQ</a>
 </p>
 
 ---
 
-## 🖼️ Screenshots
-
 <p align="center">
-  <a href="docs/assets/shot1.png"><img src="docs/assets/shot1.png" width="360" alt="Balance, account card, ack & thinking (illustrative)"></a>
-  <a href="docs/assets/shot2.png"><img src="docs/assets/shot2.png" width="360" alt="/manual guide and the device fleet roster (illustrative)"></a>
-</p>
-<p align="center">
-  <sub>Illustrative Feishu-style renders. Left: <code>/balance</code> (live balance + peak/off-peak phase), the <code>/bot account</code> switcher card, task ack and the thinking state. Right: <code>/manual</code> — the full in-chat user guide — and the <code>/bot devices</code> fleet roster.</sub>
+  <a href="docs/assets/shot1.png"><img src="docs/assets/shot1.png" width="340" alt="Live balance, account switcher card, task acknowledgement and the thinking state, in chat"></a>
 </p>
 
-## 🤔 What is this?
+## 🤔 What it does
 
-`dsh-lark-bridge` is a **Feishu/Lark IM channel for DeepSeek Harness** — a plugin that makes
-your coding agent work right inside a chat. Each conversation (DM or group) drives its own
-dsh agent, and everything the desktop UI shows lives in the chat:
+**Who it's for** — someone with one laptop, who works over Feishu, and wants an AI agent to touch their real files. No server, no ops, no public URL.
 
-- 🧠 **Native thinking process** — reasoning renders as Feishu's own "thinking" message;
-  tool calls with icons, results showing their first few lines (the whole output stays
-  in the session log). No black box.
-- 🏁 **Every turn says it is over** — a turn ends with one plain line: how many tool
-  calls it made and how long it took, so nothing has to be counted by hand.
-- ✅ **Interactive approval cards** — risky operations become Allow-once / Deny cards,
-  decision and decider written back.
-- 🎯 **Live goal & todo cards** — long-running tasks update a card in real time instead of
-  going silent; goals auto-resume after restarts.
-- 🔌 **WebSocket long connection** — no public callback URL, no reverse proxy.
-- 🌐 **Three-surface fleet sync** — web (browser), desktop (DSH Desktop) and the CLI share one `~/.dsh` session library; cloud arbitration keyed per ENDPOINT (`deviceId:form:profile`) means exactly one surface replies, and if the active one goes silent the fleet elects a successor automatically.
-- 🔄 **One-tap account switching** — `/bot account` renders an interactive card of saved Feishu-app credentials; two taps to switch, synced to every surface.
-- 💰 **Balance & peak/off-peak awareness** — `/balance` queries the DeepSeek open-platform balance live (per currency, timestamped); the model prompt carries the peak/off-peak tariff table so deferrable heavy work lands in the half-price windows.
-- 📖 **`/manual` in chat** — the full eight-section user guide, one command away.
+**What it replaces** — the loop of *open the IDE → describe the task → watch it edit → switch back to chat to report*. That loop becomes one sentence in Feishu.
 
-Feishu is the carrier; the work is still done by DeepSeek Harness itself.
+**Why not another bridge** — most Feishu-agent bridges hand you a bot that answers messages. This hands you an agent with a terminal, approval gates and session memory — and it shares the same session library as your DSH Desktop, so work begun in the chat is still there when you open the desktop app.
 
-## 🚀 Quick Start in 60 Seconds
+## 🧭 How it works
 
-**Prerequisites:** Node 22.19+ or 24+ (as `engines.node` requires), [pnpm](https://pnpm.io/installation) (recommended, see note), a DeepSeek API key, and the Feishu app on your phone.
+![Architecture: a Feishu message travels over a WebSocket long connection into the local bridge, drives one dsh agent per chat, and flows back](docs/assets/architecture.png)
 
-**Harness version:** **DeepSeek Harness >= 0.1.7** — 0.2.1-rc.2 is the tree this bridge is
-developed and run against. 0.1.7 is a hard floor, not a preference: it renamed
-`agentPresets.standingKeyFor` to `acquireScope` (which returns a lease, held for the session's
-lifetime) and replaced `jobs.onJobDone` with the `jobs.events` stream, and the bridge calls
-`acquireScope` with no fallback — on a 0.1.5 host, composing a preset session throws. (0.1.5 is
-where the user-questions seam moved to the `user-questions/request` waterfall; see the CHANGELOG
-for that note.)
+- **In** — the message arrives over a WebSocket long connection. No callback URL, no reverse proxy, no public IP.
+- **Through** — the bridge maps each chat (DM or group) to its own `dsh` agent, which reads and writes your real working directory.
+- **Back** — thinking, approval requests and results return to the chat as native Feishu messages.
+- **Shared** — the `web` and `desktop` runtime forms share one `~/.dsh` session library.
 
-```sh
-# 1. install the plugin into a dsh profile & boot (pnpm — ~20s, parallel install)
-pnpm dlx @deepseek-ai/dsh plugin --profile web add @moyu-good/dsh-lark-bridge \
-  && pnpm dlx @deepseek-ai/dsh web
+![Arbitration: a cloud ledger keyed per endpoint keeps one instance answering while the other stands by](docs/assets/arbitration.png)
 
-# 2. a QR code prints → scan it with Feishu
-#    (this creates the app + event subscription automatically)
+A cloud ledger keyed per endpoint (`deviceId` + `form` + `profile`) keeps one instance per endpoint answering and elects a successor when the active one goes quiet. Both forms read and write the same sessions, so failing over never loses the conversation.
 
-# 3. open the dsh console → Settings → Models → paste your DeepSeek API key
+## ✨ Three things most bridges don't do
 
-# 4. DM the bot, or @ it in a group. That's it.
-```
+### Runs on your machine, in about 20 seconds, with no public address
 
-> [!NOTE]
-> **First-time `plugin add` fails once** with
-> `ERR_PNPM_IGNORED_BUILDS ... protobufjs` — pnpm blocks dependency build
-> scripts unless they are approved, and an unreviewed one makes the install
-> exit non-zero (`strictDepBuilds`, on by default since pnpm 10.3). The blocked
-> script belongs to `protobufjs` (a Feishu SDK dependency); it only prints a
-> version-scheme warning, writes no file and reaches no network.
-> Open `<your-home>/.dsh/profiles/web/pnpm-workspace.yaml` and set
-> `protobufjs: false` under `allowBuilds` — after the failed install pnpm
-> writes a line there whose value is the literal text
-> `set this to true or false`, which is not a boolean, so replace it. `false`
-> is the right value: it declines the script, and the script has nothing to
-> do. This is a one-time step per profile.
->
-> **Re-run the same command after editing.** The failed install leaves the
-> profile half-configured — the plugin's bundles are not merged when the
-> install exits non-zero — so the file edit alone does not finish the job.
->
-> `allowBuilds` (since pnpm 10.26) is the only key pnpm reads for this —
-> `onlyBuiltDependencies` and the other legacy build keys were removed in pnpm
-> 11. It lives in the
-> **installing** profile's `pnpm-workspace.yaml`, not in this package, because
-> the approval belongs to whoever runs the install.
->
-> The upstream dsh CLI prints a pointer to this file only for git-hosted
-> plugins; an npm-published plugin like this one gets no such hint, which is
-> why the step is documented here.
+One `pnpm dlx` command installs the plugin and boots the host; a QR code is the whole credential flow. The transport is an outbound WebSocket long connection — nothing has to reach you from the internet.
 
-> [!TIP]
-> Not sure what the bot can do? Send it **`/manual`** — the full eight-section user
-> guide arrives right in the chat. `/help` lists every command. The only skill you
-> need is "say what you want".
+### You can see what it's thinking
 
-> [!WARNING]
-> **Use pnpm, not bare npx/npm, to run the upstream dsh CLI.** Measured on the
-> same machine: `pnpm dlx` installs dsh's dependency tree (197 packages,
-> ~250 MB) in **~20 s** including downloads, while `npx`/`npm install` takes
-> **~25 minutes** (npm's serial reify) even with a warm cache — and on
-> machines with ≤4 GB RAM the npm process itself dies with
-> "JavaScript heap out of memory" mid-install. If you must use npm, pre-set
-> `NODE_OPTIONS=--max-old-space-size=2048`.
->
-> **Do NOT** `npm i -g dsh-lark-bridge` — that name on npm belongs to an
-> unrelated project. This plugin is published as **`@moyu-good/dsh-lark-bridge`**
-> (the GitHub source also works, but installing a git-hosted plugin makes pnpm
-> block its `prepare` script until you whitelist it under `allowBuilds` in the
-> profile's `pnpm-workspace.yaml` — the registry package needs no build at all).
+Reasoning renders as Feishu's own *thinking* message. Tool calls arrive with their icon and the first lines of their result; the full output stays in the session log. Every turn closes with one plain line — how many tool calls it made, how long it took. Nothing has to be taken on faith.
 
-Daily ops: run `pnpm dlx @deepseek-ai/dsh web` again (subsequent runs hit the
-pnpm store, so they're fast), or host it under systemd/supervisor.
-The package ships **prebuilt** (`lib/` committed) — nothing compiles on install.
+### A long task is not "fire and forget"
 
-## 📦 Moving to a new machine
+Send a message while a turn is running and it follows `busyPolicy`: `queue` waits its turn, `steer` takes over at the next step boundary **without discarding work already done**, `inject` adds context without waking the driver. Risky operations become approval cards. Turn on `autoResumeGoals` and a goal picks itself back up after a restart.
 
-The bridge carries its own migration path — on the old machine:
+## 🆚 How it compares
 
-```text
-/bot export include-secrets --to-feishu   # uploads to the app's own Feishu drive
-/bot export include-secrets               # or a local file, credentials masked
-```
+> Re-checked against each project's public README on 2026-09-09. **"Not found" means not seen in public docs — not proof of absence.** Different bets: `dsh-im` is a multi-platform gateway where breadth is the point; this bridge bets on single-platform depth plus a multi-surface fleet.
 
-The Feishu route needs no copying at all: the file lands in the app's own
-cloud space (visible only to this app), and the new machine pulls it with
-`/bot import --from-feishu`. For the local-file route, copy the printed file
-(the sync directory, e.g. `~/.dsh/dsh-lark-bridge/migrate.json`) to the same
-path on the new machine, install the plugin there (Quick Start above), then:
-
-```text
-/bot import                       # preview: settings + plugin plan + warnings
-/bot import apply                 # execute (add --from-feishu for the cloud slot)
-```
-
-What travels: shared settings and per-profile plugin lists (installed through
-the upstream CLI, so cross-platform moves just work). What never travels:
-peer heartbeats, control tokens, `node_modules`, session history.
-
-Session history lives under `~/.dsh` (upstream-owned). To carry it across,
-copy the session directories only:
-
-```text
-~/.dsh/sessions/     # the conversations themselves
-~/.dsh/storages/     # session projection cache and workspace index
-```
-
-Do **not** copy the whole of `~/.dsh`. `~/.dsh/dsh-lark-bridge/device-state.json`
-holds this machine's `deviceId` and its retired flag: a copy would give the
-new machine the old machine's identity (both would answer the same chat) and
-could bring the retired flag along, so the new machine would greet every
-message with a one-line notice instead of running the agent. The migration
-file above never contains that state — it is per-machine by design.
-
-**Device lifecycle**: every machine mints a stable `deviceId` on first boot
-(`/bot devices` shows the roster: this machine, heartbeat-live peers, the
-cloud-active endpoint, and migration provenance). Instead of stopping the old
-service by hand, retire it — `/bot retire` on the old machine puts it out of
-the reply path (messages get a one-line notice, not an agent turn; the flag
-is per-machine local state and is never synced), and `/bot activate` brings
-it back — and when the cloud carrier is available it also claims the active
-slot, so other machines stand down on their next message. Every live machine
-renews its presence in the cloud ledger each minute; if the active machine
-goessilent, the freshest machine with the smallest deviceId is elected
-automatically on the next inbound message. `/bot name <readable-name>` names
-a device for the roster.
-
-## 🗨️ Use it like a user
-
-- **Just say what you want**: "why are the tests failing in this project?" — drag files and
-  images straight into the chat.
-- **Three surfaces, one conversation**: the web UI listens on `http://127.0.0.1:18787`, but
-  each launch mints a new token, so a browser without the cookie gets 401. Open the
-  `dsh web: http://127.0.0.1:18787/?token=…` line the launcher prints once — that sets a
-  long-lived cookie, after which the plain address works (same session library as the Feishu
-  side); once DSH Desktop runs the plugin it joins the same fleet. Exactly one surface replies;
-  `/bot devices` shows who.
-- **Switch Feishu apps in two taps**: `/bot account` → tap **Use** on the card → `/restart`.
-- **Guidance is built in**: new chats get a short starter guide; `/manual` is the full one;
-  `/balance` is the wallet.
-
-The complete handbook lives at [`docs/用户手册.md`](docs/用户手册.md) (Chinese; `/manual` serves the same content in chat).
-
-## ✨ Features
-
-Highlights — the ones other bridges don't have:
-
-| | |
-|---|---|
-| 🧠 **Native Feishu CoT** | Reasoning renders as the platform's own thinking message (`cot`), typewriter card fallback (`stream`) |
-| 📋 **Approval cards + decider trail** | Click to decide; who decided is written back |
-| 🎯 **Live goal / todo cards + auto-resume** | Phase changes stream into chat; `autoResumeGoals` re-arms after restarts |
-| ✋ **Mid-turn steering** | A message sent while a turn runs follows `busyPolicy`: `queue` (default) waits its turn, `steer` takes over at the next step boundary without discarding the work, `inject` adds context without waking the driver |
-| 🔍 **Session history search** | `/sessions <keyword>` full-text search over this chat's stored history |
-| 🌐 **Bilingual slash panel** | English on international Lark, Chinese on domestic Feishu — auto |
-| 🌐 **Three-surface fleet sync** | web/desktop/CLI share one session library; per-endpoint cloud arbitration (`deviceId:form:profile`) — no double replies, automatic failover election |
-| 🔄 **Interactive account switcher** | `/bot account` stores/switches/forgets Feishu-app credentials from a card; shared settings push it to every surface |
-| 💰 **Balance & peak/off-peak awareness** | `/balance` live DeepSeek balance (per currency, timestamped); the prompt embeds the tariff table so batch work lands in half-price windows |
-| 🛠️ **Native Feishu agent tools** | `feishu_notify` proactive messages, `feishu_drive_*` cloud-drive scratchpad reachable from any device |
-| 🖥️ **Self-healing slash panel** | the panel has a single writer (the arbitration-active endpoint), bilingual, kept in step with what actually runs |
-| 🧰 **Capability inventory** | `/tools` lists what this deployment can actually do — the visible tools and the MCP servers it talks to, not only what someone switched off |
-| 🎙️ **Media delivered in kind** | an ogg or opus recording arrives as a voice note and an mp4 or m4v clip as a video — playable in the chat, not a download link (the extension decides, and a named `kind` can narrow it but never widen it). A format the chat cannot carry in that shape arrives as a file, and the result says so |
-| 👥 **Team panel** | when the host runs a team, one card shows the members, the shared tasks and the messages passed between them, updated in place; a delegation is also announced in the chat, with progress on a 30-second window |
+| | **dsh-lark-bridge** | xmanrui/dsh-im | omdsh-dev/dsh-lark | AX1202/ax-feishu-bridge |
+|---|---|---|---|---|
+| Positioning | Feishu depth + multi-surface fleet | Multi-platform gateway | Feishu depth, multi-agent groups | Feishu × Pi agent |
+| Thinking display | Feishu-native thinking message | Streaming card | Native (needs recent client) | Streaming card |
+| Steering mid-task | `queue` / `steer` / `inject` | Not found | Not found | Not found |
+| Multi-surface fleet + endpoint arbitration | ✅ shared library, automatic failover | DM text sync (opt-in) | — | — |
+| Needs a public callback URL | **No** | Varies by channel | Varies | Varies |
 
 <details>
-<summary><b>All capabilities</b></summary>
-
-| | |
-|---|---|
-| 🗂️ One agent per conversation | `sessionScope`: whole chat / topic thread / single sender; sessions persist across restarts |
-| ✅ Live reactions | `OK` → `THINKING` → `DONE`/`ERROR`, states replace each other, configurable |
-| 📦 Compaction transparency | "Compacting…" → summary + released tokens; prunes report trimmed count |
-| 🧑💻 Subagent fan-out | Workflow runs stream as text lines: run start, child open/end, run end |
-| ⏰ Scheduled reminders | `/schedules` view (compose `@deepseek-ai/dsh-schedule` for the model-side tools) |
-| ⚙️ Background job notifications | `run_in_background` jobs announce their terminal outcome |
-| 🧩 Skill ecosystem surface | `/skills` lists workspace skills, `/skills <name>` peeks at one |
-| 🤖 Model switching | `/model <provider>/<model>` through the host `saveSelection` seam (persistent) |
-| 🖥️ PC-parity tooling | Compose `dsh-terminal*` / `code-runtime-worker-thread` / `dsh-mcp-client` → persistent PTY, Code Mode, external MCP servers |
-| 🗺️ Workspace visibility | `/ws` lists workspaces and marks where new sessions land |
-| 🖼️ Image input (opt-in) | `attachImages` passes chat images to the model |
-| 📎 File delivery | Agent `send_file` delivers artifacts with caption (default-deny local dirs) |
-| 🔑 QR onboarding | First boot prints a QR; scanning creates the app with event subscription |
-| 🔒 Authorization narrowing | `senderAllowlist` / `groupAllowlist` / `approvers` |
-| 🧩 Chronicle hook | `chronicleEndpoint`: fire-and-forget POST per accepted inbound **user** message — payload is `source`/`text`/`chatId`, and the bridge's replies never go to the ledger |
-| 🛡️ Deep dsh adaptation | Everything through host service contracts — self-contained, no host source needed |
-
-</details>
-
-### vs. other Feishu/Lark bridges
-
-> **Verification basis**: re-checked against each project's public README on 2026-09-09
-> (links under Listings & Community). "Not found" means not seen in public docs — not proof
-> of absence. Different bets: dsh-im is a multi-platform gateway (8+ channels) where breadth
-> is the point; this bridge bets on single-platform depth plus a multi-surface fleet.
+<summary>Full comparison — 9 capabilities × 4 bridges</summary>
 
 | Capability | **dsh-lark-bridge** | xmanrui/dsh-im | omdsh-dev/dsh-lark | AX1202/ax-feishu-bridge |
 |---|---|---|---|---|
@@ -268,43 +91,137 @@ Highlights — the ones other bridges don't have:
 | Balance + peak/off-peak awareness | ✅ | — | — | — |
 | Slash panel | Bilingual registration + active-writer self-heal | Native panel (`/repair` grants) | Host passthrough | Not found |
 
+</details>
 
-## 💬 Slash Commands
+## 🚀 Quick Start
+
+**Prerequisites:** Node 22.19+ or 24+, [pnpm](https://pnpm.io/installation), a DeepSeek API key, Feishu on your phone.
+**Harness:** dsh `>= 0.2.1-rc.1 < 0.3.0` (declared as `engines.dsh` in `package.json`).
+
+```sh
+# 1. install the plugin into a dsh profile and boot (~20s)
+pnpm dlx @deepseek-ai/dsh plugin --profile web add @moyu-good/dsh-lark-bridge \
+  && pnpm dlx @deepseek-ai/dsh web
+
+# 2. a QR code prints → scan it with Feishu
+#    (this creates the app and its event subscription for you)
+
+# 3. open the dsh console → Settings → Models → paste your DeepSeek API key
+
+# 4. DM the bot, or @ it in a group. That's it.
+```
+
+Two traps, both real:
+
+- **Use `pnpm`, not `npx`.** On one machine this was recorded at about 20 seconds versus about 25 minutes (npm's serial reify), and on a ≤4 GB machine the npm process died with "JavaScript heap out of memory" mid-install. Those are the author's numbers, not a benchmark this repository reproduces — treat the gap as *large*, not as *exactly 20 vs 25*.
+- **Do not `npm i -g dsh-lark-bridge`.** That name on npm belongs to an unrelated project. This one is **`@moyu-good/dsh-lark-bridge`**.
+
+<details>
+<summary>First install fails on <code>protobufjs</code>? — two-minute fix</summary>
+
+pnpm 10 blocks dependency build scripts by default and exits non-zero with `ERR_PNPM_IGNORED_BUILDS`. The blocked script belongs to `protobufjs` (a Feishu SDK dependency); it only prints a version-scheme warning — no file written, no network.
+
+Open `<your-home>/.dsh/profiles/web/pnpm-workspace.yaml` and set `protobufjs: false` under `allowBuilds`. After the failed install pnpm writes the literal text `set this to true or false` there — replace it with `false`. Then **re-run the same command**: a failed install leaves the profile half-configured (bundles are not merged when the install exits non-zero), so editing the file alone does not finish the job.
+
+`allowBuilds` (pnpm 10.26+) is the only key pnpm reads for this; `onlyBuiltDependencies` and the other legacy keys were removed in pnpm 11.
+
+</details>
+
+## 🎯 Three commands to try first
+
+| Command | What you get |
+|---|---|
+| `/manual` | The full eight-section user guide, delivered in the chat |
+| `/balance` | Live DeepSeek balance, per currency and timestamped, with the current peak/off-peak phase |
+| `/bot devices` | Which endpoints are in the fleet, and which one is currently answering |
+
+Daily ops: run `pnpm dlx @deepseek-ai/dsh web` again (subsequent runs hit the pnpm store), or host it under systemd / supervisor. The package ships **prebuilt** — nothing compiles on install.
+
+<details>
+<summary>What <code>/manual</code> and <code>/bot devices</code> look like in the chat</summary>
+
+<p align="center">
+  <a href="docs/assets/shot2.png"><img src="docs/assets/shot2.png" width="330" alt="The full /manual guide and the /bot devices fleet roster, in chat"></a>
+</p>
+
+</details>
+
+<details>
+<summary>💬 All capabilities</summary>
+
+| | |
+|---|---|
+| 🗂️ **One agent per conversation** | `sessionScope`: whole chat / topic thread / single sender; sessions persist across restarts |
+| 🧠 **Native Feishu CoT** | Reasoning renders as the platform's own thinking message (`cot`), typewriter card fallback (`stream`) |
+| ✅ **Live reactions** | `OK` → `THINKING` → `DONE`/`ERROR`, states replace each other, configurable |
+| 📋 **Approval cards + decider trail** | Click to decide; who decided is written back |
+| 🎯 **Live goal / todo cards + auto-resume** | Phase changes stream into chat; `autoResumeGoals` (opt-in) re-arms after restarts |
+| ✋ **Mid-turn steering** | `busyPolicy`: `queue` (default) waits its turn, `steer` takes over at the next step boundary without discarding the work, `inject` adds context without waking the driver |
+| 📦 **Compaction transparency** | "Compacting…" → summary + released tokens; prunes report trimmed count |
+| 🧑‍💻 **Subagent fan-out** | Workflow runs stream as text lines: run start, child open/end, run end |
+| 👥 **Team panel** | When the host runs a team, one card shows the members, shared tasks and messages between them, updated in place |
+| 🔍 **Session history search** | `/sessions <keyword>` full-text search over this chat's stored history |
+| 🌐 **Multi-surface fleet sync** | `web` and `desktop` forms share one session library; per-endpoint cloud arbitration (`deviceId:form:profile`) — no double replies, automatic failover election |
+| 🔄 **Interactive account switcher** | `/bot account` stores/switches/forgets Feishu-app credentials from a card; shared settings push it to every surface |
+| 💰 **Balance & peak/off-peak awareness** | `/balance` live DeepSeek balance (per currency, timestamped); the prompt embeds the tariff table so batch work lands in half-price windows |
+| 🛠️ **Native Feishu agent tools** | `feishu_notify` proactive messages, `feishu_drive_*` cloud-drive scratchpad reachable from any device |
+| 🖥️ **Self-healing slash panel** | The panel has a single writer (the arbitration-active endpoint), bilingual, kept in step with what actually runs |
+| 🧰 **Capability inventory** | `/tools` lists what this deployment can actually do — the visible tools and the MCP servers it talks to |
+| 🎙️ **Media delivered in kind** | An ogg/opus recording arrives as a voice note, an mp4/m4v clip as a video — playable in the chat, not a download link |
+| 🖼️ **Image input (opt-in)** | `attachImages` passes chat images to the model |
+| 📎 **File delivery** | Agent `send_file` delivers artifacts with caption (default-deny local dirs) |
+| 🔒 **Authorization narrowing** | `senderAllowlist` / `groupAllowlist` / `approvers` |
+| ⏰ **Scheduled reminders** | `/schedules` view (compose `@deepseek-ai/dsh-schedule` for the model-side tools) |
+| ⚙️ **Background job notifications** | `run_in_background` jobs announce their terminal outcome |
+| 🧩 **Skill ecosystem surface** | `/skills` lists workspace skills, `/skills <name>` peeks at one |
+| 🤖 **Model switching** | `/model <provider>/<model>` through the host `saveSelection` seam (persistent) |
+| 🖥️ **PC-parity tooling** | Compose `dsh-terminal*` / `code-runtime-worker-thread` / `dsh-mcp-client` → persistent PTY, Code Mode, external MCP servers |
+| 🗺️ **Workspace visibility** | `/ws` lists workspaces and marks where new sessions land |
+| 🔑 **QR onboarding** | First boot prints a QR; scanning creates the app with event subscription |
+| 🧩 **Chronicle hook** | `chronicleEndpoint`: fire-and-forget POST per accepted inbound **user** message (`source`/`text`/`chatId`); the bridge's replies never go to the ledger |
+
+</details>
+
+<details>
+<summary>⌨️ Slash commands</summary>
+
+Type `/help` in the chat for the live list.
 
 | Command | Description |
 |---|---|
 | `/stop` | Cancel the running turn |
-| `/help` | Show this listing |
+| `/new` | Start a new session (`/clear` is an alias) |
 | `/manual` | The full user guide (start here if you're new) |
-| `/balance` | DeepSeek API balance (with the live peak/off-peak phase) |
-| `/preset` | View / switch agent preset (standard / code / minimal / cordis) |
-| `/permission` | View / switch permission mode (host) |
-| `/goal` | View / set the goal (host) |
-| `/plan` | Enter / leave plan mode (host) |
-| `/compact` | Compact older history (host) |
 | `/sessions` | Search this chat's session history |
+| `/balance` | DeepSeek API balance, with the live peak/off-peak phase |
 | `/tools` | View / deny / allow tools at runtime |
 | `/skills` | List skills, or peek at one |
 | `/model` | View / switch the default model |
+| `/config` | The bridge's live configuration |
+| `/plugins` | List deployed plugins and status |
 | `/ws` | List registered workspaces |
 | `/jobs` | This chat's background jobs |
 | `/schedules` | This chat's scheduled reminders |
 | `/context` | Current context token pressure |
 | `/audit` | Operation audit summary |
-| `/config` | The bridge's live configuration |
 | `/feedback` | Rate the last answer |
-| `/new` | Start a new session |
-| `/plugins` | List deployed plugins and status |
+| `/preset` | View / switch agent preset (standard / code / minimal / cordis) |
+| `/permission` | View / switch permission mode (host) |
+| `/goal` | View / set the goal (host) |
+| `/plan` | Enter / leave plan mode (host) |
+| `/compact` | Compact older history (host) |
 | `/bot` | Bridge admin: status, settings, accounts, plugin sync, devices |
 | `/restart` | Restart the host process (only when the deployment wires it) |
+| `/help` | Show the listing |
 
-Set `locale: zh|en` to force a language; otherwise it follows the platform domain.
+Set `locale: zh|en` to pin the slash-panel and help wording; otherwise it follows the platform domain. It does not translate what the agent says.
 
-**`/bot` subcommands** (bridge admin): `set` / `unset` / `peers` / `sync-plugins` / **`account`** (save·use·forget, interactive card) / `export` / `import` / `devices` / `retire` / `activate` / `name`. The slash panel has a single writer — the arbitration-active endpoint — so it always matches what actually runs.
+**`/bot` subcommands**: `set` / `unset` / `peers` / `sync-plugins` / `account` (save·use·forget, interactive card) / `export` / `import` / `devices` / `retire` / `activate` / `name`.
 
-## ⚙️ Configuration
+</details>
 
-Essentials:
+<details>
+<summary>⚙️ Configuration & required permissions</summary>
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -314,14 +231,14 @@ Essentials:
 | `output` | `cot` | Native thinking message vs typewriter card |
 | `requireMention` | `true` | In groups, respond only when @-mentioned |
 | `outbound.allowedFileDirs` | unset → disabled | Local dirs `send_file` may read from |
-| `chronicleEndpoint` | `''` | Optional external ledger: one POST per accepted inbound user message (`source`/`text`/`chatId`); the bridge's replies are not included |
-| `announceSubagents` | `true` | Announce a delegation in the chat when it is made, with progress on a 30-second window; off leaves it to the team panel alone |
+| `chronicleEndpoint` | `''` | Optional external ledger: one POST per accepted inbound user message |
+| `announceSubagents` | `true` | Announce a delegation in the chat when it is made |
+| `autoResumeGoals` | `false` | Re-arm an active goal after a restart — off unless you turn it on |
 
-Full option reference: [README.zh.md 配置](README.zh.md#️-配置) · credentials resolve in three
-layers (bundle patch config → settings document plugin section → first-boot QR registration).
+Credentials resolve in three layers: bundle patch config → settings document plugin section → first-boot QR registration.
 
 <details>
-<summary><b>Required app permissions (manual app creation)</b></summary>
+<summary>Required app scopes (manual app creation only)</summary>
 
 | Scope | Needed for |
 |---|---|
@@ -331,215 +248,146 @@ layers (bundle patch config → settings document plugin section → first-boot 
 | `im:resource` | Upload images and files |
 | `im:chat:read` | Group info |
 | `im:message.reactions:read` / `write_only` | Reaction feedback |
+| **`drive:drive`** | `/bot export --to-feishu`, `feishu_drive_*`, cloud arbitration |
 
-QR onboarding grants these automatically; manually created apps must publish a new
-version after adding scopes. Panel sync runs on session create/resume — send the bot
-one message after granting.
+QR onboarding grants these automatically; manually created apps must publish a new version after adding scopes. Panel sync runs on session create/resume — send the bot one message after granting.
 
 </details>
 
-## 🧭 Architecture
+</details>
 
+<details>
+<summary>📦 Moving to a new machine</summary>
+
+The bridge carries its own migration path. On the old machine:
+
+```text
+/bot export include-secrets --to-feishu   # uploads to the app's own Feishu drive
+/bot export include-secrets               # or a local file, credentials masked
 ```
-Feishu / Lark ── WebSocket long connection ──►  dsh-lark-bridge (feishu-channel plugin
-   (chat/approval/images)                        INSIDE the dsh process)
-                                                      │  host service contracts:
-                                                      │  agents / sessions / tools /
-                                                      ▼  approval / goal / settings
-                                              DeepSeek Harness itself
+
+The Feishu route needs no copying: the file lands in the app's own cloud space, and the new machine pulls it with `/bot import --from-feishu`. For the local route, copy the printed file to the same path on the new machine, install the plugin there, then:
+
+```text
+/bot import                       # preview: settings + plugin plan + warnings
+/bot import apply                 # execute (add --from-feishu for the cloud slot)
 ```
 
-Any launcher works (shell, systemd, supervisor) — no dependency on any other agent framework.
+What travels: shared settings and per-profile plugin lists. What never travels: peer heartbeats, control tokens, `node_modules`, session history.
 
-## 🧩 Extend It
+Session history lives under `~/.dsh`. To carry it across, copy the session directories **only**:
+
+```text
+~/.dsh/sessions/     # the conversations themselves
+~/.dsh/storages/     # session projection cache and workspace index
+```
+
+**Do not copy the whole of `~/.dsh`.** `~/.dsh/dsh-lark-bridge/device-state.json` holds this machine's `deviceId` and its retired flag — a copy would give the new machine the old machine's identity (both would answer the same chat) and could carry the retired flag along.
+
+**Device lifecycle** — every machine mints a stable `deviceId` on first boot; `/bot devices` shows the roster. Instead of stopping the old service by hand, retire it: `/bot retire` puts it out of the reply path (messages get a one-line notice, not an agent turn); `/bot activate` brings it back. Every live machine renews its presence each minute, and if the active one goes silent, the freshest endpoint with the lowest endpoint key wins the election on the next inbound message. `/bot name <readable-name>` names a device for the roster.
+
+</details>
+
+<details>
+<summary>❓ FAQ</summary>
+
+<details>
+<summary>Do I need a public IP or webhook?</summary>
+
+No. The transport is a WebSocket long connection; the app must use long-connection event subscription (self-built app).
+
+</details>
+
+<details>
+<summary>I have DSH Desktop and the web host — will they both answer?</summary>
+
+No. Both share one `~/.dsh` session library, and cloud arbitration is keyed per endpoint (`deviceId:form:profile`): exactly one instance replies per endpoint at any moment, and if the active one goes silent the freshest endpoints elect a successor on the next message. `/bot devices` shows who.
+
+</details>
+
+<details>
+<summary>Which models work?</summary>
+
+Any model routable by your dsh deployment — the bridge is model-agnostic, and `/model` switches at runtime.
+
+</details>
+
+<details>
+<summary>The agent says it sent a file but nothing arrives</summary>
+
+File delivery is default-deny: configure `outbound.allowedFileDirs`. URLs and raw buffers always work.
+
+</details>
+
+<details>
+<summary>The web console returns 401 when I open it directly</summary>
+
+Each launch mints a new token, so a browser without the cookie gets 401. Open the full `http://127.0.0.1:18787/?token=…` URL the launcher prints once — that sets a long-lived cookie, after which the plain address works.
+
+</details>
+
+<details>
+<summary>The slash panel is empty or partial after a restart</summary>
+
+Boot registers constant commands; the full panel sync runs on the first message of a session. Send the bot anything. If it stays empty, check the `application:app_slash_command` scope and publish an app version.
+
+</details>
+
+<details>
+<summary>How do I switch to a different Feishu app?</summary>
+
+`/bot account save <name>` archives the current credentials; later `/bot account` and tap **Use** on the card, then `/restart` (web) or restart Desktop. Multiple credential sets can live side by side.
+
+</details>
+
+<details>
+<summary>What survives a restart?</summary>
+
+Sessions resume from their logs; permission and preset choices ride with the session state. Active goals re-arm only if you set `autoResumeGoals: true` (it defaults to false).
+
+</details>
+
+</details>
+
+<details>
+<summary>⚠️ Known limitations</summary>
+
+- **The desktop form lacks question cards.** `hostQuestions` is not available in the `desktop` runtime form; the `web` form is unaffected.
+- **Transport-level config is read once at startup.** Credentials, `requireMention` and allowlists need a restart; other config edits hot-reload via dsh's Config-only HMR (`/config` shows live values).
+- **Events during a long-connection outage are not replayed** (no cursor); outbound sends are queued by the replay port.
+- **`schedule_*` model tools** need `@deepseek-ai/dsh-schedule` composed in your profile.
+- **File sending is deny-by-default** — directories must be listed in `outbound.allowedFileDirs` first.
+
+</details>
+
+## 🧩 Extend it
 
 Three invariants keep the bridge maintainable:
 
-1. **Grafted channel, not re-integration** — the bridge only normalizes messages; every
-   capability comes from official opt-in dsh plugin families composed in your profile.
-   Zero bridge code = zero upgrade cost when upstream ships features.
-2. **Everything through host service contracts** — `agents`, `agentPresets`, `approval`,
-   `goals`, `settings`… self-contained against published packages only.
-3. **Every change archives a design card first** — see [`docs/design/`](docs/design/README.md);
-   implementation notes are backfilled, and blocked investigations are archived as assets too.
+1. **Grafted channel, not re-integration** — the bridge only normalizes messages; every capability comes from official opt-in dsh plugin families composed in your profile. Zero bridge code = zero upgrade cost when upstream ships features.
+2. **Everything through host service contracts** — `agents`, `agentPresets`, `approval`, `goals`, `settings`… self-contained against published packages only.
+3. **Every change archives a design card first** — see [`docs/design/`](docs/design/README.md).
 
-**Repo map**
-
-```
-src/
-  bridge.ts        message pipeline: normalize → authorize → ack → agent turn → render
-  commands.ts      slash commands (i18n bilingual)
-  cot.ts outbound.ts  thinking-process & answer rendering
-  feishu-tools.ts    native Feishu agent tools (notify / cloud drive)
-  sync/              dual-end sync: settings source of truth, peers, control API,
-                     migration, account book, endpoint arbitration
-  pricing.ts         live DeepSeek peak/off-peak phase
-  user-guide.ts      single source of the /manual content
-  chronicle.ts     inbound-message ledger hook (integration example; user text only)
-  config.ts        schema + defaults
-tests/             vitest suites (59) incl. harness-based fakes
-scripts/           verify-dsh-contract.mjs — asserts no drift vs upstream master
-plugin-contract-test.mjs   43 contract checks on the host contract surface
-```
-
-**Quality gates**
+Repo map, the branch/MR flow and the version policy live in **[CONTRIBUTING.md](CONTRIBUTING.md)**. The gates CI runs on every push:
 
 ```sh
-pnpm test                        # 594 unit/integration tests
-node plugin-contract-test.mjs    # 43 host-contract checks
-node scripts/verify-dsh-contract.mjs   # drift check against upstream master
-pnpm typecheck && pnpm run build # tsc + tsdown (lib/ is committed)
+pnpm hygiene                    # repo hygiene (deployment terms stay local)
+pnpm test                       # 594 test cases declared (59 spec files)
+pnpm contract-test              # 43 host-contract checks
+pnpm contract-drift             # drift check against upstream dsh master
+node scripts/check-readme-parity.mjs   # the two READMEs stay in step
 ```
 
-CI runs all of the above on every push and pull request, with the upstream drift check
-pinned to dsh master — if upstream changes a contract, the build tells you before users do.
-
-**Adding a feature?** Write the design card first (template in `docs/design/`), implement,
-backfill the change record. For an integration that only needs inbound message visibility, prefer
-the `chronicleEndpoint` hook over modifying the pipeline — see `src/chronicle.ts` (it sends the
-user's text, not the bridge's replies).
-
-## 🧱 Development & MR Flow
-
-`main` is the stable baseline and only receives **reviewed merge requests**. All development happens on feature branches (`feat/<name>`), never directly on `main`.
-
-Per-MR checklist:
-1. Branch from `main`; keep the change small and single-purpose.
-2. Full quality gate green (`pnpm hygiene`, `pnpm test`, `node plugin-contract-test.mjs`, `node scripts/verify-dsh-contract.mjs`, `pnpm typecheck && pnpm build`).
-3. Repo hygiene scan — `pnpm hygiene` — must exit 0. Deployment-specific terms go in a local `.leak-patterns` file (see `.leak-patterns.example`), never in the repo.
-4. Reviewer approves → merge to `main` → deploy from `main`.
-5. Production incidents revert on the spot (history stays in git); the reverted branch is rebased and re-MR'd with a fix.
-
-Releases are tags. Pushing a `v*` tag runs the same gate as CI, verifies the tag matches `package.json`, and publishes the CHANGELOG section as the release notes — so a tag can never point at a commit that would have failed CI.
-
-This is enforced because past direct-to-`main` experiments had to be rolled back as a multi-commit revert in one batch — feature branches keep `main` shippable at all times.
-
-## 📦 Version & Release Policy
-
-Two tracks, written down so nobody guesses:
-
-- **preview track** — development/experimentation. Pull the latest upstream (GitHub releases including alpha/rc, or `master`) and the newest bridge features; breakage is expected here.
-- **stable track** — production deployments. Pin the npm `latest` / release-candidate line. **Production never runs an `alpha`.**
-
-### Moving to a new harness version
-
-The bridge consumes the harness through the plugin seam, so a harness upgrade can
-move the seam under it. The check is one command:
-
-```sh
-node scripts/verify-dsh-contract.mjs   # compares the bridge's host mirrors with upstream
-```
-
-It fetches the harness source it declares a contract against and fails when an
-entry the bridge mirrors has moved or vanished — run it before and after an
-upgrade. When it fails, the fix belongs in the bridge (`src/bridge.ts`,
-`src/questions.ts`), not in a pin: the bridge follows the newest harness, and the
-host-contract mirrors in those files are the single place that records what the
-seam looked like when it was last verified.
-
-Two rules keep the upgrade honest:
-1. **Upgrade the engine by switching trees, not by layering one on top.** A dsh
-   profile resolves the harness's own packages from the tree the CLI runs out of,
-   so pointing the launcher at a new checkout is the whole switch. Side-by-side
-   trees fight over the profile's `node_modules`.
-2. **A profile declares only its own additions** (this bridge, extra plugins).
-   Harness packages are not profile dependencies — declaring them pins the
-   profile to a version and hides the seam behind a stale copy.
-
-Promoting preview → stable requires the full quality gate to pass:
-`pnpm test` → `node plugin-contract-test.mjs` → `node scripts/verify-dsh-contract.mjs` → `pnpm typecheck && pnpm run build` → live smoke.
-
-## ❓ FAQ
-
-<details>
-<summary><b>Do I need a public IP or webhook?</b></summary>
-No. The transport is a WebSocket long connection; the app must use long-connection event
-subscription (self-built app).
-</details>
-
-<details>
-<summary><b>Which models work?</b></summary>
-Any model routable by your dsh deployment — the bridge is model-agnostic and `/model`
-switches at runtime.
-</details>
-
-<details>
-<summary><b>The agent says it sent a file but nothing arrives</b></summary>
-File delivery is default-deny: configure <code>outbound.allowedFileDirs</code>. URLs and
-raw buffers always work.
-</details>
-
-<details>
-<summary><b>The slash panel is empty or partial after a restart</b></summary>
-Boot registers constant commands; the full panel sync runs on the first message of a
-session. Send the bot anything. If it stays empty, check the
-<code>application:app_slash_command</code> scope and publish an app version.
-</details>
-
-<details>
-<summary><b>Will multiple machines / surfaces double-reply?</b></summary>
-No. Cloud arbitration is keyed per <b>endpoint</b> (<code>deviceId:form:profile</code>): exactly one surface
-replies at any moment, and if the active one goes silent the freshest endpoints elect a
-successor automatically on the next message.
-</details>
-
-<details>
-<summary><b>How do I switch to a different Feishu app?</b></summary>
-<code>/bot account save &lt;name&gt;</code> archives the current credentials; later <code>/bot account</code> and tap
-<b>Use</b> on the card, then <code>/restart</code> (web) or restart Desktop. Multiple credential sets can
-live side by side.
-</details>
-
-<details>
-<summary><b>What survives a restart?</b></summary>
-Sessions resume from their logs; active goals re-arm (<code>autoResumeGoals</code>);
-permission and preset choices ride with the session state.
-</details>
-
-## 🌍 Listings & Community
-
-Listed in the following directories (every link below was fetched and confirmed
-reachable on 2026-10-21):
-
-| Directory | How it is listed | Link |
-|---|---|---|
-| **dshbase** | issue (#59, closed) · **verified** (headless L3: install + load + Q&A) | [entry](https://dshbase.com/plugins/moyu-good-dsh-lark-bridge/) · [中文](https://dshbase.com/zh/plugins/moyu-good-dsh-lark-bridge/) |
-| **awesome-dsh-plugin** | PR ([#2160](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/2160), merged) | [list](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) · [card](https://awesome-dsh-plugin.com/p/moyu-good/dsh-lark-bridge/) |
-| **dsh-market** (in-DSH market) | reads the `dsh-plugin-catalog` index — **no separate submission** | [site](https://dshmarket.com) · [card](https://dshmarket.com/p/moyu-good/dsh-lark-bridge/) |
-| **dsh.so** | web form, **L5 runtime-verified** (0.2.1-rc.2) | [entry](https://www.dsh.so/artifact/dsh-lark-bridge-4/) |
-| **dshfind** | automatic, by repository (Chinese community) | [entry](https://dshfind.com/zh/plugins/moyu-good/dsh-lark-bridge) |
-| **dsh.directory** | issue, hand-reviewed (small and curated) | [entry](https://dsh.directory/plugins/moyu-good/dsh-lark-bridge) |
-| **dsh-plugin.org** | automatic crawl (public repo + `dsh-plugin` topic + manual review) | [entry](https://dsh-plugin.org/plugins/moyu-good/dsh-lark-bridge/) |
-| **dsh-suite** | issue ([#32](https://github.com/whyihaveyou/dsh-suite/issues/32), closed, orchestration) | [catalog](https://github.com/whyihaveyou/dsh-suite) |
-| **deepseek404 plugin store** | automatic, aggregates GitHub | [entry](https://dsh.deepseek404.com/detail.php?id=moyu-good%2Fdsh-lark-bridge) |
-
-**About the version numbers**: most of these directories read the version from npm,
-and npm still serves `0.6.1` while this repository is at `v0.9.6` — so a directory
-page will show a version behind the repository. **The repository tag is the truth.**
-Install with `npm i github:moyu-good/dsh-lark-bridge#v0.9.6`, or take the tarball
-from the release.
-
-Issues and PRs welcome — design cards first, please.
-
-## 📋 Known limitations
-
-- Transport-level config (credentials, requireMention, allowlists) is read once at startup;
-  other config edits hot-reload via dsh Config-only HMR (`/config` shows live values)
-- Events during a long-connection outage are not replayed (no cursor); outbound sends are
-  queued by the replay port
-- `schedule_*` model tools need composing `@deepseek-ai/dsh-schedule` in your profile
+The suite lives in `tests/` — vitest suites (59), including harness-based fakes. Upgrading the harness: run `pnpm contract-drift` before and after — it fails when a host seam the bridge mirrors has moved.
 
 ## 🤝 Contributing
 
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** — how to get a change in: the branch shape, the
-  three layers of tests, and what a change has to come with.
-- **[SECURITY.md](SECURITY.md)** — how to report a vulnerability, and what counts as one.
-  Please do not open a public issue for it.
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — how to get a change in.
+- **[SECURITY.md](SECURITY.md)** — how to report a vulnerability. Please do not open a public issue for it.
 - **[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)** — how people are expected to treat each other here.
-- **Issue templates** — a bug report and a feature request, under
-  [.github/ISSUE_TEMPLATE](.github/ISSUE_TEMPLATE). A report that fills in the
-  environment section is answered faster; a report that does not is usually a
-  question about the host rather than about the bridge.
+- **Issue templates** — under [.github/ISSUE_TEMPLATE](.github/ISSUE_TEMPLATE). A report that fills in the environment section is answered faster.
+
+Listed in 9 plugin directories, including [dshbase (verified)](https://dshbase.com/plugins/moyu-good-dsh-lark-bridge/). Most directories read the version from npm; **the repository tag is the truth** — install from npm (`@moyu-good/dsh-lark-bridge`) or straight from a tag.
 
 ## 📄 License
 

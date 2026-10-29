@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>dsh-lark-bridge 架构图</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;
+      --color-ink:     #2d3142;
+      --color-muted:   #4f5d75;
+      --color-accent:  #eb6c36;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1200px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 900px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">ARCHITECTURE · dsh-lark-bridge</p>
+    <h1>Feishu 消息如何驱动一个 DeepSeek Harness Agent</h1>
+
+    <svg viewBox="0 0 1000 640" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="bridge-flow-title bridge-flow-desc">
+      <title id="bridge-flow-title">dsh-lark-bridge 消息链路</title>
+      <desc id="bridge-flow-desc">飞书用户发消息经飞书云通过 WebSocket 长连接送到本机的 dsh-lark-bridge，桥驱动 DeepSeek Harness agent 推理并执行工具，思考过程与结果再渲染回飞书；web 与 desktop 两种形态共享同一个会话库。</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
+        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+      </defs>
+
+      <!-- background -->
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- ============ ZONES (drawn first) ============ -->
+      <!-- Zone: 飞书云 -->
+      <rect x="216" y="88" width="176" height="152" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="264" y="92" width="72" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="300" y="101" fill="rgba(45,49,66,0.40)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">FEISHU CLOUD</text>
+
+      <!-- Zone: 本机 -->
+      <rect x="452" y="88" width="404" height="316" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="612" y="92" width="88" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="656" y="101" fill="rgba(45,49,66,0.40)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">LOCAL MACHINE</text>
+
+      <!-- ============ ARROWS (before boxes) ============ -->
+      <!-- 1. 用户 → 飞书云 -->
+      <path d="M 152,164 H 236" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+      <rect x="164" y="144" width="60" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="194" y="153" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">消息收发</text>
+
+      <!-- 2. 飞书云 → 桥 (WebSocket, 重点，accent) -->
+      <path d="M 384,164 H 472" fill="none" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+      <rect x="390" y="140" width="64" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="422" y="149" fill="#eb6c36" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">WEBSOCKET</text>
+
+      <!-- 3. 桥 → agent (驱动) -->
+      <path d="M 632,164 H 700" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="644" y="140" width="44" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="666" y="149" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">DRIVE</text>
+
+      <!-- 4. agent → 会话库 (向下) -->
+      <path d="M 788,200 V 268" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <rect x="796" y="226" width="56" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="824" y="235" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">SESSION</text>
+
+      <!-- 5. agent → DeepSeek API (向右外) -->
+      <path d="M 812,164 H 872" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <rect x="820" y="140" width="48" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="844" y="149" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">INFER</text>
+
+      <!-- 6. agent → 桥 (思考/审批/结果 回流) -->
+      <path d="M 716,200 V 244 H 540 V 204" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <rect x="586" y="232" width="120" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="646" y="241" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">THINK · APPROVE · RESULT</text>
+
+      <!-- 7. 桥 → 飞书云 (渲染回去) -->
+      <path d="M 512,200 V 236 H 312 V 196" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <rect x="352" y="220" width="64" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="384" y="229" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">RENDER</text>
+
+      <!-- ============ NODES ============ -->
+      <!-- 用户 -->
+      <rect x="56" y="132" width="96" height="64" rx="6" fill="rgba(79,93,117,0.10)"/>
+      <rect x="56" y="132" width="96" height="64" rx="6" fill="none" stroke="rgba(79,93,117,0.30)" stroke-width="1"/>
+      <text x="104" y="160" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">飞书用户</text>
+      <text x="104" y="178" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">DM or @mention</text>
+
+      <!-- 飞书云 -->
+      <rect x="240" y="132" width="144" height="64" rx="6" fill="rgba(45,49,66,0.03)"/>
+      <rect x="240" y="132" width="144" height="64" rx="6" fill="none" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <text x="312" y="160" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">飞书云</text>
+      <text x="312" y="178" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">msg-frontier.feishu.cn</text>
+
+      <!-- ★ 桥（focal） -->
+      <rect x="476" y="132" width="152" height="68" rx="6" fill="rgba(235,108,54,0.06)"/>
+      <rect x="476" y="132" width="152" height="68" rx="6" fill="none" stroke="rgba(235,108,54,0.50)" stroke-width="1"/>
+      <rect x="484" y="138" width="28" height="12" rx="2" fill="transparent" stroke="rgba(235,108,54,0.40)" stroke-width="0.8"/>
+      <text x="498" y="147" fill="rgba(235,108,54,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">桥</text>
+      <text x="552" y="164" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">dsh-lark-bridge</text>
+      <text x="552" y="182" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">per-chat session</text>
+
+      <!-- ★ dsh agent（focal 2） -->
+      <rect x="704" y="132" width="108" height="68" rx="6" fill="rgba(235,108,54,0.06)"/>
+      <rect x="704" y="132" width="108" height="68" rx="6" fill="none" stroke="rgba(235,108,54,0.50)" stroke-width="1"/>
+      <text x="758" y="160" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">dsh agent</text>
+      <text x="758" y="178" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">tools · preset</text>
+
+      <!-- 会话库 -->
+      <rect x="708" y="272" width="104" height="64" rx="6" fill="rgba(45,49,66,0.05)"/>
+      <rect x="708" y="272" width="104" height="64" rx="6" fill="none" stroke="rgba(79,93,117,0.40)" stroke-width="1"/>
+      <text x="760" y="300" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">会话库</text>
+      <text x="760" y="318" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">~/.dsh</text>
+
+      <!-- DeepSeek API -->
+      <rect x="876" y="132" width="96" height="64" rx="6" fill="rgba(45,49,66,0.03)"/>
+      <rect x="876" y="132" width="96" height="64" rx="6" fill="none" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <text x="924" y="160" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">DeepSeek</text>
+      <text x="924" y="178" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">API</text>
+
+      <!-- 三 surface 共享会话库：只用一行注记，不画虚线框（避免与流程虚线混淆） -->
+
+      <!-- ============ LEGEND ============ -->
+      <line x1="56" y1="452" x2="944" y2="452" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="56" y="472" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+      <rect x="132" y="463" width="12" height="12" rx="2" fill="rgba(235,108,54,0.06)" stroke="rgba(235,108,54,0.50)" stroke-width="1"/>
+      <text x="152" y="472" fill="#4f5d75" font-size="9" font-family="'Geist', sans-serif">本插件与 agent</text>
+
+      <rect x="288" y="463" width="12" height="12" rx="2" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <text x="308" y="472" fill="#4f5d75" font-size="9" font-family="'Geist', sans-serif">外部系统</text>
+
+      <rect x="412" y="463" width="12" height="12" rx="2" fill="rgba(45,49,66,0.05)" stroke="rgba(79,93,117,0.40)" stroke-width="1"/>
+      <text x="432" y="472" fill="#4f5d75" font-size="9" font-family="'Geist', sans-serif">本地存储</text>
+
+      <line x1="528" y1="469" x2="556" y2="469" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <text x="564" y="472" fill="#4f5d75" font-size="9" font-family="'Geist', sans-serif">请求</text>
+
+      <line x1="624" y1="469" x2="652" y2="469" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <text x="660" y="472" fill="#4f5d75" font-size="9" font-family="'Geist', sans-serif">回流 / 异步</text>
+
+      <text x="56" y="516" fill="#7a8399" font-size="9" font-family="'Geist', sans-serif" font-style="italic">不需要公网回调地址。飞书侧只看到一条 WebSocket 长连接，</text>
+      <text x="56" y="534" fill="#7a8399" font-size="9" font-family="'Geist', sans-serif" font-style="italic">桥在本机把每个会话映射成一个独立的 dsh agent。web 形态与 desktop 形态共享同一个 ~/.dsh 会话库，</text>
+      <text x="56" y="552" fill="#7a8399" font-size="9" font-family="'Geist', sans-serif" font-style="italic">云端按 ENDPOINT（deviceId + form + profile）仲裁，保证同一时刻只有一个实例回话。</text>
+    </svg>
+  </div>
+</body>
+</html>

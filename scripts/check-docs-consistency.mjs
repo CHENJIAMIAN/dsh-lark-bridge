@@ -82,8 +82,13 @@ function badgeCount(markdown) {
   if (badge !== null) return Number(badge[1])
   const plain = markdown.match(/tests-(\d+)\s+passing/)
   if (plain !== null) return Number(plain[1])
-  const comment = markdown.match(/#\s*(\d+)\s+unit\/integration tests/)
-  return comment === null ? undefined : Number(comment[1])
+  // A shell comment inside the quality-gate block. The Chinese README writes
+  // this comment in Chinese, so both spellings have to be recognised — a gate
+  // that only reads one language silently stops checking the other.
+  const comment = markdown.match(/#\s*(\d+)\s+(?:unit\/integration tests|test cases declared)/)
+  if (comment !== null) return Number(comment[1])
+  const zhComment = markdown.match(/#\s*(\d+)\s+(?:单测\/集成|条测试用例声明)/)
+  return zhComment === null ? undefined : Number(zhComment[1])
 }
 
 const commands = bridgeCommands()
@@ -208,9 +213,9 @@ for (const [label, markdown] of [['README.md', en], ['README.zh.md', zh]]) {
   if (badge === undefined) {
     fail(`${label} carries a test count`, 'no badge and no count in the test comment')
   } else if (badge === count) {
-    pass(`${label} test count matches the tests that run`, `${count} (${source})`)
+    pass(`${label} test count matches the declared cases`, `${count} (${source})`)
   } else {
-    fail(`${label} test count matches the tests that run`,
+    fail(`${label} test count matches the declared cases`,
       `says ${badge}, there are ${count} (${source})`)
   }
 }

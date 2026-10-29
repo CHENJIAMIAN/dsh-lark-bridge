@@ -73,10 +73,24 @@ describe('the documentation gate', () => {
     // The number is not written down here on purpose: the badge moves every
     // time a test is added, and a test that replaces one fixed number
     // silently stops replacing anything once the badge has moved past it.
-    withChanged('README.md', (text) => text.replace(/tests-\d+%20passing/, 'tests-1%20passing'), (result) => {
-      expect(result.code).not.toBe(0)
-      expect(result.stdout).toContain('test count')
-    })
+    //
+    // So this matches whatever count the README currently carries and bumps
+    // it, rather than hard-coding the rendering of the day. It used to pin
+    // the shields.io badge; when the badge was replaced by a plain comment in
+    // the quality-gate block, that replace became a no-op, the gate stayed
+    // green, and this test — the only thing watching the count door — went
+    // red instead. Bumping whatever is there survives either spelling.
+    withChanged(
+      'README.md',
+      (text) =>
+        text
+          .replace(/(tests-)(\d+)(%20passing)/, (_m, a, n, b) => `${a}${Number(n) + 1}${b}`)
+          .replace(/(#\s*)(\d+)(\s+unit\/integration tests|\s+test cases declared)/, (_m, a, n, b) => `${a}${Number(n) + 1}${b}`),
+      (result) => {
+        expect(result.code).not.toBe(0)
+        expect(result.stdout).toContain('test count')
+      },
+    )
   })
 
   it('catches a command that is written down but does not exist', () => {
@@ -115,10 +129,22 @@ describe('the documentation gate', () => {
   })
 
   it('catches a /bot subcommand that is not written down', () => {
-    withChanged('README.md', (text) => text.replace('`/bot` subcommands** (bridge admin): `set`', '`/bot` subcommands** (bridge admin):'), (result) => {
-      expect(result.code).not.toBe(0)
-      expect(result.stdout).toContain('/bot subcommand')
-    })
+    // Inject by dropping one name from whichever line the gate reads, not by
+    // matching a fixed prefix of that line: the prefix changed once already
+    // (`**\`/bot\` subcommands** (bridge admin):` became `**\`/bot\`
+    // subcommands**:`) and the fixed-prefix replace silently stopped injecting.
+    withChanged(
+      'README.md',
+      (text) =>
+        text
+          .split('\n')
+          .map((line) => (line.includes('`/bot` subcommands') ? line.replace('`set` / ', '') : line))
+          .join('\n'),
+      (result) => {
+        expect(result.code).not.toBe(0)
+        expect(result.stdout).toContain('/bot subcommand')
+      },
+    )
   })
 
   it('catches the manual and the chat copy of it drifting apart', () => {

@@ -48,6 +48,11 @@ jobs:
       # the bridge implements but no README mentions, a badge that no
       # longer matches the tests that run.
       - run: node scripts/check-docs-consistency.mjs
+      # The two READMEs are written in parallel, not translated, so they drift
+      # by design. This one keeps the skeleton in step — same number of `##`
+      # sections, in the same order, same `<details>` blocks, a body that has
+      # not collapsed, and images that actually exist.
+      - run: node scripts/check-readme-parity.mjs
       - run: pnpm typecheck
       - run: node scripts/verify-dsh-contract.mjs
       - run: pnpm test
