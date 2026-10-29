@@ -54,13 +54,59 @@ const problems = []
 // placeholder fills in the text but leaves the markup alone. Chinese runs
 // denser than English, so the band is one-sided and loose — it is here to
 // catch a collapse, not to police translation length.
-const BODY_RATIO_MIN = 0.35
+const BODY_RATIO_MIN = 0.45
 const bodyRatio = zh.bodyChars / en.bodyChars
 if (bodyRatio < BODY_RATIO_MIN) {
   problems.push(
     `body text has collapsed: README.zh.md carries ${zh.bodyChars} chars of body text ` +
       `against README.md's ${en.bodyChars} (ratio ${bodyRatio.toFixed(2)}, floor ${BODY_RATIO_MIN})`,
   )
+}
+
+// Per-section body mass. A global ratio cannot see one section emptied out:
+// the other sections carry the average. Split both documents by `##` and
+// compare the body weight of each pair — a section that lost most of its text
+// on one side shows up here even when the heading survives and the totals look
+// plausible.
+function sectionBodies(markdown) {
+  const out = []
+  let current = null
+  for (const line of markdown.split('\n')) {
+    // A section starts at a `##` heading OR at a `<summary>` — most of the
+    // reference material is folded, and a folded section has no heading at
+    // all. Splitting only on `##` meant a whole folded section could be
+    // emptied out and this comparison never saw it.
+    const summary = /^<summary>(.*)<\/summary>/.exec(line.trim())
+    if (line.startsWith('## ') || summary !== null) {
+      current = { title: summary !== null ? summary[1] : line.slice(3).trim(), chars: 0 }
+      out.push(current)
+      continue
+    }
+    if (current && line.trim() !== '' && !line.startsWith('#') && !line.startsWith('<')) {
+      current.chars += line.length
+    }
+  }
+  return out
+}
+
+// A section may legitimately run shorter in one language, but not by an order
+// of magnitude: below this floor either side means the section lost its body.
+const SECTION_RATIO_MIN = 0.30
+const enBodies = sectionBodies(en.lines.join('\n'))
+const zhBodies = sectionBodies(zh.lines.join('\n'))
+const pairs = Math.min(enBodies.length, zhBodies.length)
+for (let i = 0; i < pairs; i++) {
+  const a = enBodies[i]
+  const b = zhBodies[i]
+  const big = Math.max(a.chars, b.chars)
+  const small = Math.min(a.chars, b.chars)
+  if (big > 200 && small / big < SECTION_RATIO_MIN) {
+    problems.push(
+      `section ${i + 1} lost its body on one side: ` +
+        `"${a.title}" = ${a.chars} chars, "${b.title}" = ${b.chars} chars ` +
+        `(ratio ${(small / big).toFixed(2)}, floor ${SECTION_RATIO_MIN})`,
+    )
+  }
 }
 
 // Section numbers inside headings differ by language; compare only what follows
@@ -74,7 +120,7 @@ if (en.headings.length !== zh.headings.length) {
 
 // A `<details>` block is content the heading check cannot see. One side losing
 // a folding block is the exact drift this file exists to stop.
-const FOLDED_SLACK = 1
+const FOLDED_SLACK = 0
 if (Math.abs(en.details - zh.details) > FOLDED_SLACK) {
   problems.push(
     `folded-block count differs: README.md has ${en.details}, README.zh.md has ${zh.details} ` +
@@ -106,7 +152,11 @@ if (ratio < RATIO_MIN || ratio > RATIO_MAX) {
 // Every image the README points at has to exist, or GitHub renders a broken box.
 const imgProblems = []
 for (const doc of [en, zh]) {
-  const refs = [...doc.lines.join('\n').matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)].map((m) => m[1])
+  const text = doc.lines.join('\n')
+  const refs = [
+    ...[...text.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)].map((m) => m[1]),
+    ...[...text.matchAll(/<img[^>]+src="([^"]+)"/g)].map((m) => m[1]),
+  ]
   for (const ref of refs) {
     if (/^https?:\/\//.test(ref)) continue
     try {

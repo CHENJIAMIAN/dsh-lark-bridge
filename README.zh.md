@@ -52,7 +52,7 @@
 
 ## ✨ 三件别的桥大多做不到的事
 
-### 装在自己机器上，约 20 秒，不需要公网
+### 装在自己机器上，几分钟搞定，不需要公网
 
 一条 `pnpm dlx` 命令装好插件并起宿主，扫码就是全部的凭据流程。传输是出站的 WebSocket 长连接——没有任何东西需要从公网打进来。
 
@@ -99,7 +99,7 @@ reasoning 渲染成飞书原生的「思考中」消息。工具调用带图标�
 **Harness 版本**：dsh `>= 0.2.1-rc.1 < 0.3.0`（`package.json` 里的 `engines.dsh` 就是这么写的）。
 
 ```sh
-# 1. 把插件装进 dsh profile 并启动（约 20 秒）
+# 1. 把插件装进 dsh profile 并启动
 pnpm dlx @deepseek-ai/dsh plugin --profile web add @moyu-good/dsh-lark-bridge \
   && pnpm dlx @deepseek-ai/dsh web
 
@@ -357,6 +357,7 @@ pnpm 10 默认拦截依赖的构建脚本，未放行时以非零退出码失败
 - **长连接中断期间到达的事件不重放**（传输层无游标）；出站由 replay 队列兜底。
 - **`schedule_*` 模型工具** 需要在 profile 里组合 `@deepseek-ai/dsh-schedule`。
 - **文件发送默认拒绝** —— 目录必须先写进 `outbound.allowedFileDirs`。
+- **同一个 endpoint key 上的两个进程会同时回话。** 仲裁比的是端键（`deviceId` + `form` + `profile`）；同一台机器、同一个 profile 上同时跑 `dsh web` 和裸 CLI，两者算出来是同一个键，彼此都不认为对方是竞争者。一个 profile 只跑一个宿主进程。
 
 </details>
 
@@ -372,7 +373,7 @@ pnpm 10 默认拦截依赖的构建脚本，未放行时以非零退出码失败
 
 ```sh
 pnpm hygiene                    # 仓库卫生（部署专有词只留在本机）
-pnpm test                       # 594 条测试用例声明（59 个 spec 文件）
+pnpm test                       # 593 条测试 / 59 个 spec 文件
 pnpm contract-test              # 43 条宿主契约检查
 pnpm contract-drift             # 对上游 dsh master 的漂移检查
 node scripts/check-readme-parity.mjs   # 两份 README 保持同构

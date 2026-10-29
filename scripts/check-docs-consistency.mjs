@@ -71,7 +71,11 @@ function actualTestCount() {
   for (const file of readdirSync(join(ROOT, 'tests'))) {
     if (!file.endsWith('.spec.ts')) continue
     const source = readFileSync(join(ROOT, 'tests', file), 'utf8')
-    total += [...source.matchAll(/\bit(?:\.each)?\s*\(/g)].length
+    // No `\s*` between the name and the paren: prose like "upgrade the
+    // harness to open it (raw log: …)" inside a string literal was being
+    // counted as a test, which is how this gate spent months asserting 594
+    // while the runner enumerated 593. A real call has no space after `it`.
+    total += [...source.matchAll(/\bit(?:\.each)?\(/g)].length
   }
   return { count: total, source: 'source' }
 }
@@ -85,9 +89,9 @@ function badgeCount(markdown) {
   // A shell comment inside the quality-gate block. The Chinese README writes
   // this comment in Chinese, so both spellings have to be recognised — a gate
   // that only reads one language silently stops checking the other.
-  const comment = markdown.match(/#\s*(\d+)\s+(?:unit\/integration tests|test cases declared)/)
+  const comment = markdown.match(/#\s*(\d+)\s+(?:unit\/integration tests|test cases declared|tests in \d+ spec files)/)
   if (comment !== null) return Number(comment[1])
-  const zhComment = markdown.match(/#\s*(\d+)\s+(?:单测\/集成|条测试用例声明)/)
+  const zhComment = markdown.match(/#\s*(\d+)\s+(?:单测\/集成|条测试用例声明|条测试 \/ \d+ 个 spec 文件)/)
   return zhComment === null ? undefined : Number(zhComment[1])
 }
 

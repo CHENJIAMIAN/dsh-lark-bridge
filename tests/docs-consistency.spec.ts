@@ -85,7 +85,7 @@ describe('the documentation gate', () => {
       (text) =>
         text
           .replace(/(tests-)(\d+)(%20passing)/, (_m, a, n, b) => `${a}${Number(n) + 1}${b}`)
-          .replace(/(#\s*)(\d+)(\s+unit\/integration tests|\s+test cases declared)/, (_m, a, n, b) => `${a}${Number(n) + 1}${b}`),
+          .replace(/(#\s*)(\d+)(\s+unit\/integration tests|\s+test cases declared|\s+tests in \d+ spec files)/, (_m, a, n, b) => `${a}${Number(n) + 1}${b}`),
       (result) => {
         expect(result.code).not.toBe(0)
         expect(result.stdout).toContain('test count')

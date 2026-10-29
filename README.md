@@ -52,7 +52,7 @@ A cloud ledger keyed per endpoint (`deviceId` + `form` + `profile`) keeps one in
 
 ## ✨ Three things most bridges don't do
 
-### Runs on your machine, in about 20 seconds, with no public address
+### Runs on your machine, in minutes, with no public address
 
 One `pnpm dlx` command installs the plugin and boots the host; a QR code is the whole credential flow. The transport is an outbound WebSocket long connection — nothing has to reach you from the internet.
 
@@ -99,7 +99,7 @@ Send a message while a turn is running and it follows `busyPolicy`: `queue` wait
 **Harness:** dsh `>= 0.2.1-rc.1 < 0.3.0` (declared as `engines.dsh` in `package.json`).
 
 ```sh
-# 1. install the plugin into a dsh profile and boot (~20s)
+# 1. install the plugin into a dsh profile and boot
 pnpm dlx @deepseek-ai/dsh plugin --profile web add @moyu-good/dsh-lark-bridge \
   && pnpm dlx @deepseek-ai/dsh web
 
@@ -357,6 +357,7 @@ Sessions resume from their logs; permission and preset choices ride with the ses
 - **Events during a long-connection outage are not replayed** (no cursor); outbound sends are queued by the replay port.
 - **`schedule_*` model tools** need `@deepseek-ai/dsh-schedule` composed in your profile.
 - **File sending is deny-by-default** — directories must be listed in `outbound.allowedFileDirs` first.
+- **Two processes sharing one endpoint key will both answer.** Arbitration compares the endpoint key (`deviceId` + `form` + `profile`); a `dsh web` process and a bare CLI process on the same machine and profile produce the same key, so neither sees the other as a rival. Run one host process per profile.
 
 </details>
 
@@ -372,7 +373,7 @@ Repo map, the branch/MR flow and the version policy live in **[CONTRIBUTING.md](
 
 ```sh
 pnpm hygiene                    # repo hygiene (deployment terms stay local)
-pnpm test                       # 594 test cases declared (59 spec files)
+pnpm test                       # 593 tests in 59 spec files
 pnpm contract-test              # 43 host-contract checks
 pnpm contract-drift             # drift check against upstream dsh master
 node scripts/check-readme-parity.mjs   # the two READMEs stay in step
