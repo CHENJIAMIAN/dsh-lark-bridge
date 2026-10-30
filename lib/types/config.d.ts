@@ -276,6 +276,12 @@ export interface LimitsConfig {
     approvalArgChars?: number;
     /** Characters of a skill body shown by `/skills <name>`. */
     skillPreviewChars?: number;
+    /** Characters of one retrieval snippet shown by `/sessions <关键词>`. */
+    searchSnippetChars?: number;
+    /** Characters of one session's opening prompt shown by `/sessions`. */
+    sessionPromptChars?: number;
+    /** Characters of one scheduled reminder's prompt shown by `/schedules`. */
+    schedulePromptChars?: number;
 }
 /** Elision budgets after defaults are applied. */
 export interface Limits {
@@ -287,6 +293,9 @@ export interface Limits {
     readonly jobTailChars: number;
     readonly approvalArgChars: number;
     readonly skillPreviewChars: number;
+    readonly searchSnippetChars: number;
+    readonly sessionPromptChars: number;
+    readonly schedulePromptChars: number;
 }
 /**
  * Default elision budgets, sized for a session someone is working in.

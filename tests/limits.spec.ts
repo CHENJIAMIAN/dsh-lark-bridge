@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_LIMITS, resolveConfig, resolveLimits } from '../src/config.ts'
 import { summariseArguments } from '../src/cot.ts'
 import { jobDoneLine } from '../src/notices.ts'
+import { runCommandLine } from '../src/commands.ts'
 import { quotedPrefix } from '../src/bridge.ts'
 import { fakeMessage } from './harness.ts'
 
@@ -69,5 +70,44 @@ describe('预算传得到各条渲染路径', () => {
     const tight = quotedPrefix(quoted, 50)
     expect(tight).toContain('已截断')
     expect(tight.length).toBeLessThan(200)
+  })
+})
+
+describe('命令回复里的行数上限', () => {
+  /** runCommandLine 的尾部参数：workspaces(20)/currentCwd(21)；cwdBound 压尾。 */
+  function runWs(entries: ReadonlyArray<{ id: string; path: string }>, currentCwd?: string) {
+    const registry = {
+      resolveByPath: async () => undefined,
+      create: async () => ({ id: 'x', path: '/x', attachSession: async () => undefined }),
+      list: () => entries.map(e => ({ ...e, attachSession: async () => undefined })),
+    }
+    const agent = { id: 'a', session: { id: 's', seq: 0, eventAt: () => undefined }, cancel: () => undefined } as never
+    return runCommandLine(
+      '/ws', agent, undefined, new AbortController().signal,
+      undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined,
+      registry as never, currentCwd,
+      undefined, undefined, undefined, undefined,
+    ) as unknown as Promise<{ resolved: boolean; reply: string }>
+  }
+
+  it('/ws 只列前 20 个，剩下的说清数量', async () => {
+    const many = Array.from({ length: 45 }, (_, i) => ({ id: `ws_${i}`, path: `/srv/ws-${i}` }))
+    const outcome = await runWs(many, '/srv/ws-3')
+    expect(outcome.reply).toContain('（45 个）')
+    expect(outcome.reply).toContain('还有 25 个未列出')
+    const listed = outcome.reply.split('\n').filter(line => line.startsWith('·'))
+    expect(listed).toHaveLength(20)
+    // 「← 当前」仍出现在被列出的那几行里。
+    expect(listed.some(line => line.includes('← 当前'))).toBe(true)
+  })
+
+  it('/ws 不超界时不加「还有」一句', async () => {
+    const few = Array.from({ length: 3 }, (_, i) => ({ id: `ws_${i}`, path: `/srv/ws-${i}` }))
+    const outcome = await runWs(few, '/srv/ws-1')
+    expect(outcome.reply).toContain('（3 个）')
+    expect(outcome.reply).not.toContain('还有')
   })
 })

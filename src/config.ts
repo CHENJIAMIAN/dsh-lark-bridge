@@ -293,6 +293,12 @@ export interface LimitsConfig {
   approvalArgChars?: number
   /** Characters of a skill body shown by `/skills <name>`. */
   skillPreviewChars?: number
+  /** Characters of one retrieval snippet shown by `/sessions <关键词>`. */
+  searchSnippetChars?: number
+  /** Characters of one session's opening prompt shown by `/sessions`. */
+  sessionPromptChars?: number
+  /** Characters of one scheduled reminder's prompt shown by `/schedules`. */
+  schedulePromptChars?: number
 }
 
 /** Elision budgets after defaults are applied. */
@@ -305,6 +311,9 @@ export interface Limits {
   readonly jobTailChars: number
   readonly approvalArgChars: number
   readonly skillPreviewChars: number
+  readonly searchSnippetChars: number
+  readonly sessionPromptChars: number
+  readonly schedulePromptChars: number
 }
 
 /**
@@ -326,6 +335,11 @@ export const DEFAULT_LIMITS: Limits = {
   jobTailChars: 2500,
   approvalArgChars: 1000,
   skillPreviewChars: 2000,
+  // 「这条是不是我要找的那条」，一个片段 60 字常常答不出来——刚好停在
+  // 有信息量的那一段之前。给到一整句到两句话的长度。
+  searchSnippetChars: 200,
+  sessionPromptChars: 120,
+  schedulePromptChars: 120,
 }
 
 /**
@@ -343,6 +357,9 @@ export function resolveLimits(config: LimitsConfig | undefined): Limits {
     jobTailChars: config?.jobTailChars ?? DEFAULT_LIMITS.jobTailChars,
     approvalArgChars: config?.approvalArgChars ?? DEFAULT_LIMITS.approvalArgChars,
     skillPreviewChars: config?.skillPreviewChars ?? DEFAULT_LIMITS.skillPreviewChars,
+    searchSnippetChars: config?.searchSnippetChars ?? DEFAULT_LIMITS.searchSnippetChars,
+    sessionPromptChars: config?.sessionPromptChars ?? DEFAULT_LIMITS.sessionPromptChars,
+    schedulePromptChars: config?.schedulePromptChars ?? DEFAULT_LIMITS.schedulePromptChars,
   }
 }
 
@@ -453,6 +470,9 @@ export const Config: z<Config> = z.object({
     jobTailChars: z.number().min(1),
     approvalArgChars: z.number().min(1),
     skillPreviewChars: z.number().min(1),
+    searchSnippetChars: z.number().min(1),
+    sessionPromptChars: z.number().min(1),
+    schedulePromptChars: z.number().min(1),
   }),
 })
 
