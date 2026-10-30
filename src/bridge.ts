@@ -199,6 +199,15 @@ export interface ChannelPort extends OutboundPort, SlashPanelPort, ImagePort, Co
   on(name: 'reconnecting', handler: () => void): () => void
   /** The long connection is live again. */
   on(name: 'reconnected', handler: () => void): () => void
+  /**
+   * Read one message back as a normalized message.
+   *
+   * Optional on purpose: the transport is the only thing that can fetch one,
+   * and a test double that does not model the API must still satisfy the port.
+   * When absent, a reply-quoted message simply reaches the model without its
+   * quote — degraded, not broken.
+   */
+  fetchMessage?(messageId: string): Promise<NormalizedMessage | undefined>
   /** Replace a sent card's content in place. */
   updateCard(messageId: string, card: object): Promise<void>
   /** Add an emoji reaction to a message; resolves the platform reaction id. */
@@ -626,6 +635,41 @@ export function chatUserMessage(msg: NormalizedMessage, images: CollectedImages)
     content: Object.freeze(content),
     source: Object.freeze({ kind: 'user' } as const),
   })
+}
+
+/**
+ * How much of a quoted message the model is shown.
+ *
+ * A quote can be an entire bot answer. Repeating it verbatim buys nothing the
+ * session history does not already hold, and a long one would push the actual
+ * question out of the model's attention — so the head, and a marker.
+ */
+const QUOTE_MAX_CHARS = 1200
+
+/**
+ * Render the message a chat message quotes back, as a block to prepend.
+ *
+ * 飞书的「引用」不是正文的一部分：入站事件只带 `parent_id`，被引用的那条要
+ * 另外调 `im.v1.message.get` 才能读到。不取它，模型看到的就是一句「这个你再
+ * 改改」加一片空白——它只能猜「这个」是什么，而人会以为它当然看得见。
+ *
+ * @param quoted - the referenced message, already fetched.
+ * @returns the block and its trailing newline, or '' when there is nothing to show.
+ */
+export function quotedPrefix(quoted: NormalizedMessage | undefined): string {
+  if (quoted === undefined) return ''
+  const body = quoted.content.trim()
+  const who = quoted.senderName ?? quoted.senderId
+  // A quote with no text is usually an image or a file: say so, rather than
+  // presenting an empty quote that reads as a bug.
+  const text = body !== ''
+    ? body.length > QUOTE_MAX_CHARS
+      ? `${body.slice(0, QUOTE_MAX_CHARS)}…（引用内容过长，已截断）`
+      : body
+    : quoted.resources.length > 0
+      ? '（这是一条图片/文件消息，没有文字内容）'
+      : '（这条被引用的消息没有文字内容）'
+  return `[引用 · ${who}]\n${text}\n[/引用]\n`
 }
 
 /** What one chat message becomes, and what the chat is told about it. */
@@ -2139,13 +2183,32 @@ export function installBridge(
         // sync and the file may live on a bridged filesystem, so wrap it: a
         // stall then names its stage instead of freezing the loop silently.
         const prefix = await stage(msg.messageId, 'briefing', async () => briefingPrefix(config.briefingFile, opened.handle.agent.session.id, notify))
+      // 引用回复（消息 → 回复）：飞书只把 `parent_id` 放进事件，被引用那条的
+      // 正文要另外读一次。不读，用户发的是「这个再改改」，模型看到的就只剩
+      // 这五个字——它只能猜「这个」指什么。
+      //
+      // 话题群是例外：那里 `parent_id` 指的是话题根，不是用户主动引用的一条，
+      // 拿它当引用会让每条消息都背上一段历史，把真正的提问挤出注意力。
+      const quoted = await stage(msg.messageId, 'quote', async () => {
+        const parentId = msg.replyToMessageId
+        if (parentId === undefined || parentId === '' || parentId === msg.messageId) return ''
+        if (msg.threadId !== undefined && parentId === msg.threadId) return ''
+        const fetchOne = port.fetchMessage
+        if (typeof fetchOne !== 'function') return ''
+        try {
+          return quotedPrefix(await fetchOne.call(port, parentId))
+        } catch (error) {
+          // A quote the app cannot read must not cost the whole message: the
+          // user's own words still reach the model, minus the quote.
+          notify(`dsh-lark-bridge: quoted message ${parentId} unreadable: ${error instanceof Error ? error.message : String(error)}`)
+          return ''
+        }
+      })
       // Append file notes to the user's text so the agent knows what arrived.
       // (`chatUserMessage` folds `images.notes` into the text itself — adding
       // them here as well made every image note reach the model twice.)
       const allNotes = [...fileNotes]
-      const spoken = allNotes.length > 0
-        ? msg.content + '\n' + allNotes.join('\n')
-        : msg.content
+      const spoken = [quoted, msg.content, ...allNotes].filter(part => part !== '').join('\n')
       const turn = chatUserMessage({ ...msg, content: spoken }, images)
       let content = prefix === ''
         ? turn.content
