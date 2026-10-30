@@ -315,7 +315,8 @@ Sessions resume from their logs; permission and preset choices ride with the ses
 - **Transport-level config is read once at startup.** Credentials, `requireMention` and allowlists need a restart; other config edits hot-reload via dsh's Config-only HMR (`/config` shows live values).
 - **Events during a long-connection outage are not replayed** (no cursor); outbound sends are queued by the replay port.
 - **`schedule_*` model tools** need `@deepseek-ai/dsh-schedule` composed in your profile.
-- **File sending is deny-by-default** — directories must be listed in `outbound.allowedFileDirs` first.
+- **File sending is deny-by-default** — directories must be listed in outbound.allowedFileDirs first. A refused send now says so in the chat instead of leaving only a caption behind.
+- **How much of a long thing reaches the chat is a budget, not a constant** — tool results, tool arguments, mid-turn messages, quotes, job-output tails, approval-card arguments and /skills previews all read from the limits section; the defaults are sized for a working session, and every cap is adjustable.
 - **Two processes sharing one endpoint key will both answer.** Arbitration compares the endpoint key (`deviceId` + `form` + `profile`); a `dsh web` process and a bare CLI process on the same machine and profile produce the same key, so neither sees the other as a rival. Run one host process per profile.
 
 </details>
@@ -332,13 +333,13 @@ Repo map, the branch/MR flow and the version policy live in **[CONTRIBUTING.md](
 
 ```sh
 pnpm hygiene                    # repo hygiene (deployment terms stay local)
-pnpm test                       # 616 tests in 64 spec files
+pnpm test                       # 624 tests in 65 spec files
 pnpm contract-test              # 43 host-contract checks
 pnpm contract-drift             # drift check against upstream dsh master
 node scripts/check-readme-parity.mjs   # the two READMEs stay in step
 ```
 
-The suite lives in `tests/` — vitest suites (64), including harness-based fakes. Upgrading the harness: run `pnpm contract-drift` before and after — it fails when a host seam the bridge mirrors has moved.
+The suite lives in `tests/` — vitest suites (65), including harness-based fakes. Upgrading the harness: run `pnpm contract-drift` before and after — it fails when a host seam the bridge mirrors has moved.
 
 ## 🤝 Contributing
 

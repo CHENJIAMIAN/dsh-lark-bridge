@@ -12,7 +12,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { AuditStats, HostAgent, HostAgentPresets, HostCommands, HostDefaultModel, HostJobs, HostLoaderEntry, HostMessageFeedback, HostSessionPersistence, HostSessionQuery, HostSkills, HostTokenMeter, HostWorkspaceRegistry, ScheduleEntry,
   HostTools,} from './host.ts'
-import type { BusyPolicy, ResolvedConfig } from './config.ts'
+import { DEFAULT_LIMITS } from './config.ts'
+import type { BusyPolicy, Limits, ResolvedConfig } from './config.ts'
 import { describeCommand, helpHeading } from './i18n.ts'
 import type { SyncCommandContext } from './sync/bot-command.ts'
 import { runBotCommand } from './sync/bot-command.ts'
@@ -340,7 +341,7 @@ export async function runCommandLine(
     return runAuditCommand(agent, audits)
   }
   if (name === SKILLS_COMMAND) {
-    return runSkillsCommand(trimmed, skills)
+    return runSkillsCommand(trimmed, skills, config?.limits ?? DEFAULT_LIMITS)
   }
   if (name === BOT_COMMAND) {
     if (sync === undefined) {
@@ -685,6 +686,7 @@ function runJobsCommand(
 async function runSkillsCommand(
   line: string,
   skills: HostSkills | undefined,
+  limits: Limits = DEFAULT_LIMITS,
 ): Promise<CommandOutcome> {
   if (skills === undefined) {
     return { reply: `⚠️ 本部署没有组合 skill 注册表，\`/${SKILLS_COMMAND}\` 不可用。`, resolved: false }
@@ -699,7 +701,9 @@ async function runSkillsCommand(
       }
     }
     const body = skill.content.trim()
-    const preview = body.length > 800 ? `${body.slice(0, 800)}\n…（截断）` : body
+    const preview = body.length > limits.skillPreviewChars
+      ? `${body.slice(0, limits.skillPreviewChars)}\n…（截断）`
+      : body
     return { reply: `**Skill · ${query}**\n\n${preview}`, resolved: true }
   }
   const summaries = await skills.list()

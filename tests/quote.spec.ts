@@ -34,9 +34,13 @@ describe('quotedPrefix', () => {
   })
 
   it('长引用截断，不让它挤掉真正的问题', () => {
-    const text = quotedPrefix(fakeMessage({ content: 'x'.repeat(5_000) }))
-    expect(text.length).toBeLessThan(2_000)
+    const text = quotedPrefix(fakeMessage({ content: 'x'.repeat(20_000) }))
+    expect(text.length).toBeLessThan(8_000)
     expect(text).toContain('已截断')
+    // The budget is the deployment's: a tighter one cuts sooner.
+    const tight = quotedPrefix(fakeMessage({ content: 'x'.repeat(500) }), 100)
+    expect(tight).toContain('已截断')
+    expect(tight.length).toBeLessThan(200)
   })
 })
 

@@ -20,6 +20,7 @@ import type {
   RejectEvent,
   SendResult,
 } from '@larksuite/channel'
+import { DEFAULT_LIMITS } from './config.ts'
 import type { BusyPolicy, ResolvedConfig } from './config.ts'
 import type {
   HostAgent,
@@ -295,8 +296,7 @@ interface PendingApproval {
   settle(outcome: HostApprovalOutcome): void
 }
 
-/** How much of a pending call's arguments the approval card shows. */
-const CARD_ARGUMENTS_MAX_CHARS = 600
+
 
 /** Marker distinguishing this plugin's approval buttons from other card actions. */
 const APPROVAL_ACTION = 'dsh-lark-bridge/approval'
@@ -467,10 +467,10 @@ function createCallPresenter(tools: HostTools | undefined, scope: unknown): Tool
  * @param text - raw tool arguments as the model produced them.
  * @returns the value, ellipsized when it exceeds the card's budget.
  */
-function boundCardText(text: string): string {
-  return text.length <= CARD_ARGUMENTS_MAX_CHARS
+function boundCardText(text: string, maxChars: number = DEFAULT_LIMITS.approvalArgChars): string {
+  return text.length <= maxChars
     ? text
-    : `${text.slice(0, CARD_ARGUMENTS_MAX_CHARS - 1)}…`
+    : `${text.slice(0, maxChars - 1)}…`
 }
 
 /**
@@ -644,7 +644,7 @@ export function chatUserMessage(msg: NormalizedMessage, images: CollectedImages)
  * session history does not already hold, and a long one would push the actual
  * question out of the model's attention — so the head, and a marker.
  */
-const QUOTE_MAX_CHARS = 1200
+
 
 /**
  * Render the message a chat message quotes back, as a block to prepend.
@@ -656,15 +656,15 @@ const QUOTE_MAX_CHARS = 1200
  * @param quoted - the referenced message, already fetched.
  * @returns the block and its trailing newline, or '' when there is nothing to show.
  */
-export function quotedPrefix(quoted: NormalizedMessage | undefined): string {
+export function quotedPrefix(quoted: NormalizedMessage | undefined, maxChars: number = DEFAULT_LIMITS.quoteChars): string {
   if (quoted === undefined) return ''
   const body = quoted.content.trim()
   const who = quoted.senderName ?? quoted.senderId
   // A quote with no text is usually an image or a file: say so, rather than
   // presenting an empty quote that reads as a bug.
   const text = body !== ''
-    ? body.length > QUOTE_MAX_CHARS
-      ? `${body.slice(0, QUOTE_MAX_CHARS)}…（引用内容过长，已截断）`
+    ? body.length > maxChars
+      ? `${body.slice(0, maxChars)}…（引用内容过长，已截断）`
       : body
     : quoted.resources.length > 0
       ? '（这是一条图片/文件消息，没有文字内容）'
@@ -1571,7 +1571,7 @@ export function installBridge(
             ...durationMs === undefined ? {} : { durationMs },
             ...output === '' ? {} : { output },
           }
-          void replay.send(binding.chatId, { markdown: jobDoneLine(terminal) }).catch(reportSendFailure)
+          void replay.send(binding.chatId, { markdown: jobDoneLine(terminal, config.limits.jobTailChars) }).catch(reportSendFailure)
         })
       },
     }
@@ -1727,6 +1727,7 @@ export function installBridge(
       presentCall,
       onFailure: reportSendFailure,
       answer: createMessageRenderer(port, chatId, reportSendFailure),
+      limits: config.limits,
     })
   }
 
@@ -2196,7 +2197,7 @@ export function installBridge(
         const fetchOne = port.fetchMessage
         if (typeof fetchOne !== 'function') return ''
         try {
-          return quotedPrefix(await fetchOne.call(port, parentId))
+          return quotedPrefix(await fetchOne.call(port, parentId), config.limits.quoteChars)
         } catch (error) {
           // A quote the app cannot read must not cost the whole message: the
           // user's own words still reach the model, minus the quote.
@@ -2271,7 +2272,7 @@ export function installBridge(
         card: approvalCard(
           request.toolName,
           request.reason,
-          command === undefined ? undefined : boundCardText(command),
+          command === undefined ? undefined : boundCardText(command, config.limits.approvalArgChars),
           id,
         ),
       })

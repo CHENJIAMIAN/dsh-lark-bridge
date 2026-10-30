@@ -24,6 +24,8 @@ import {
 } from './host.ts'
 import { stripToolCallMarkup } from './outbound.ts'
 import type { HostSessionEvent, OutboundRenderer, ReplyTarget, ToolPresentation } from './outbound.ts'
+import { DEFAULT_LIMITS } from './config.ts'
+import type { Limits } from './config.ts'
 
 /** One AG-UI event, as the write API takes it. */
 export interface CotEvent {
@@ -127,37 +129,41 @@ const SUMMARY_KEYS = [
   'subagent_type', 'description',
 ]
 
-/** How much of a kept value the summary shows. */
-const SUMMARY_VALUE_CHARS = 120
+/**
+ * A parameter this large is described by its size instead of its content: the
+ * payload is a whole file or a migrated schema, and neither belongs in a card.
+ */
+const BULK_VALUE_CHARS = 200
 
 /**
  * Summarise one tool call's arguments for the chat.
  *
  * @param argumentsJson - the arguments as the host delivered them.
+ * @param maxValueChars - how much of one kept value to show.
  * @returns a short description of what the call was for.
  */
-export function summariseArguments(argumentsJson: string): string {
+export function summariseArguments(argumentsJson: string, maxValueChars: number = DEFAULT_LIMITS.toolArgChars): string {
   let parsed: unknown
   try {
     parsed = JSON.parse(argumentsJson)
   } catch {
     // Not JSON: the first line says what it was, which is enough.
     const first = argumentsJson.split('\n')[0]?.trim() ?? ''
-    return first.length > SUMMARY_VALUE_CHARS ? `${first.slice(0, SUMMARY_VALUE_CHARS - 1)}…` : first
+    return first.length > maxValueChars ? `${first.slice(0, maxValueChars - 1)}…` : first
   }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return String(parsed).slice(0, SUMMARY_VALUE_CHARS)
+    return String(parsed).slice(0, maxValueChars)
   }
   const entries = Object.entries(parsed as Record<string, unknown>)
   const kept: string[] = []
   for (const [key, value] of entries) {
     if (!SUMMARY_KEYS.includes(key)) {
       const size = typeof value === 'string' ? value.length : JSON.stringify(value)?.length ?? 0
-      if (size > 200) kept.push(`${key}: ${size} 字符`)
+      if (size > BULK_VALUE_CHARS) kept.push(`${key}: ${size} 字符`)
       continue
     }
     const text = typeof value === 'string' ? value : JSON.stringify(value)
-    kept.push(`${key}: ${text.length > SUMMARY_VALUE_CHARS ? `${text.slice(0, SUMMARY_VALUE_CHARS - 1)}…` : text}`)
+    kept.push(`${key}: ${text.length > maxValueChars ? `${text.slice(0, maxValueChars - 1)}…` : text}`)
   }
   if (kept.length === 0) return `${entries.length} 个参数`
   return kept.join(' · ')
@@ -168,19 +174,25 @@ export function summariseArguments(argumentsJson: string): string {
  *
  * A command's output is output, not prose: the reader wants to know what
  * came back and whether it worked, not to read a thousand lines of it in
- * the chat. The first lines carry the answer; the rest stays in the
- * session log.
+ * the chat. The head carries the answer; the rest stays in the session log.
+ * The head is a budget, not a rule — a working session wants enough of it to
+ * see why a command failed.
+ * @param text - the tool's output.
+ * @param lines - how many leading lines to show.
+ * @param chars - how many characters those lines may take in total.
+ * @returns the preview, with a marker when more lines exist.
  */
-const RESULT_HEAD_CHARS = 240
-const RESULT_HEAD_LINES = 3
-
-function summariseResult(text: string): string {
+function summariseResult(
+  text: string,
+  lines: number = DEFAULT_LIMITS.toolResultLines,
+  chars: number = DEFAULT_LIMITS.toolResultChars,
+): string {
   const trimmed = text.trim()
   if (trimmed === '') return '（无输出）'
-  const head = trimmed.split('\n').slice(0, RESULT_HEAD_LINES).join('\n')
-  const bounded = head.length > RESULT_HEAD_CHARS ? `${head.slice(0, RESULT_HEAD_CHARS - 1)}…` : head
-  const lines = trimmed.split('\n').length
-  if (lines > RESULT_HEAD_LINES) return `${bounded}\n…（共 ${lines} 行，完整结果见会话记录）`
+  const head = trimmed.split('\n').slice(0, lines).join('\n')
+  const bounded = head.length > chars ? `${head.slice(0, chars - 1)}…` : head
+  const total = trimmed.split('\n').length
+  if (total > lines) return `${bounded}\n…（共 ${total} 行，完整结果见会话记录）`
   return bounded
 }
 
@@ -188,24 +200,26 @@ function summariseResult(text: string): string {
  * How much of a mid-turn message the process shows before eliding it.
  *
  * A person who pastes a stack trace into a running turn meant it for the
- * model, not for the thinking area — and one event's payload is capped
- * anyway. The head is enough to recognise which message turned the run.
+ * model, not for the thinking area — and one event's payload is capped anyway
+ * (4096 characters), so the default stays under it. The head is enough to
+ * recognise which message turned the run.
  */
-const USER_MESSAGE_CHARS = 1200
-
 /**
  * What one mid-turn message says.
- *
  * @param data - the `user/message` payload.
+ * @param maxChars - how much of it the thinking area shows.
  * @returns the message's text, bounded.
  */
-function userChatMessageText(data: { readonly content: readonly { readonly type: string; readonly text?: string }[] }): string {
+function userChatMessageText(
+  data: { readonly content: readonly { readonly type: string; readonly text?: string }[] },
+  maxChars: number = DEFAULT_LIMITS.userMessageChars,
+): string {
   const parts: string[] = []
   for (const block of data.content) {
     if (block.type === 'text' && typeof block.text === 'string' && block.text !== '') parts.push(block.text)
   }
   const text = parts.join('\n').trim()
-  return text.length > USER_MESSAGE_CHARS ? `${text.slice(0, USER_MESSAGE_CHARS - 1)}…` : text
+  return text.length > maxChars ? `${text.slice(0, maxChars - 1)}…` : text
 }
 
 /** Options for {@link createCotRenderer}. */
@@ -220,6 +234,8 @@ export interface CotRendererOptions {
   readonly onFailure: (error: unknown) => void
   /** Renders the answer itself; the thinking process deliberately carries none. */
   readonly answer: OutboundRenderer
+  /** Elision budgets for reasoning, arguments and results; defaults when absent. */
+  readonly limits?: Limits
 }
 
 /** The thinking process of one turn, and the queue feeding it. */
@@ -301,7 +317,7 @@ export function createCotRenderer(
   chatId: string,
   options: CotRendererOptions,
 ): OutboundRenderer {
-  const { showProcess, hidden, presentCall, onFailure, answer } = options
+  const { showProcess, hidden, presentCall, onFailure, answer, limits = DEFAULT_LIMITS } = options
   let live: LiveRun | undefined
   let aimed: ReplyTarget | undefined
   /** A target that arrived mid-run; it owns the NEXT turn, never the live one. */
@@ -462,7 +478,7 @@ export function createCotRenderer(
         // exactly where the driver admitted them — between two steps of the
         // turn they redirected.
         if (live === undefined || live.finished) return
-        const text = userChatMessageText(event.data)
+        const text = userChatMessageText(event.data, limits.userMessageChars)
         if (text === '') return
         const run = live
         // The message ends whatever the agent was thinking; the next reasoning
@@ -539,7 +555,7 @@ export function createCotRenderer(
           }),
           // The summary, not the arguments: a file write's arguments are
           // the whole file, and the chat already has the file.
-          cotEvent('TOOL_CALL_ARGS', { toolCallId, delta: summariseArguments(event.data.arguments) }),
+          cotEvent('TOOL_CALL_ARGS', { toolCallId, delta: summariseArguments(event.data.arguments, limits.toolArgChars) }),
           cotEvent('TOOL_CALL_END', { toolCallId }),
         )
         return
@@ -556,7 +572,7 @@ export function createCotRenderer(
           // A command's output reads as output, not prose — and not a
           // thousand lines of it either. The head carries the answer; the
           // rest is in the session log.
-          content: { type: 'code', code: summariseResult(text) },
+          content: { type: 'code', code: summariseResult(text, limits.toolResultLines, limits.toolResultChars) },
           ...event.data.error === undefined ? {} : { error: event.data.error.code },
         }))
         return

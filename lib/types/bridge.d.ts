@@ -114,6 +114,13 @@ export interface ChannelPort extends OutboundPort, SlashPanelPort, ImagePort, Co
  */
 export declare function chatUserMessage(msg: NormalizedMessage, images: CollectedImages): HostUserMessage;
 /**
+ * How much of a quoted message the model is shown.
+ *
+ * A quote can be an entire bot answer. Repeating it verbatim buys nothing the
+ * session history does not already hold, and a long one would push the actual
+ * question out of the model's attention — so the head, and a marker.
+ */
+/**
  * Render the message a chat message quotes back, as a block to prepend.
  *
  * 飞书的「引用」不是正文的一部分：入站事件只带 `parent_id`，被引用的那条要
@@ -123,7 +130,7 @@ export declare function chatUserMessage(msg: NormalizedMessage, images: Collecte
  * @param quoted - the referenced message, already fetched.
  * @returns the block and its trailing newline, or '' when there is nothing to show.
  */
-export declare function quotedPrefix(quoted: NormalizedMessage | undefined): string;
+export declare function quotedPrefix(quoted: NormalizedMessage | undefined, maxChars?: number): string;
 /** What one chat message becomes, and what the chat is told about it. */
 export interface BusyDelivery {
     /** The inbox boundary the message actually takes. */
