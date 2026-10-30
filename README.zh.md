@@ -25,10 +25,6 @@
 
 ---
 
-<p align="center">
-  <a href="docs/assets/shot1.png"><img src="docs/assets/shot1.png" width="340" alt="余额、账号库卡片、任务确认与思考中状态"></a>
-</p>
-
 ## 🤔 它是干什么的
 
 **给谁用** —— 手边就一台电脑、平时在飞书上派活、又想让 AI 直接动自己机器上真实文件的人。不用服务器，不用运维，不用公网地址。
@@ -63,35 +59,6 @@ reasoning 渲染成飞书原生的「思考中」消息。工具调用带图标�
 ### 长任务不是「发完就等」
 
 跑到一半再发消息，按 `busyPolicy` 走：`queue` 排队等下一轮；`steer` 在下一个 step 边界接管方向，**不丢掉已经做完的工作**；`inject` 只补上下文、不唤醒驱动器。危险操作变成审批卡片。打开 `autoResumeGoals` 后，重启时 goal 会自己接着跑。
-
-## 🆚 和同类比
-
-> 核查基准：2026-09-09 逐家公开 README 复核。**「未见」= 公开文档里没见过，不等于不存在。** 各家押注不同——`dsh-im` 是 8+ 渠道的多平台网关，广度是它的主场；本桥押的是单平台深度与多端舰队。
-
-| | **dsh-lark-bridge** | xmanrui/dsh-im | omdsh-dev/dsh-lark | AX1202/ax-feishu-bridge |
-|---|---|---|---|---|
-| 定位 | 飞书单平台深修 + 多端舰队 | 多平台网关 | 飞书深修，多 agent 群协作 | 飞书 × Pi agent |
-| 思考呈现 | 飞书原生「思考中」消息 | 流式卡片 | 原生（需较新客户端） | 卡片流式输出 |
-| 任务中插话 | `queue` / `steer` / `inject` | 未见 | 未见 | 未见 |
-| 多端舰队 + 端级仲裁 | ✅ 同库接力、掉线自动改选 | 私聊文本同步（手动开启） | — | — |
-| 是否需要公网回调地址 | **不需要** | 视渠道而定 | 视渠道而定 | 视渠道而定 |
-
-<details>
-<summary>完整对比 —— 9 项能力 × 4 家</summary>
-
-| 能力 | **dsh-lark-bridge** | xmanrui/dsh-im | omdsh-dev/dsh-lark | AX1202/ax-feishu-bridge |
-|---|---|---|---|---|
-| 定位 | 飞书单平台深修 + 多端舰队 | 多平台网关（飞书/钉钉/企微/WhatsApp/Discord/QQ 等） | 飞书深修，多 agent 群协作 | 飞书 × Pi agent |
-| 思考呈现 | 飞书原生「思考中」消息 | 流式卡片（思考/工具进度） | 原生（需 PC 7.70+/移动 7.74+） | 卡片流式输出 |
-| 审批 | 卡片 + 决策人回写留痕 | 文本回复（批准/拒绝） | 卡片 + 决定人解析 | 未见公开说明 |
-| 实时 goal/todo 卡片 | ✅ | 未见 | 未见 | 未见 |
-| 压缩透明化 | ✅（进度 + 释放 token 数） | `/compact` 命令 | `/compact`（宿主命令直通） | 未见 |
-| 多端舰队 + 端级仲裁 | ✅ 同库接力、掉线自动改选 | 私聊文本双向同步（手动开启） | — | — |
-| 账号库交互切换 | ✅ 卡片两下，全端生效 | — | — | — |
-| 余额查询 + 峰谷计价感知 | ✅ | — | — | — |
-| 斜杠面板 | 双语注册 + 活跃端单写者自愈 | 原生面板（`/repair` 补权限） | 宿主命令直通 | 未见 |
-
-</details>
 
 ## 🚀 60 秒上手
 
@@ -136,15 +103,6 @@ pnpm 10 默认拦截依赖的构建脚本，未放行时以非零退出码失败
 | `/bot devices` | 舰队里有哪些端，此刻是谁在接活 |
 
 日常运维：再跑一次 `pnpm dlx @deepseek-ai/dsh web`（后续命中 pnpm store，很快），或用 systemd / supervisor 托管。包是**预编译**发布的，安装时不编译任何东西。
-
-<details>
-<summary><code>/manual</code> 和 <code>/bot devices</code> 在聊天里长什么样</summary>
-
-<p align="center">
-  <a href="docs/assets/shot2.png"><img src="docs/assets/shot2.png" width="330" alt="/manual 完整说明与 /bot devices 舰队台账"></a>
-</p>
-
-</details>
 
 <details>
 <summary>💬 全部能力</summary>

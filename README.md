@@ -25,10 +25,6 @@
 
 ---
 
-<p align="center">
-  <a href="docs/assets/shot1.png"><img src="docs/assets/shot1.png" width="340" alt="Live balance, account switcher card, task acknowledgement and the thinking state, in chat"></a>
-</p>
-
 ## 🤔 What it does
 
 **Who it's for** — someone with one laptop, who works over Feishu, and wants an AI agent to touch their real files. No server, no ops, no public URL.
@@ -63,35 +59,6 @@ Reasoning renders as Feishu's own *thinking* message. Tool calls arrive with the
 ### A long task is not "fire and forget"
 
 Send a message while a turn is running and it follows `busyPolicy`: `queue` waits its turn, `steer` takes over at the next step boundary **without discarding work already done**, `inject` adds context without waking the driver. Risky operations become approval cards. Turn on `autoResumeGoals` and a goal picks itself back up after a restart.
-
-## 🆚 How it compares
-
-> Re-checked against each project's public README on 2026-09-09. **"Not found" means not seen in public docs — not proof of absence.** Different bets: `dsh-im` is a multi-platform gateway where breadth is the point; this bridge bets on single-platform depth plus a multi-surface fleet.
-
-| | **dsh-lark-bridge** | xmanrui/dsh-im | omdsh-dev/dsh-lark | AX1202/ax-feishu-bridge |
-|---|---|---|---|---|
-| Positioning | Feishu depth + multi-surface fleet | Multi-platform gateway | Feishu depth, multi-agent groups | Feishu × Pi agent |
-| Thinking display | Feishu-native thinking message | Streaming card | Native (needs recent client) | Streaming card |
-| Steering mid-task | `queue` / `steer` / `inject` | Not found | Not found | Not found |
-| Multi-surface fleet + endpoint arbitration | ✅ shared library, automatic failover | DM text sync (opt-in) | — | — |
-| Needs a public callback URL | **No** | Varies by channel | Varies | Varies |
-
-<details>
-<summary>Full comparison — 9 capabilities × 4 bridges</summary>
-
-| Capability | **dsh-lark-bridge** | xmanrui/dsh-im | omdsh-dev/dsh-lark | AX1202/ax-feishu-bridge |
-|---|---|---|---|---|
-| Positioning | Feishu depth + multi-surface fleet | Multi-platform gateway (Feishu/DingTalk/WeCom/WhatsApp/Discord/QQ…) | Feishu depth, multi-agent groups | Feishu × Pi agent |
-| Thinking display | Feishu-native "thinking" message | Streaming card (thinking/tool progress) | Native (needs PC 7.70+/mobile 7.74+) | Streaming card output |
-| Approvals | Cards + decider written back | Text reply (approve/deny) | Cards + decider resolution | Not documented |
-| Live goal/todo cards | ✅ | Not found | Not found | Not found |
-| Compaction transparency | ✅ (progress + freed tokens) | `/compact` command | `/compact` (host passthrough) | Not found |
-| Multi-surface fleet + endpoint arbitration | ✅ shared library, automatic failover | DM text two-way sync (opt-in) | — | — |
-| Interactive account switcher | ✅ two taps, propagates everywhere | — | — | — |
-| Balance + peak/off-peak awareness | ✅ | — | — | — |
-| Slash panel | Bilingual registration + active-writer self-heal | Native panel (`/repair` grants) | Host passthrough | Not found |
-
-</details>
 
 ## 🚀 Quick Start
 
@@ -136,15 +103,6 @@ Open `<your-home>/.dsh/profiles/web/pnpm-workspace.yaml` and set `protobufjs: fa
 | `/bot devices` | Which endpoints are in the fleet, and which one is currently answering |
 
 Daily ops: run `pnpm dlx @deepseek-ai/dsh web` again (subsequent runs hit the pnpm store), or host it under systemd / supervisor. The package ships **prebuilt** — nothing compiles on install.
-
-<details>
-<summary>What <code>/manual</code> and <code>/bot devices</code> look like in the chat</summary>
-
-<p align="center">
-  <a href="docs/assets/shot2.png"><img src="docs/assets/shot2.png" width="330" alt="The full /manual guide and the /bot devices fleet roster, in chat"></a>
-</p>
-
-</details>
 
 <details>
 <summary>💬 All capabilities</summary>
