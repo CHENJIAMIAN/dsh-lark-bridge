@@ -776,10 +776,17 @@ export function installBridge(
   const runtimeDeniedTools = new Set<string>(config.denyTools)
   // Active schedules seen for this process, keyed by session id then schedule
   // id. Fed by schedule/change events as they stream in, and rebuilt from the
-  // session log the first time a session is asked about (see
+  // schedule plugin itself the first time a session is asked about (see
   // seedScheduleRegistry) — a restart otherwise starts empty, and a reminder
   // created by an earlier process would never be reported again.
   const scheduleRegistry = new Map<string, Map<string, ScheduleEntry>>()
+  /** One schedule record as the plugin's own `list` reports it. */
+  interface ScheduleRecordLike {
+    readonly id: string
+    readonly kind: 'after' | 'at' | 'every'
+    readonly prompt: string
+    readonly everySeconds?: number
+  }
   /** Sessions whose registry was already rebuilt from their own log. */
   const seededSchedules = new Set<string>()
   /**
@@ -819,17 +826,44 @@ export function installBridge(
    * reminders in one process and answers `/schedules` in the next, and the
    * command then reports "none" for reminders that are still firing.
    *
-   * The session log is the record of truth and it is reachable — `eventAt`
-   * reads one committed event by index — so one pass restores what the stream
-   * missed. The replay is silent on purpose: someone asking what is scheduled
-   * must not be told again about every reminder ever created.
+   * The schedule plugin owns the truth: its `list` is what actually fires, and
+   * it survives restarts. The session log is only a fallback — it carries the
+   * change events that happened to be appended, and a reminder created before
+   * this process booted has none, which is exactly the case that broke.
    *
-   * @param session - the session whose log is read.
+   * Either way the replay is silent on purpose: someone asking what is
+   * scheduled must not be told again about every reminder ever created.
+   *
+   * @param session - the session to restore.
    */
-  const seedScheduleRegistry = (session: HostSession): void => {
+  const seedScheduleRegistry = async (session: HostSession): Promise<void> => {
     if (seededSchedules.has(session.id)) return
     seededSchedules.add(session.id)
     const byId = scheduleRegistry.get(session.id) ?? new Map<string, ScheduleEntry>()
+    // Authoritative first. `list` is the query the scheduler itself answers
+    // with, so whatever it returns IS what will fire.
+    const store = ctx.get('schedule') as
+      | { list?: (query: { sessionId: string }) => Promise<readonly ScheduleRecordLike[]> }
+      | undefined
+    if (store?.list !== undefined) {
+      try {
+        const records = await store.list({ sessionId: session.id })
+        for (const record of records) {
+          byId.set(record.id, {
+            id: record.id,
+            kind: record.kind,
+            prompt: record.prompt,
+            ...record.everySeconds === undefined ? {} : { everySeconds: record.everySeconds },
+            createdAt: Date.now(),
+          })
+        }
+        if (byId.size > 0) scheduleRegistry.set(session.id, byId)
+        return
+      } catch {
+        // A deployment without the schedule service (or a version whose
+        // `list` moved) still deserves the log fallback below.
+      }
+    }
     for (let seq = 0; seq < session.seq; seq++) {
       const event = session.eventAt(seq) as HostSessionEvent | undefined
       if (event === undefined || !isScheduleChangeEvent(event)) continue
@@ -1852,10 +1886,10 @@ export function installBridge(
         let outcome: Awaited<ReturnType<typeof runCommandLine>>
         try {
           // A slash command may ask what is scheduled. Rebuild the registry
-          // from this session's log first: a reminder created by an earlier
-          // process never announced itself to this one, and /schedules would
-          // report "none" for something that is still firing.
-          seedScheduleRegistry(opened.handle.agent.session)
+          // first: a reminder created by an earlier process never announced
+          // itself to this one, and /schedules would report "none" for
+          // something that is still firing.
+          await seedScheduleRegistry(opened.handle.agent.session)
           outcome = await runCommandLine(
             msg.content,
             opened.handle.agent,
