@@ -172,8 +172,30 @@ describe('/sessions command', () => {
     expect(outcome.reply).not.toContain('oc_chat_2')
   })
 
-  it('reports an empty history', async () => {
+  // 一个用了几个月的聊天能攒出上百个会话：列全会撑爆一张回复的载荷上限，
+  // 也把最近的几个挤出视野。取最近的 N 个，剩下的只报数量。
+  it('caps a long history at the newest rows and says how many are left', async () => {
+    const headers = Array.from({ length: 45 }, (_, i) => ({
+      id: `feishu-oc_chat_1:r${String(i).padStart(4, '0')}`,
+      createdAt: 1_700_000_000_000 + i * 1_000,
+    }))
     const outcome = await runCommandLine(
+      `/${SESSIONS_COMMAND}`,
+      fakeAgent(),
+      undefined,
+      new AbortController().signal,
+      undefined,
+      fakeStore(headers),
+      'oc_chat_1',
+    )
+    expect(outcome.reply).toContain('45 个')
+    expect(outcome.reply).toContain('还有 25 个更早的未列出')
+    // 列表行以 `·` 开头，前面的标题与提示不算。
+    const rows = outcome.reply.split('\n').filter(line => line.startsWith('·'))
+    expect(rows).toHaveLength(20)
+  })
+
+  it('reports an empty history', async () => {    const outcome = await runCommandLine(
       `/${SESSIONS_COMMAND}`,
       fakeAgent(),
       undefined,
