@@ -6,7 +6,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { readDeviceState, ensureDeviceId } from './sync/migrate.ts'
 import { arbitrationForInbound, claimIfActiveStale, isActiveEndpoint, accountUseByName, accountForgetByName } from './sync/bot-command.ts'
@@ -52,6 +52,7 @@ import { isAssistantMessageEvent, isTeamRelayMessageEvent, isCompactionEndEvent,
   isTeamMessageDeliveredEvent} from './host.ts'
 import { createCotRenderer } from './cot.ts'
 import type { CotPort } from './cot.ts'
+import { readChatWorkspaces, writeChatWorkspace } from './chat-workspace.ts'
 import { createMessageRenderer, createStreamRenderer } from './outbound.ts'
 import type { OutboundPort, OutboundRenderer, ReplyTarget, ToolPresentation } from './outbound.ts'
 import { refuseApprovalClick, refuseMessage } from './authorization.ts'
@@ -93,7 +94,7 @@ import type { CollectedImages, ImagePort } from './images.ts'
 import { syncSlashPanel } from './slash-panel.ts'
 import type { SlashPanelPort } from './slash-panel.ts'
 import { describeCommand } from './i18n.ts'
-import { ConversationSessions } from './session.ts'
+import { ConversationSessions, conversationKey, sessionIdFor } from './session.ts'
 import type { SessionLadder } from './session.ts'
 import { createRotationStore } from './session-rotation.ts'
 import { createReactionTracker } from './reaction.ts'
@@ -927,6 +928,54 @@ export function installBridge(
   /** The last token total seen for a session, so the poll log only speaks when it changed. */
   const lastMeasured = new Map<string, number>()
   const cwd = resolve(config.cwd ?? process.cwd())
+  /**
+   * Per-chat cwd overrides, loaded once and kept in step with writes.
+   *
+   * A chat that ran `/ws use <dir>` keeps that directory across restarts and
+   * across `/new`: the binding is the chat's, not the session's, because the
+   * whole point is that the next conversation starts in the same project.
+   */
+  let chatBindingsPromise: Promise<Record<string, string>> | undefined
+  const chatBindings = (): Promise<Record<string, string>> => {
+    chatBindingsPromise ??= readChatWorkspaces()
+    return chatBindingsPromise
+  }
+  /**
+   * The directory a chat's next session should start in.
+   *
+   * Bound chats win; everything else falls back to the deployment `cwd`. The
+   * result is canonicalised because the workspace registry validates a session
+   * header against a realpath, and an uncanonicalized variant is rejected.
+   *
+   * @param chatId - the chat asking.
+   * @returns the absolute directory for its next session.
+   */
+  const chatCwd = async (chatId: string): Promise<string> => {
+    const bindings = await chatBindings()
+    const bound = bindings[chatId]
+    return bound === undefined ? cwd : resolve(bound)
+  }
+  /**
+   * Bind one chat to a directory (or clear it with `null`) and drop the cached
+   * workspace promise, so the next session resolves the new directory.
+   *
+   * @param chatId - the chat being rebound.
+   * @param dir - absolute directory, or `null` to fall back to the deployment cwd.
+   */
+  const bindChatCwd = async (chatId: string, dir: string | null): Promise<void> => {
+    await writeChatWorkspace(chatId, dir)
+    const bindings = await chatBindings()
+    if (dir === null) delete bindings[chatId]
+    else bindings[chatId] = dir
+  }
+  /**
+   * The directory each session id must start in, seeded before the ladder runs.
+   *
+   * `SessionLadder.create` receives only the session id — the chat it came from
+   * is not part of the contract — so the bound directory is handed over here,
+   * keyed by the id the acquire path is about to ask for.
+   */
+  const pendingSessionCwd = new Map<string, string>()
 
   /**
    * Multi-agent panel plumbing — ONE updatable card per chat, keyed by the
@@ -1228,19 +1277,32 @@ export function installBridge(
    * directory when no record exists keeps chat sessions out of that bucket
    * instead of orphaning every one of them.
    */
-  let workspacePromise: Promise<HostWorkspace | undefined> | undefined
-  const chatWorkspace = (): Promise<HostWorkspace | undefined> => {
-    workspacePromise ??= (async () => {
+  /**
+   * Resolve (or register) the workspace record for one directory.
+   *
+   * Cached by DIRECTORY, not by chat: two chats in the same project share one
+   * lookup, and a chat rebound to another project simply asks under a new key —
+   * so a rebind can never be served by a stale promise.
+   *
+   * @param dir - the canonical directory a session starts in.
+   * @returns the workspace record, or undefined when no registry is composed.
+   */
+  const workspacePromises = new Map<string, Promise<HostWorkspace | undefined>>()
+  const chatWorkspace = (dir: string): Promise<HostWorkspace | undefined> => {
+    const existing = workspacePromises.get(dir)
+    if (existing !== undefined) return existing
+    const pending = (async () => {
       const registry = ctx.get('workspaceRegistry') as HostWorkspaceRegistry | undefined
       if (registry === undefined) return undefined
-      return (await registry.resolveByPath(cwd)) ?? await registry.create(cwd)
+      return (await registry.resolveByPath(dir)) ?? await registry.create(dir)
     })().catch((error: unknown) => {
       // Grouping is presentation: a chat must still work in a deployment whose
       // registry refuses this directory.
-      notify(`dsh-lark-bridge: workspace lookup failed for ${cwd}: ${String(error)}`)
+      notify(`dsh-lark-bridge: workspace lookup failed for ${dir}: ${String(error)}`)
       return undefined
     })
-    return workspacePromise
+    workspacePromises.set(dir, pending)
+    return pending
   }
 
   // Operator-facing, so it goes to the process stream as well as the logger:
@@ -1513,13 +1575,17 @@ export function installBridge(
     },
     create: async (sessionId) => {
       const composition = await compositionFor(sessionId)
-      // The workspace's own canonical path, so `attachSession` finds the header
-      // cwd it validates against rather than an uncanonicalized variant of it.
-      const workspace = await chatWorkspace()
+      // The directory this session starts in: the chat's binding when it has
+      // one, else the deployment cwd. The workspace's own canonical path is
+      // used so `attachSession` finds the header cwd it validates against
+      // rather than an uncanonicalized variant of it.
+      const dir = pendingSessionCwd.get(sessionId) ?? cwd
+      pendingSessionCwd.delete(sessionId)
+      const workspace = await chatWorkspace(dir)
       const handle = await agents.create({
         sessionId,
         meta: {
-          cwd: workspace?.path ?? cwd,
+          cwd: workspace?.path ?? dir,
           ...composition.presetId === undefined ? {} : { agentPreset: composition.presetId },
         },
         agentOptions: modelSelection(),
@@ -1839,6 +1905,13 @@ export function installBridge(
     // or fails the turn (contract in src/chronicle.ts).
     postChronicle(config.chronicleEndpoint, { source: config.chronicleSource, text: msg.content, chatId: msg.chatId }, notify)
     try {
+      // The ladder only sees the session id — the chat it came from is not part
+      // of its contract — so the directory this session must start in is handed
+      // over here, before the acquire that may create it.
+      pendingSessionCwd.set(
+        sessionIdFor(conversationKey(config.sessionScope ?? 'chat', msg)),
+        await chatCwd(msg.chatId),
+      )
       const opened = await stage(msg.messageId, 'session-acquire', () => sessions.acquire(msg))
       const binding = await stage(msg.messageId, 'session-bind', () => bindingFor(opened.handle.agent.session.id, msg, opened.handle.agent.session))
       // The reaction lifecycle follows this session's current trigger.
@@ -1851,6 +1924,47 @@ export function installBridge(
         opened.handle.agent.cancel('user-requested')
         notify(`dsh-lark-bridge: preemptive /stop for session ${opened.handle.agent.session.id}`)
         await port.send(msg.chatId, { markdown: '⏹ 已停止当前任务' }).catch(reportSendFailure)
+        return
+      }
+      // `/ws use <dir>` binds THIS chat to a project directory, durably.
+      //
+      // The binding is the chat's, not the session's, because `/new` in this
+      // chat must land in the same project again — that is the whole point. A
+      // project's memory lives in its AGENTS.md, and that file only loads when
+      // the session's cwd is inside that directory. Switching therefore takes
+      // effect on the NEXT session; the running one keeps the directory it was
+      // created in, because moving files under a working agent is worse than
+      // asking for a `/new`.
+      const wsUse = /^\/ws\s+use(?:\s+(.+))?$/i.exec(msg.content.trim())
+      if (wsUse !== null) {
+        const asked = (wsUse[1] ?? '').trim().replace(/^["']|["']$/g, '')
+        if (asked === '') {
+          const current = await chatCwd(msg.chatId)
+          await port.send(msg.chatId, {
+            markdown: `📁 本会话绑定：\`${current}\`\n\n\`/ws use <目录>\` 切换 · \`/ws use default\` 解除绑定 · 切换后发 \`/new\` 开新对话生效`,
+          }).catch(reportSendFailure)
+          return
+        }
+        if (asked.toLowerCase() === 'default') {
+          await bindChatCwd(msg.chatId, null)
+          await port.send(msg.chatId, {
+            markdown: `📁 已解除绑定，本会话回到部署目录 \`${cwd}\`。发 \`/new\` 生效。`,
+          }).catch(reportSendFailure)
+          return
+        }
+        const target = resolve(asked)
+        let isDirectory = false
+        try { isDirectory = statSync(target).isDirectory() } catch { /* missing or denied */ }
+        if (!isDirectory) {
+          await port.send(msg.chatId, {
+            markdown: `⚠️ 目录不存在或不是目录：\`${target}\`\n\n绑定未改动。`,
+          }).catch(reportSendFailure)
+          return
+        }
+        await bindChatCwd(msg.chatId, target)
+        await port.send(msg.chatId, {
+          markdown: `📁 本会话已绑定到 \`${target}\`。\n\n发 \`/new\` 开新对话，之后就在这个项目里工作——该目录的 \`AGENTS.md\` 会被加载。`,
+        }).catch(reportSendFailure)
         return
       }
       // `/new` (and its alias `/clear`) rotates the conversation onto a fresh
