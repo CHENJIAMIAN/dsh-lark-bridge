@@ -53,6 +53,45 @@ describe('thinking process (CoT)', () => {
     await harness.dispose()
   })
 
+  it('gives each reasoning block its own id, so a thought stays where it happened', async () => {
+    const harness = await mountChannel()
+    const emit = await chat(harness)
+    // One agentic step: think, run a tool, think again. The second thought
+    // belongs AFTER the call — reusing one id for the whole turn made the
+    // client treat it as an edit of the first block, so every thought piled up
+    // at the top of the thinking area, away from the call it explains.
+    emit('assistant/chunk', { turn: 1, chunk: { type: 'reasoning-delta', text: '先读日志' } })
+    emit('tool/call', { turn: 1, callId: 'c1', name: 'bash', arguments: '{}' })
+    emit('tool/result', {
+      turn: 1,
+      message: { source: { callId: 'c1' }, content: [{ type: 'text', text: 'ok', toolCallId: 'c1' }] },
+    })
+    emit('assistant/chunk', { turn: 1, chunk: { type: 'reasoning-delta', text: '日志里没写，换个地方' } })
+
+    await vi.waitFor(() => {
+      expect(events(harness).filter((e) => e.type === 'REASONING_MESSAGE_CONTENT')).toHaveLength(2)
+    })
+    const written = events(harness)
+    const starts = written
+      .filter((e) => e.type === 'REASONING_MESSAGE_START')
+      .map((e) => e.content.messageId as string)
+    expect(starts).toHaveLength(2)
+    expect(new Set(starts).size).toBe(2)
+    // Each delta carries the id of the block it belongs to.
+    const contents = written
+      .filter((e) => e.type === 'REASONING_MESSAGE_CONTENT')
+      .map((e) => e.content.messageId as string)
+    expect(contents).toEqual(starts)
+    // And the second block opens after the tool call closed, not before it.
+    const callEnd = written.findIndex((e) => e.type === 'TOOL_CALL_END')
+    const secondStart = written.findIndex(
+      (e) => e.type === 'REASONING_MESSAGE_START' && e.content.messageId === starts[1],
+    )
+    expect(callEnd).toBeGreaterThanOrEqual(0)
+    expect(secondStart).toBeGreaterThan(callEnd)
+    await harness.dispose()
+  })
+
   it('renders a whole reasoning block when the adapter delivers block-end, not deltas', async () => {
     const harness = await mountChannel()
     const emit = await chat(harness)

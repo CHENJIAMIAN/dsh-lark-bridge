@@ -232,6 +232,17 @@ interface LiveRun {
   draining: Promise<void>
   /** Whether a reasoning block is open, so its deltas append to one area. */
   reasoningOpen: boolean
+  /**
+   * The message id of the reasoning block that is open right now.
+   *
+   * Every block gets its own id, because the protocol hangs a reasoning
+   * message off that id: reusing one id for a whole turn makes every later
+   * block an edit of the first, and the client shows the whole turn's
+   * thinking stacked at the top instead of where each thought happened.
+   */
+  reasoningId: string
+  /** How many reasoning blocks this turn has opened; the id's counter. */
+  reasoningBlocks: number
   /** Whether the run was already closed by a terminal event. */
   finished: boolean
   /** When the turn opened, so the closing line can say how long it took. */
@@ -323,6 +334,31 @@ export function createCotRenderer(
     run.draining = run.draining.then(() => drain(run)).catch(onFailure)
   }
 
+  /**
+   * Open a fresh reasoning block for this run and announce it.
+   *
+   * The id is per block, not per turn: the protocol creates one reasoning
+   * message per START carrying that id, so reusing a turn-wide id turns every
+   * later thought into an edit of the first one. The reader then sees the whole
+   * turn's thinking piled up at the top, far from the tool call it explains.
+   * @param run - the run the block belongs to.
+   * @returns the id its deltas must carry.
+   */
+  const openReasoning = (run: LiveRun): string => {
+    run.reasoningBlocks += 1
+    run.reasoningId = `reasoning-${run.turn}-${run.reasoningBlocks}`
+    run.reasoningOpen = true
+    enqueue(run, cotEvent('REASONING_MESSAGE_START', { messageId: run.reasoningId, role: 'reasoning' }))
+    return run.reasoningId
+  }
+
+  /** Close the open reasoning block, if any; a no-op otherwise. */
+  const closeReasoning = (run: LiveRun): void => {
+    if (!run.reasoningOpen) return
+    run.reasoningOpen = false
+    enqueue(run, cotEvent('REASONING_MESSAGE_END', { messageId: run.reasoningId }))
+  }
+
   /** The run for `turn`, opening one when the turn is new. */
   const ensure = (turn: number): LiveRun => {
     if (live !== undefined && live.turn === turn) return live
@@ -345,6 +381,8 @@ export function createCotRenderer(
       pending: [],
       draining: Promise.resolve(),
       reasoningOpen: false,
+      reasoningId: '',
+      reasoningBlocks: 0,
       finished: false,
       startedAt: Date.now(),
       toolCalls: 0,
@@ -358,10 +396,7 @@ export function createCotRenderer(
   const closeRun = (run: LiveRun, failure?: string): void => {
     if (run.finished) return
     run.finished = true
-    if (run.reasoningOpen) {
-      enqueue(run, cotEvent('REASONING_MESSAGE_END', { messageId: `reasoning-${run.turn}` }))
-      run.reasoningOpen = false
-    }
+    closeReasoning(run)
     // The line that says the run is over goes to the answer half, NOT into
     // the process: the platform hides the process when the run ends, so a
     // closing line written there would vanish with it. A reader who watched
@@ -432,10 +467,7 @@ export function createCotRenderer(
         const run = live
         // The message ends whatever the agent was thinking; the next reasoning
         // block opens on its own.
-        if (run.reasoningOpen) {
-          run.reasoningOpen = false
-          enqueue(run, cotEvent('REASONING_MESSAGE_END', { messageId: `reasoning-${run.turn}` }))
-        }
+        closeReasoning(run)
         run.userMessages += 1
         const messageId = `user-${run.turn}-${run.userMessages}`
         enqueue(
@@ -472,11 +504,7 @@ export function createCotRenderer(
         if (chunk.type === 'reasoning-delta') {
           if (chunk.text === undefined || chunk.text === '') return
           const run = ensure(event.data.turn)
-          const messageId = `reasoning-${run.turn}`
-          if (!run.reasoningOpen) {
-            run.reasoningOpen = true
-            enqueue(run, cotEvent('REASONING_MESSAGE_START', { messageId, role: 'reasoning' }))
-          }
+          const messageId = run.reasoningOpen ? run.reasoningId : openReasoning(run)
           enqueue(run, cotEvent('REASONING_MESSAGE_CONTENT', { messageId, delta: chunk.text }))
           return
         }
@@ -484,14 +512,12 @@ export function createCotRenderer(
           const text = chunk.block.text ?? ''
           if (text === '') return
           const run = ensure(event.data.turn)
-          const messageId = `reasoning-${run.turn}`
-          if (run.reasoningOpen) {
-            run.reasoningOpen = false
-            enqueue(run, cotEvent('REASONING_MESSAGE_END', { messageId }))
-          }
-          enqueue(run, cotEvent('REASONING_MESSAGE_START', { messageId, role: 'reasoning' }))
+          // A whole block in one event: close whatever was open, then open a
+          // block of its own so it lands at this point in the process.
+          closeReasoning(run)
+          const messageId = openReasoning(run)
           enqueue(run, cotEvent('REASONING_MESSAGE_CONTENT', { messageId, delta: text }))
-          enqueue(run, cotEvent('REASONING_MESSAGE_END', { messageId }))
+          closeReasoning(run)
           return
         }
         return
@@ -502,10 +528,7 @@ export function createCotRenderer(
         const shown = presentCall(event.data.name, event.data.arguments)
         const toolCallId = event.data.callId
         run.toolCalls += 1
-        if (run.reasoningOpen) {
-          run.reasoningOpen = false
-          enqueue(run, cotEvent('REASONING_MESSAGE_END', { messageId: `reasoning-${run.turn}` }))
-        }
+        closeReasoning(run)
         enqueue(
           run,
           cotEvent('TOOL_CALL_START', {
