@@ -32,3 +32,4 @@
 | [出站图片管道](设计卡_出站图片管道.md) | 🚧 阻塞于上游 | 传输层就绪，等宿主暴露 image 事件源 |
 | [上游跟进_AgentTeams与artifact](设计卡_上游跟进_AgentTeams与artifact.md) | 现行设计 | team/* 四事件复用卡片模式渲染；present 事件喂 send_file 管道；前置运行时升 0.1.5-alpha.2 |
 | [中途插话进思考区](设计卡_中途插话进思考区.md) | 现行设计 | 轮中消息在接纳它的那一步之前落进 CoT，读者看得见是什么让 Agent 转向 |
+| [restart在Windows下无效](设计卡_restart在Windows下无效.md) | 现行设计 | 写死 `/bin/sh` 导致 Windows 上 spawn 直接 ENOENT；改走 PowerShell + Start-Sleep |

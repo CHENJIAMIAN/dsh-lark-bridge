@@ -192,6 +192,7 @@ Set `locale: zh|en` to pin the slash-panel and help wording; otherwise it follow
 | `chronicleEndpoint` | `''` | Optional external ledger: one POST per accepted inbound user message |
 | `announceSubagents` | `true` | Announce a delegation in the chat when it is made |
 | `autoResumeGoals` | `false` | Re-arm an active goal after a restart — off unless you turn it on |
+| `restartCommand` | unset → `/restart` unavailable | Command that restarts the host; runs in a detached child after 2.5 s (POSIX `sh`, Windows PowerShell) |
 
 Credentials resolve in three layers: bundle patch config → settings document plugin section → first-boot QR registration.
 
@@ -331,13 +332,13 @@ Repo map, the branch/MR flow and the version policy live in **[CONTRIBUTING.md](
 
 ```sh
 pnpm hygiene                    # repo hygiene (deployment terms stay local)
-pnpm test                       # 596 tests in 59 spec files
+pnpm test                       # 598 tests in 60 spec files
 pnpm contract-test              # 43 host-contract checks
 pnpm contract-drift             # drift check against upstream dsh master
 node scripts/check-readme-parity.mjs   # the two READMEs stay in step
 ```
 
-The suite lives in `tests/` — vitest suites (59), including harness-based fakes. Upgrading the harness: run `pnpm contract-drift` before and after — it fails when a host seam the bridge mirrors has moved.
+The suite lives in `tests/` — vitest suites (60), including harness-based fakes. Upgrading the harness: run `pnpm contract-drift` before and after — it fails when a host seam the bridge mirrors has moved.
 
 ## 🤝 Contributing
 

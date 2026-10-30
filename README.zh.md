@@ -192,6 +192,7 @@ pnpm 10 默认拦截依赖的构建脚本，未放行时以非零退出码失败
 | `chronicleEndpoint` | `''` | 可选：每条被受理的入站用户消息 POST 一次 |
 | `announceSubagents` | `true` | 派出子代理时在聊天里播报一行 |
 | `autoResumeGoals` | `false` | 重启后自动续跑活跃 goal——默认关，要自己打开 |
+| `restartCommand` | 未配置 → `/restart` 不可用 | 重启宿主的命令；2.5 秒后在脱离父进程的子进程里执行（POSIX 用 `sh`，Windows 用 PowerShell） |
 
 凭据三层解析（后者覆盖前者）：bundle patch 配置 → settings 文档插件区 → 首次扫码注册。
 
