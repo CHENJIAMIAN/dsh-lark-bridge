@@ -96,7 +96,7 @@ import type { SlashPanelPort } from './slash-panel.ts'
 import { describeCommand } from './i18n.ts'
 import { ConversationSessions, conversationKey, sessionIdFor } from './session.ts'
 import type { SessionLadder } from './session.ts'
-import { createRotationStore } from './session-rotation.ts'
+import { baseSessionIdOf, createRotationStore } from './session-rotation.ts'
 import { createReactionTracker } from './reaction.ts'
 import type { ReactionTracker } from './reaction.ts'
 import { createQuestionProvider } from './questions.ts'
@@ -1583,8 +1583,16 @@ export function installBridge(
       // one, else the deployment cwd. The workspace's own canonical path is
       // used so `attachSession` finds the header cwd it validates against
       // rather than an uncanonicalized variant of it.
-      const dir = pendingSessionCwd.get(sessionId) ?? cwd
+      //
+      // `/new` reaches this rung with the ROTATED id (`<base>:r<stamp><tail>`),
+      // while the binding was seeded under the conversation's BASE id — the
+      // acquire that triggered the rotation only knew that one. Without the
+      // base lookup a rotation silently started in the deployment cwd and
+      // `/ws use` looked like it had done nothing.
+      const baseSessionId = baseSessionIdOf(sessionId)
+      const dir = pendingSessionCwd.get(sessionId) ?? pendingSessionCwd.get(baseSessionId) ?? cwd
       pendingSessionCwd.delete(sessionId)
+      pendingSessionCwd.delete(baseSessionId)
       const workspace = await chatWorkspace(dir)
       const handle = await agents.create({
         sessionId,
