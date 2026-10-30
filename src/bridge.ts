@@ -2086,11 +2086,17 @@ export function installBridge(
               ...config.model === undefined ? {} : { model: config.model },
             },
             ctx.get('workspaceRegistry') as HostWorkspaceRegistry | undefined,
-            cwd,
+            // The chat's effective directory, not the deployment default: a
+            // `/ws use` binding outranks `config.cwd` for the next session, so
+            // `/ws` must report the same directory `/new` will land in.
+            await chatCwd(msg.chatId),
             loaderEntries(),
             getSyncContext(),
             ctx.get('tools') as HostTools | undefined,
             (await compositionFor(sessionId)).toolScope,
+            // `cwdBound` trails the whole signature, so it is last here even
+            // though it describes the cwd two arguments up.
+            (await chatBindings())[msg.chatId] !== undefined,
           )
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error)
