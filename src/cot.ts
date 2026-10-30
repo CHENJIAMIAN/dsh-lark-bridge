@@ -18,6 +18,7 @@ import {
   isToolCallEvent,
   isToolResultEvent,
   isTurnEndEvent,
+  isUserChatMessageEvent,
   toolResultText,
   turnErrorDetail,
 } from './host.ts'
@@ -183,6 +184,30 @@ function summariseResult(text: string): string {
   return bounded
 }
 
+/**
+ * How much of a mid-turn message the process shows before eliding it.
+ *
+ * A person who pastes a stack trace into a running turn meant it for the
+ * model, not for the thinking area — and one event's payload is capped
+ * anyway. The head is enough to recognise which message turned the run.
+ */
+const USER_MESSAGE_CHARS = 1200
+
+/**
+ * What one mid-turn message says.
+ *
+ * @param data - the `user/message` payload.
+ * @returns the message's text, bounded.
+ */
+function userChatMessageText(data: { readonly content: readonly { readonly type: string; readonly text?: string }[] }): string {
+  const parts: string[] = []
+  for (const block of data.content) {
+    if (block.type === 'text' && typeof block.text === 'string' && block.text !== '') parts.push(block.text)
+  }
+  const text = parts.join('\n').trim()
+  return text.length > USER_MESSAGE_CHARS ? `${text.slice(0, USER_MESSAGE_CHARS - 1)}…` : text
+}
+
 /** Options for {@link createCotRenderer}. */
 export interface CotRendererOptions {
   /** Whether the agent's reasoning and tool calls appear at all. */
@@ -213,6 +238,8 @@ interface LiveRun {
   readonly startedAt: number
   /** How many tool calls the turn made, so the closing line can say. */
   toolCalls: number
+  /** How many mid-turn messages were shown, so each gets its own area. */
+  userMessages: number
 }
 
 /**
@@ -321,6 +348,7 @@ export function createCotRenderer(
       finished: false,
       startedAt: Date.now(),
       toolCalls: 0,
+      userMessages: 0,
     }
     enqueue(live, cotEvent('RUN_STARTED', { threadId: chatId, runId: `turn-${turn}` }))
     return live
@@ -384,6 +412,40 @@ export function createCotRenderer(
       }
       // Failures reach the chat through the answer half.
       if (isTurnEndEvent(event)) answer.handle(event)
+
+      if (isUserChatMessageEvent(event)) {
+        if (!showProcess) return
+        // Only a message that lands MID-turn belongs here. The message that
+        // opened the turn has a bubble of its own in the chat, and the process
+        // for it opens a step later; showing it again would put the same
+        // sentence twice in one screen.
+        //
+        // A mid-turn message is different: the chat answers it with a receipt
+        // line ("已插话…"), never with the words themselves. The reader then
+        // watches the agent change direction and has no way to tell what turned
+        // it. This is the only place those words can appear, and it appears
+        // exactly where the driver admitted them — between two steps of the
+        // turn they redirected.
+        if (live === undefined || live.finished) return
+        const text = userChatMessageText(event.data)
+        if (text === '') return
+        const run = live
+        // The message ends whatever the agent was thinking; the next reasoning
+        // block opens on its own.
+        if (run.reasoningOpen) {
+          run.reasoningOpen = false
+          enqueue(run, cotEvent('REASONING_MESSAGE_END', { messageId: `reasoning-${run.turn}` }))
+        }
+        run.userMessages += 1
+        const messageId = `user-${run.turn}-${run.userMessages}`
+        enqueue(
+          run,
+          cotEvent('TEXT_MESSAGE_START', { messageId, role: 'user' }),
+          cotEvent('TEXT_MESSAGE_CONTENT', { messageId, delta: text }),
+          cotEvent('TEXT_MESSAGE_END', { messageId }),
+        )
+        return
+      }
 
       if (isStepStartEvent(event)) {
         // With the process off, nothing here is ever shown — so no process is

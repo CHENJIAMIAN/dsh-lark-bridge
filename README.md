@@ -54,7 +54,7 @@ One `pnpm dlx` command installs the plugin and boots the host; a QR code is the 
 
 ### You can see what it's thinking
 
-Reasoning renders as Feishu's own *thinking* message. Tool calls arrive with their icon and the first lines of their result; the full output stays in the session log. Every turn closes with one plain line — how many tool calls it made, how long it took. Nothing has to be taken on faith.
+Reasoning renders as Feishu's own *thinking* message. Tool calls arrive with their icon and the first lines of their result; the full output stays in the session log. Every turn closes with one plain line — how many tool calls it made, how long it took. Nothing has to be taken on faith. A message you send mid-turn lands in there too, right before the step it redirected.
 
 ### A long task is not "fire and forget"
 
@@ -331,7 +331,7 @@ Repo map, the branch/MR flow and the version policy live in **[CONTRIBUTING.md](
 
 ```sh
 pnpm hygiene                    # repo hygiene (deployment terms stay local)
-pnpm test                       # 593 tests in 59 spec files
+pnpm test                       # 596 tests in 59 spec files
 pnpm contract-test              # 43 host-contract checks
 pnpm contract-drift             # drift check against upstream dsh master
 node scripts/check-readme-parity.mjs   # the two READMEs stay in step
