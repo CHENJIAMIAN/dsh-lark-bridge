@@ -94,6 +94,17 @@ export interface Config {
      */
     attachImages?: boolean;
     /**
+     * Tell the model WHEN the message was sent, and when the quoted message was.
+     *
+     * The inbound event carries `createTime` but nothing downstream of the
+     * transport reads it, so a model answering "did my restart take effect"
+     * has no idea whether the message is a minute old or eight hours old — it
+     * reconstructs that from process timestamps and file mtimes, and gets it
+     * wrong. Two lines cost a handful of tokens per message and remove the
+     * guesswork. Off by default so a deployment that wants prose only can say so.
+     */
+    showMessageTime?: boolean;
+    /**
      * Let the platform drop the process once its run finishes, leaving only the
      * answer in the conversation. `cot` output only.
      */
@@ -331,6 +342,7 @@ export interface ResolvedConfig {
     showProcess: boolean;
     attachImages: boolean;
     hideProcessWhenDone: boolean;
+    showMessageTime: boolean;
     syncSlashCommands: boolean;
     /** Ingest endpoint for the external chronicle ledger; '' disables it. */
     chronicleEndpoint: string;

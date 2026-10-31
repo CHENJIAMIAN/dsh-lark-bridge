@@ -121,6 +121,15 @@ export declare function chatUserMessage(msg: NormalizedMessage, images: Collecte
  * question out of the model's attention — so the head, and a marker.
  */
 /**
+ * Render one instant as the chat's local wall clock: `2026-11-01 01:29`.
+ *
+ * 飞书给的 `createTime` 是毫秒时间戳，跟着服务器走；人说的是本地时间。一律
+ * 按本机时区转，并在行里带上偏移（`+08:00`），跨时区看日志时也不会误读。
+ * @param at - epoch milliseconds, or undefined when the transport supplied none.
+ * @returns the stamp, or undefined when there is nothing to render.
+ */
+export declare function messageTimeStamp(at: number | undefined): string | undefined;
+/**
  * Render the message a chat message quotes back, as a block to prepend.
  *
  * 飞书的「引用」不是正文的一部分：入站事件只带 `parent_id`，被引用的那条要
@@ -128,9 +137,13 @@ export declare function chatUserMessage(msg: NormalizedMessage, images: Collecte
  * 改改」加一片空白——它只能猜「这个」是什么，而人会以为它当然看得见。
  *
  * @param quoted - the referenced message, already fetched.
+ * @param maxChars - how much of its text to keep.
+ * @param showTime - whether to stamp when the quoted message was sent. A quote
+ *   read without its time turns "你引用的那条" into "whatever that was" — the
+ *   model cannot tell a reply to a two-minute-old message from a six-hour one.
  * @returns the block and its trailing newline, or '' when there is nothing to show.
  */
-export declare function quotedPrefix(quoted: NormalizedMessage | undefined, maxChars?: number): string;
+export declare function quotedPrefix(quoted: NormalizedMessage | undefined, maxChars?: number, showTime?: boolean): string;
 /** What one chat message becomes, and what the chat is told about it. */
 export interface BusyDelivery {
     /** The inbox boundary the message actually takes. */

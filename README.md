@@ -127,6 +127,7 @@ Daily ops: run `pnpm dlx @deepseek-ai/dsh web` again (subsequent runs hit the pn
 | 🧰 **Capability inventory** | `/tools` lists what this deployment can actually do — the visible tools and the MCP servers it talks to |
 | 🎙️ **Media delivered in kind** | An ogg/opus recording arrives as a voice note, an mp4/m4v clip as a video — playable in the chat, not a download link |
 | 🖼️ **Image input (opt-in)** | `attachImages` passes chat images to the model |
+| 🕐 **Message timestamps** | showMessageTime (default on) stamps each inbound message and each quoted message with its local send time; set it to alse to leave the text alone |
 | 📎 **File delivery** | Agent `send_file` delivers artifacts with caption (default-deny local dirs) |
 | 🔒 **Authorization narrowing** | `senderAllowlist` / `groupAllowlist` / `approvers` |
 | ⏰ **Scheduled reminders** | `/schedules` view (compose `@deepseek-ai/dsh-schedule` for the model-side tools) |
@@ -334,13 +335,13 @@ Repo map, the branch/MR flow and the version policy live in **[CONTRIBUTING.md](
 
 ```sh
 pnpm hygiene                    # repo hygiene (deployment terms stay local)
-pnpm test                       # 669 tests in 67 spec files
+pnpm test                       # 677 tests in 68 spec files
 pnpm contract-test              # 43 host-contract checks
 pnpm contract-drift             # drift check against upstream dsh master
 node scripts/check-readme-parity.mjs   # the two READMEs stay in step
 ```
 
-The suite lives in `tests/` — vitest suites (67), including harness-based fakes. Upgrading the harness: run `pnpm contract-drift` before and after — it fails when a host seam the bridge mirrors has moved.
+The suite lives in `tests/` — vitest suites (68), including harness-based fakes. Upgrading the harness: run `pnpm contract-drift` before and after — it fails when a host seam the bridge mirrors has moved.
 
 ## 🤝 Contributing
 

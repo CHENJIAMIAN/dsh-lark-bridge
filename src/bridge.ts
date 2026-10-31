@@ -650,6 +650,33 @@ export function chatUserMessage(msg: NormalizedMessage, images: CollectedImages)
 
 
 /**
+ * Render one instant as the chat's local wall clock: `2026-11-01 01:29`.
+ *
+ * 飞书给的 `createTime` 是毫秒时间戳，跟着服务器走；人说的是本地时间。一律
+ * 按本机时区转，并在行里带上偏移（`+08:00`），跨时区看日志时也不会误读。
+ * @param at - epoch milliseconds, or undefined when the transport supplied none.
+ * @returns the stamp, or undefined when there is nothing to render.
+ */
+export function messageTimeStamp(at: number | undefined): string | undefined {
+  if (at === undefined || !Number.isFinite(at) || at <= 0) return undefined
+  const date = new Date(at)
+  const parts: Record<string, string> = {}
+  for (const { type, value } of new Intl.DateTimeFormat('en-CA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date)) parts[type] = value
+  const offsetMinutes = -date.getTimezoneOffset()
+  const sign = offsetMinutes >= 0 ? '+' : '-'
+  const abs = Math.abs(offsetMinutes)
+  const offset = `${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute} (${offset})`
+}
+
+/**
  * Render the message a chat message quotes back, as a block to prepend.
  *
  * 飞书的「引用」不是正文的一部分：入站事件只带 `parent_id`，被引用的那条要
@@ -657,12 +684,21 @@ export function chatUserMessage(msg: NormalizedMessage, images: CollectedImages)
  * 改改」加一片空白——它只能猜「这个」是什么，而人会以为它当然看得见。
  *
  * @param quoted - the referenced message, already fetched.
+ * @param maxChars - how much of its text to keep.
+ * @param showTime - whether to stamp when the quoted message was sent. A quote
+ *   read without its time turns "你引用的那条" into "whatever that was" — the
+ *   model cannot tell a reply to a two-minute-old message from a six-hour one.
  * @returns the block and its trailing newline, or '' when there is nothing to show.
  */
-export function quotedPrefix(quoted: NormalizedMessage | undefined, maxChars: number = DEFAULT_LIMITS.quoteChars): string {
+export function quotedPrefix(
+  quoted: NormalizedMessage | undefined,
+  maxChars: number = DEFAULT_LIMITS.quoteChars,
+  showTime = false,
+): string {
   if (quoted === undefined) return ''
   const body = quoted.content.trim()
   const who = quoted.senderName ?? quoted.senderId
+  const when = showTime ? messageTimeStamp(quoted.createTime) : undefined
   // A quote with no text is usually an image or a file: say so, rather than
   // presenting an empty quote that reads as a bug.
   const text = body !== ''
@@ -672,7 +708,8 @@ export function quotedPrefix(quoted: NormalizedMessage | undefined, maxChars: nu
     : quoted.resources.length > 0
       ? '（这是一条图片/文件消息，没有文字内容）'
       : '（这条被引用的消息没有文字内容）'
-  return `[引用 · ${who}]\n${text}\n[/引用]\n`
+  const head = when === undefined ? `[引用 · ${who}]` : `[引用 · ${who} · ${when}]`
+  return `${head}\n${text}\n[/引用]\n`
 }
 
 /** What one chat message becomes, and what the chat is told about it. */
@@ -2237,7 +2274,7 @@ export function installBridge(
         const fetchOne = port.fetchMessage
         if (typeof fetchOne !== 'function') return ''
         try {
-          return quotedPrefix(await fetchOne.call(port, parentId), config.limits.quoteChars)
+          return quotedPrefix(await fetchOne.call(port, parentId), config.limits.quoteChars, config.showMessageTime)
         } catch (error) {
           // A quote the app cannot read must not cost the whole message: the
           // user's own words still reach the model, minus the quote.
@@ -2249,7 +2286,12 @@ export function installBridge(
       // (`chatUserMessage` folds `images.notes` into the text itself — adding
       // them here as well made every image note reach the model twice.)
       const allNotes = [...fileNotes]
-      const spoken = [quoted, msg.content, ...allNotes].filter(part => part !== '').join('\n')
+      // 用户这条什么时候发的。模型拿到的是正文，看不到任何时间——判断「刚才
+      // 那个是不是没成」时，它只能去翻进程启动时间和文件修改时间，而且经常
+      // 翻错。行首给一个时间戳，比事后按日志倒推便宜得多。
+      const sentAt = config.showMessageTime ? messageTimeStamp(msg.createTime) : undefined
+      const stamped = sentAt === undefined ? msg.content : `[${sentAt}]\n${msg.content}`
+      const spoken = [quoted, stamped, ...allNotes].filter(part => part !== '').join('\n')
       const turn = chatUserMessage({ ...msg, content: spoken }, images)
       let content = prefix === ''
         ? turn.content
