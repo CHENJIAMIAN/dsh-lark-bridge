@@ -2129,6 +2129,7 @@ export function installBridge(
             {
               llm: ctx.get('llm') as HostLlm | undefined,
               efforts: effortOverrides,
+              ctx,
             },
           )
         } catch (error) {

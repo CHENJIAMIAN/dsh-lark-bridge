@@ -10,7 +10,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { AuditStats, HostAgent, HostAgentPresets, HostCommands, HostDefaultModel, HostJobs, HostLlm, HostLoaderEntry, HostMessageFeedback, HostSessionPersistence, HostSessionQuery, HostSkills, HostTokenMeter, HostWorkspaceRegistry, ScheduleEntry,
+import type { AuditStats, HostAgent, HostAgentPresets, HostCommands, HostDefaultModel, HostJobs, HostLlm, HostLoaderEntry, HostMessageFeedback, HostSession, HostSessionPersistence, HostSessionQuery, HostSkills, HostTokenMeter, HostWorkspaceRegistry, ScheduleEntry,
   HostTools,} from './host.ts'
 import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
@@ -22,6 +22,8 @@ import { runBotCommand } from './sync/bot-command.ts'
 import { fetchDeepseekBalance, formatBalanceReply } from './balance.ts'
 import { USER_GUIDE } from './user-guide.ts'
 import { writeRestartRequest } from './restart-notice.ts'
+import { contextPressureLine } from './notices.ts'
+import type { ContextBreakdown } from './notices.ts'
 import { runThinkCommand } from './think.ts'
 import type { EffortOverrides } from './think.ts'
 
@@ -224,6 +226,8 @@ export interface CommandExtras {
   readonly llm?: HostLlm | undefined
   /** The live per-session effort choices (`/think`). */
   readonly efforts?: EffortOverrides | undefined
+  /** The bridge's context, for services reached only on demand (`/context`'s breakdown). */
+  readonly ctx?: Context | undefined
 }
 
 /**
@@ -368,7 +372,7 @@ export async function runCommandLine(
     return runFeedbackCommand(trimmed, agent, feedback, lastAssistantMessageId)
   }
   if (name === CONTEXT_COMMAND) {
-    return runContextCommand(agent, tokenMeter)
+    return runContextCommand(agent, tokenMeter, extras?.ctx)
   }
   if (name === TOOLS_COMMAND) {
     return runToolsCommand(trimmed, deniedTools, tools, toolScope)
@@ -1031,27 +1035,45 @@ async function runFeedbackCommand(
 }
 
 /**
- * Handle `/context`: show the session's current context token pressure.
+ * Handle `/context`: show the session's current context token pressure, and
+ * where that pressure sits.
+ *
+ * The three-way split comes from the host's `contextBreakdown` projection,
+ * read through `sessionProjections`. It is optional on purpose: a host without
+ * the projection still answers with the total and the message portion, which
+ * is enough to decide "compress", just not enough to say what compressing
+ * would actually buy.
  * @param agent - the chat's agent (owns the measured session).
  * @param tokenMeter - the token-meter service, when composed.
+ * @param ctx - the bridge's context, used to reach the projection service.
  * @returns the reply for the chat.
  */
 function runContextCommand(
   agent: HostAgent,
   tokenMeter: HostTokenMeter | undefined,
+  ctx: Context | undefined,
 ): CommandOutcome {
   if (tokenMeter === undefined) {
     return { reply: `⚠️ 本部署没有组合 token 计量服务，` + '`' + `/${CONTEXT_COMMAND}` + '`' + ` 不可用。`, resolved: false }
   }
   const measure = tokenMeter.measure(agent.session)
-  const total = measure.totalTokens.toLocaleString('zh-CN')
-  const surface = measure.surfaceTokens.toLocaleString('zh-CN')
-  const hint = measure.totalTokens > 120_000
-    ? '\n⚠️ 上下文已偏高，长任务建议先 `/compact` 压缩。'
-    : measure.totalTokens > 60_000
-      ? '\n📈 上下文正在增长，超过 12 万 tokens 后建议压缩。'
-      : ''
-  return { reply: `**上下文压力**\n当前约 ${total} tokens（会话表面 ${surface}）${hint}`, resolved: true }
+  let breakdown: ContextBreakdown | undefined
+  try {
+    const projections = ctx?.get('sessionProjections') as {
+      stateOf?(session: HostSession, key: string): unknown
+    } | undefined
+    const state = projections?.stateOf?.(agent.session, 'contextBreakdown') as { breakdown?: ContextBreakdown } | undefined
+    // A projection that has never folded a request header reports zeros; those
+    // zeros are not a measurement, and printing them would say "no tools" about
+    // a session that simply has not run yet.
+    if (state?.breakdown !== undefined && state.breakdown.toolsTokens > 0) breakdown = state.breakdown
+  } catch {
+    // The split is a nicety; a projection that fails must not cost the answer.
+  }
+  return {
+    reply: contextPressureLine({ total: measure.totalTokens, surface: measure.surfaceTokens, breakdown }),
+    resolved: true,
+  }
 }
 
 function runSchedulesCommand(

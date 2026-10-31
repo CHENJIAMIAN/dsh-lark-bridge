@@ -8,6 +8,7 @@
  * — and `/help` lists what this chat accepts, which no host command provides.
  * @module dsh-lark-bridge/commands
  */
+import type { Context } from '@deepseek-ai/cordis';
 import type { AuditStats, HostAgent, HostAgentPresets, HostCommands, HostDefaultModel, HostJobs, HostLlm, HostLoaderEntry, HostMessageFeedback, HostSessionPersistence, HostSessionQuery, HostSkills, HostTokenMeter, HostWorkspaceRegistry, ScheduleEntry, HostTools } from './host.ts';
 import type { ResolvedConfig } from './config.ts';
 import type { SyncCommandContext } from './sync/bot-command.ts';
@@ -141,6 +142,8 @@ export interface CommandExtras {
     readonly llm?: HostLlm | undefined;
     /** The live per-session effort choices (`/think`). */
     readonly efforts?: EffortOverrides | undefined;
+    /** The bridge's context, for services reached only on demand (`/context`'s breakdown). */
+    readonly ctx?: Context | undefined;
 }
 /**
  * Render the help listing for one agent's available commands.
