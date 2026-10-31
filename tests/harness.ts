@@ -20,6 +20,7 @@ import { internals } from '../src/runtime.ts'
 import type { ChannelConfig } from '../src/runtime.ts'
 import type { ChannelPort } from '../src/bridge.ts'
 import type {
+  HostAgent,
   HostAgentOptions,
   HostImageLimits,
   HostAttachments,
@@ -370,8 +371,13 @@ export function createFakeAgents(extraServices: { jobs?: object } = {}) {
    * Run one composition the way the real factory does: on a scoped context
    * carrying the per-agent tools and prompt services, awaited BEFORE the agent
    * is published, so a rejection surfaces to the caller and yields no agent.
+   *
+   * The second argument is the agent, exactly as the real factory passes it
+   * (`setup?.(prepared.agent.ctx, prepared.agent)`). A composition that reads
+   * the session — `/think` restores its choice from the log — needs it, and a
+   * harness that omitted it would make such a seam untestable.
    */
-  const compose = async (setup?: (agentCtx: Context) => Promise<void>) => {
+  const compose = async (setup?: (agentCtx: Context, agent?: HostAgent) => Promise<void>, agent?: HostAgent) => {
     const guards: ((execution: { name: string }) => string | undefined)[] = []
     /** Definitions the bridge registered on this agent's own scope. */
     const registered: { name?: string }[] = []
@@ -412,7 +418,7 @@ export function createFakeAgents(extraServices: { jobs?: object } = {}) {
         sections.push(s)
         return () => undefined
       } })
-      await setup(agentCtx)
+      await setup(agentCtx, agent)
     }
     return {
       setupRan: setup !== undefined,
@@ -438,7 +444,7 @@ export function createFakeAgents(extraServices: { jobs?: object } = {}) {
     async resume(options: {
       readonly resumeSessionId: string
       readonly agentOptions?: HostAgentOptions
-      readonly setup?: (agentCtx: Context) => Promise<void>
+      readonly setup?: (agentCtx: Context, agent?: HostAgent) => Promise<void>
     }) {
       resumed.push(options.resumeSessionId)
       if (!resumable.has(options.resumeSessionId)) {
@@ -450,7 +456,7 @@ export function createFakeAgents(extraServices: { jobs?: object } = {}) {
         sessionId: options.resumeSessionId,
         meta: undefined,
         agentOptions: options.agentOptions,
-        ...await compose(options.setup),
+        ...await compose(options.setup, agent),
         agent,
         dispose: vi.fn<() => Promise<void>>(async () => {}),
       }
@@ -461,7 +467,7 @@ export function createFakeAgents(extraServices: { jobs?: object } = {}) {
       readonly sessionId: string
       readonly meta?: { readonly cwd?: string; readonly agentPreset?: string }
       readonly agentOptions?: HostAgentOptions
-      readonly setup?: (agentCtx: Context) => Promise<void>
+      readonly setup?: (agentCtx: Context, agent?: HostAgent) => Promise<void>
     }) {
       const agent = makeAgent(options.sessionId)
       live.set(options.sessionId, agent)
@@ -469,7 +475,7 @@ export function createFakeAgents(extraServices: { jobs?: object } = {}) {
         sessionId: options.sessionId,
         meta: options.meta === undefined ? undefined : { ...options.meta },
         agentOptions: options.agentOptions,
-        ...await compose(options.setup),
+        ...await compose(options.setup, agent),
         agent,
         dispose: vi.fn<() => Promise<void>>(async () => {}),
       }

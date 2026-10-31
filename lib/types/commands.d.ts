@@ -8,9 +8,10 @@
  * — and `/help` lists what this chat accepts, which no host command provides.
  * @module dsh-lark-bridge/commands
  */
-import type { AuditStats, HostAgent, HostAgentPresets, HostCommands, HostDefaultModel, HostJobs, HostLoaderEntry, HostMessageFeedback, HostSessionPersistence, HostSessionQuery, HostSkills, HostTokenMeter, HostWorkspaceRegistry, ScheduleEntry, HostTools } from './host.ts';
+import type { AuditStats, HostAgent, HostAgentPresets, HostCommands, HostDefaultModel, HostJobs, HostLlm, HostLoaderEntry, HostMessageFeedback, HostSessionPersistence, HostSessionQuery, HostSkills, HostTokenMeter, HostWorkspaceRegistry, ScheduleEntry, HostTools } from './host.ts';
 import type { ResolvedConfig } from './config.ts';
 import type { SyncCommandContext } from './sync/bot-command.ts';
+import type { EffortOverrides } from './think.ts';
 /** Cancel the running turn. Not a host command: cancellation is an agent method. */
 export declare const STOP_COMMAND = "stop";
 /**
@@ -79,6 +80,16 @@ export declare const SKILLS_COMMAND = "skills";
 export declare const CONFIG_COMMAND = "config";
 /** View or switch the deployment's default model. */
 export declare const MODEL_COMMAND = "model";
+/**
+ * View or change THIS session's reasoning effort.
+ *
+ * Lives beside `/model` because the two answer the same question at different
+ * scopes: `/model` moves the deployment default (new sessions), `/think` moves
+ * the session in front of you (next request). The implementation is in
+ * `src/think.ts`; the name lives here because this module is the single list
+ * every surface — `/help`, the panel, the docs gate — reads it from.
+ */
+export declare const THINK_COMMAND = "think";
 /** List the registry's workspaces (the chat surfaces of `workspaceRegistry`). */
 export declare const WS_COMMAND = "ws";
 /** List the deployed plugin tree with live status (the chat face of the web inventory). */
@@ -116,6 +127,20 @@ export interface CommandOutcome {
      * two taps instead of a typed name.
      */
     readonly card?: object;
+}
+/**
+ * Services a command needs that do not belong in the positional signature.
+ *
+ * That signature grew one seam at a time and is now past the length a reader
+ * can match an argument to a meaning. New seams land here instead of taking
+ * the next positional slot, so a command that needs one service does not
+ * lengthen every existing call site by one more `undefined`.
+ */
+export interface CommandExtras {
+    /** The llm runtime, for the route's own effort levels (`/think`). */
+    readonly llm?: HostLlm | undefined;
+    /** The live per-session effort choices (`/think`). */
+    readonly efforts?: EffortOverrides | undefined;
 }
 /**
  * Render the help listing for one agent's available commands.
@@ -157,5 +182,7 @@ export declare function runCommandLine(line: string, agent: HostAgent, commands:
     readonly model?: string;
 } | undefined, workspaces?: HostWorkspaceRegistry | undefined, currentCwd?: string | undefined, loaderEntries?: readonly HostLoaderEntry[] | undefined, sync?: SyncCommandContext | undefined, tools?: HostTools | undefined, toolScope?: unknown, 
 /** Whether `currentCwd` came from the chat's own binding (for `/ws`). */
-cwdBound?: boolean): Promise<CommandOutcome>;
+cwdBound?: boolean, 
+/** Services added after this signature stopped growing (see {@link CommandExtras}). */
+extras?: CommandExtras | undefined): Promise<CommandOutcome>;
 //# sourceMappingURL=commands.d.ts.map

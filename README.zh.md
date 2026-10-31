@@ -154,7 +154,8 @@ pnpm 10 默认拦截依赖的构建脚本，未放行时以非零退出码失败
 | `/balance` | 查 DeepSeek 余额（含当前峰谷档） |
 | `/tools` | 运行时查看/禁用/恢复工具 |
 | `/skills` | 查看 skills / 某个 skill 详情 |
-| `/model` | 查看/切换默认模型 |
+| `/model` | 查看/切换默认模型（只对切换之后新建的会话生效） |
+| `/think` | 查看/设置**本会话**的思考强度（对下一步请求即生效） |
 | `/config` | 桥的当前配置 |
 | `/plugins` | 查看已部署的插件及运行状态 |
 | `/ws` | 查看已注册工作区 |
@@ -332,13 +333,13 @@ pnpm 10 默认拦截依赖的构建脚本，未放行时以非零退出码失败
 
 ```sh
 pnpm hygiene                    # 仓库卫生（部署专有词只留在本机）
-pnpm test                       # 631 条测试 / 65 个 spec 文件
+pnpm test                       # 661 条测试 / 66 个 spec 文件
 pnpm contract-test              # 43 条宿主契约检查
 pnpm contract-drift             # 对上游 dsh master 的漂移检查
 node scripts/check-readme-parity.mjs   # 两份 README 保持同构
 ```
 
-测试在 `tests/` —— vitest 套件（65 个），含 harness 注入式假件。升级引擎前后各跑一次 `pnpm contract-drift`——桥所镜像的宿主接缝一旦挪位，它会红。
+测试在 `tests/` —— vitest 套件（66 个），含 harness 注入式假件。升级引擎前后各跑一次 `pnpm contract-drift`——桥所镜像的宿主接缝一旦挪位，它会红。
 
 ## 🤝 参与
 

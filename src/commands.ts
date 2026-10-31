@@ -10,7 +10,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { AuditStats, HostAgent, HostAgentPresets, HostCommands, HostDefaultModel, HostJobs, HostLoaderEntry, HostMessageFeedback, HostSessionPersistence, HostSessionQuery, HostSkills, HostTokenMeter, HostWorkspaceRegistry, ScheduleEntry,
+import type { AuditStats, HostAgent, HostAgentPresets, HostCommands, HostDefaultModel, HostJobs, HostLlm, HostLoaderEntry, HostMessageFeedback, HostSessionPersistence, HostSessionQuery, HostSkills, HostTokenMeter, HostWorkspaceRegistry, ScheduleEntry,
   HostTools,} from './host.ts'
 import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
@@ -22,6 +22,8 @@ import { runBotCommand } from './sync/bot-command.ts'
 import { fetchDeepseekBalance, formatBalanceReply } from './balance.ts'
 import { USER_GUIDE } from './user-guide.ts'
 import { writeRestartRequest } from './restart-notice.ts'
+import { runThinkCommand } from './think.ts'
+import type { EffortOverrides } from './think.ts'
 
 /** Cancel the running turn. Not a host command: cancellation is an agent method. */
 export const STOP_COMMAND = 'stop'
@@ -130,6 +132,17 @@ export const CONFIG_COMMAND = 'config'
 /** View or switch the deployment's default model. */
 export const MODEL_COMMAND = 'model'
 
+/**
+ * View or change THIS session's reasoning effort.
+ *
+ * Lives beside `/model` because the two answer the same question at different
+ * scopes: `/model` moves the deployment default (new sessions), `/think` moves
+ * the session in front of you (next request). The implementation is in
+ * `src/think.ts`; the name lives here because this module is the single list
+ * every surface — `/help`, the panel, the docs gate — reads it from.
+ */
+export const THINK_COMMAND = 'think'
+
 /** List the registry's workspaces (the chat surfaces of `workspaceRegistry`). */
 export const WS_COMMAND = 'ws'
 
@@ -199,6 +212,21 @@ export interface CommandOutcome {
 }
 
 /**
+ * Services a command needs that do not belong in the positional signature.
+ *
+ * That signature grew one seam at a time and is now past the length a reader
+ * can match an argument to a meaning. New seams land here instead of taking
+ * the next positional slot, so a command that needs one service does not
+ * lengthen every existing call site by one more `undefined`.
+ */
+export interface CommandExtras {
+  /** The llm runtime, for the route's own effort levels (`/think`). */
+  readonly llm?: HostLlm | undefined
+  /** The live per-session effort choices (`/think`). */
+  readonly efforts?: EffortOverrides | undefined
+}
+
+/**
  * Render the help listing for one agent's available commands.
  * @param commands - the host command runtime, when composed.
  * @param agent - the agent whose scope decides what is available.
@@ -231,6 +259,7 @@ export function helpText(
     `\`/${CONTEXT_COMMAND}\` — ${describeCommand(CONTEXT_COMMAND, locale, 'View context pressure')}`,
     `\`/${SKILLS_COMMAND}\` — ${describeCommand(SKILLS_COMMAND, locale, 'List / inspect discoverable skills')}`,
     `\`/${MODEL_COMMAND}\` — ${describeCommand(MODEL_COMMAND, locale, 'View or switch the default model')}`,
+    `\`/${THINK_COMMAND}\` — ${describeCommand(THINK_COMMAND, locale, 'View or change this session’s reasoning effort')}`,
     `\`/${BOT_COMMAND}\` — ${describeCommand(BOT_COMMAND, locale, 'Bridge dual-end status, settings, plugin sync')}`,
     `\`/${BALANCE_COMMAND}\` — ${describeCommand(BALANCE_COMMAND, locale, 'DeepSeek API balance')}`,
     // Only when the deployment composed the feedback service: listing a
@@ -299,6 +328,8 @@ export async function runCommandLine(
   toolScope: unknown = undefined,
   /** Whether `currentCwd` came from the chat's own binding (for `/ws`). */
   cwdBound = false,
+  /** Services added after this signature stopped growing (see {@link CommandExtras}). */
+  extras: CommandExtras | undefined = undefined,
 ): Promise<CommandOutcome> {
   const trimmed = line.trimStart()
   const name = commandName(trimmed) ?? ''
@@ -379,6 +410,9 @@ export async function runCommandLine(
   }
   if (name === MODEL_COMMAND) {
     return runModelCommand(trimmed, defaultModel, configModel, config?.modelCatalog)
+  }
+  if (name === THINK_COMMAND) {
+    return runThinkCommand(trimmed, agent, extras?.efforts, extras?.llm, defaultModel)
   }
   if (name === WS_COMMAND) {
     return runWsCommand(workspaces, currentCwd, cwdBound)
@@ -889,7 +923,7 @@ async function runModelCommand(
   if (arg.length === 0) {
     const cur = defaultModel.currentSelection()
     const current = `${cur.provider}/${cur.model}`
-    const effort = 'reasoningEffort' in cur && typeof cur.reasoningEffort === 'string' ? `（推理强度 ${cur.reasoningEffort}）` : ''
+    const effort = cur.reasoningEffort === undefined ? '' : `（推理强度 ${cur.reasoningEffort}）`
     if (catalog && catalog.length > 0) {
       const rows = catalog.map((m, i) => {
         const mark = m === cur.model || `${cur.provider}/${m}` === current ? ' ← 当前' : ''
@@ -915,7 +949,11 @@ async function runModelCommand(
     if (defaultModel.saveSelection === undefined) {
       return { reply: '⚠️ 无 settings 层。', resolved: false }
     }
-    await defaultModel.saveSelection({ provider: sp, model: sm })
+    // saveSelection persists the COMPLETE selection, and the profile patch
+    // replaces that entry's config wholesale — leaving the effort out here
+    // would delete the deployment's `reasoningEffort` and quietly drop every
+    // session created afterwards to the adapter's default. Carry it across.
+    await defaultModel.saveSelection({ ...defaultModel.currentSelection(), provider: sp, model: sm })
     return { reply: `✅ 已切换为 **${sel}**`, resolved: true }
   }
   const slash = arg.indexOf('/')
@@ -931,7 +969,9 @@ async function runModelCommand(
     }
   }
   try {
-    await defaultModel.saveSelection({ provider, model })
+    // Same reason as the catalog branch: keep the deployment's effort, or the
+    // switch silently becomes "and also stop thinking as hard".
+    await defaultModel.saveSelection({ ...defaultModel.currentSelection(), provider, model })
     return {
       reply: `✅ 默认模型已切换为 \`${provider}/${model}\`。对之后**新建**的会话生效；进行中的会话保持原模型（发 \`/new\` 开新会话即用新模型）。`,
       resolved: true,

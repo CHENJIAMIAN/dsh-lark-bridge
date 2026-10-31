@@ -154,7 +154,8 @@ Type `/help` in the chat for the live list.
 | `/balance` | DeepSeek API balance, with the live peak/off-peak phase |
 | `/tools` | View / deny / allow tools at runtime |
 | `/skills` | List skills, or peek at one |
-| `/model` | View / switch the default model |
+| `/model` | View / switch the default model (reaches sessions created after the switch) |
+| `/think` | View / change THIS session's reasoning effort — applies to the next request |
 | `/config` | The bridge's live configuration |
 | `/plugins` | List deployed plugins and status |
 | `/ws` | List registered workspaces |
@@ -333,13 +334,13 @@ Repo map, the branch/MR flow and the version policy live in **[CONTRIBUTING.md](
 
 ```sh
 pnpm hygiene                    # repo hygiene (deployment terms stay local)
-pnpm test                       # 631 tests in 65 spec files
+pnpm test                       # 661 tests in 66 spec files
 pnpm contract-test              # 43 host-contract checks
 pnpm contract-drift             # drift check against upstream dsh master
 node scripts/check-readme-parity.mjs   # the two READMEs stay in step
 ```
 
-The suite lives in `tests/` — vitest suites (65), including harness-based fakes. Upgrading the harness: run `pnpm contract-drift` before and after — it fails when a host seam the bridge mirrors has moved.
+The suite lives in `tests/` — vitest suites (66), including harness-based fakes. Upgrading the harness: run `pnpm contract-drift` before and after — it fails when a host seam the bridge mirrors has moved.
 
 ## 🤝 Contributing
 

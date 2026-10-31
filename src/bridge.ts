@@ -32,6 +32,7 @@ import type {
   HostApprovalOutcome,
   HostApprovalRequest,
   HostDefaultModel,
+  HostLlm,
   HostLoader,
   HostSessionEvent,
   HostSessionPersistence,
@@ -84,9 +85,11 @@ import {
   SESSIONS_COMMAND,
   SKILLS_COMMAND,
   STOP_COMMAND,
+  THINK_COMMAND,
   TOOLS_COMMAND,
   WS_COMMAND,
 } from './commands.ts'
+import { EffortOverrides } from './think.ts'
 import { getSyncContext } from './sync/bot-command.ts'
 import { collectImages } from './images.ts'
 import { saveInboundFiles } from './files.ts'
@@ -256,7 +259,7 @@ interface AgentComposition {
    */
   readonly toolScope?: unknown
   /** Creation-time composition: the preset join plus this channel's own rows. */
-  readonly setup: (agentCtx: Context) => Promise<void>
+  readonly setup: (agentCtx: Context, agent?: HostAgent) => Promise<void>
 }
 
 /**
@@ -281,7 +284,7 @@ interface DurableAgentRegistry extends HostAgentRegistry {
   resume(options: {
     readonly resumeSessionId: string
     readonly agentOptions?: HostAgentOptions
-    readonly setup?: (agentCtx: Context) => Promise<void>
+    readonly setup?: (agentCtx: Context, agent?: HostAgent) => Promise<void>
   }): Promise<HostAgentHandle>
 }
 
@@ -932,6 +935,16 @@ export function installBridge(
   // Per-session preset choice made via /preset. Process-local: a restart
   // falls back to the configured default, which the /config command states.
   const sessionPresets = new Map<string, string>()
+  /**
+   * Per-session reasoning effort chosen via /think.
+   *
+   * Unlike the preset choice above this one survives a restart: it is recorded
+   * as a durable `model/selection` event on the session itself, and restored
+   * when the agent is composed. The choice belongs to the session — `/sessions`
+   * can bring that session back, and it must come back at the effort it was
+   * left at.
+   */
+  const effortOverrides = new EffortOverrides(ctx)
   const subagentTrackers = new Map<string, subCard.SubagentCardState>()
   /** One team card per chat, with the message id it updates in place. */
   const teamTrackers = new Map<string, { state: teamCard.TeamCardState; messageId?: string; updatedAt?: number; sending?: boolean; pending?: boolean }>()
@@ -1478,9 +1491,23 @@ export function installBridge(
       ...presetId === undefined ? {} : { presetId },
       ...toolScope === undefined ? {} : { toolScope },
       presentCall: createCallPresenter(ctx.get('tools') as HostTools | undefined, toolScope),
-      setup: async (agentCtx: Context) => {
+      setup: async (agentCtx: Context, agent?: HostAgent) => {
         if (presets !== undefined && presetId !== undefined) await presets.mount(agentCtx, presetId)
         composeChatAgent(agentCtx, config, [sendFileTool, ...feishuTools], runtimeDeniedTools, identityClause)
+        // `/think` has two edges, and both belong to this session's scope: the
+        // choice recorded in the session's own log (so a resumed session comes
+        // back at the effort its human left it at, not the deployment default),
+        // and the request hook that applies it (so a change lands on the next
+        // step instead of the next session). The hook reads the table by
+        // session id, so one agent's choice can never move another's.
+        //
+        // Guarded on the agent: the host hands it over, but a host old enough
+        // to omit the second argument must still get a composed agent — a
+        // missing `/think` is a smaller failure than a chat that cannot start.
+        if (agent !== undefined) {
+          effortOverrides.restore(agent.session)
+          effortOverrides.install(agentCtx, agent.session.id)
+        }
         // Background jobs: a registered under this agent scope sees exactly the
         // jobs its owner starts. Announce terminals so a long-running task's
         // completion is visible in the chat instead of silent until asked.
@@ -1780,6 +1807,7 @@ export function installBridge(
     { name: CONTEXT_COMMAND, description: describeCommand(CONTEXT_COMMAND, locale, 'View context pressure') },
     { name: SKILLS_COMMAND, description: describeCommand(SKILLS_COMMAND, locale, 'List / inspect discoverable skills') },
     { name: MODEL_COMMAND, description: describeCommand(MODEL_COMMAND, locale, 'View or switch the default model') },
+    { name: THINK_COMMAND, description: describeCommand(THINK_COMMAND, locale, 'View or change this session’s reasoning effort') },
     { name: WS_COMMAND, description: describeCommand(WS_COMMAND, locale, 'List registered workspaces') },
     { name: PLUGINS_COMMAND, description: describeCommand(PLUGINS_COMMAND, locale, 'List deployed plugins and status') },
     { name: CONFIG_COMMAND, description: describeCommand(CONFIG_COMMAND, locale, 'View current configuration') },
@@ -2097,6 +2125,11 @@ export function installBridge(
             // `cwdBound` trails the whole signature, so it is last here even
             // though it describes the cwd two arguments up.
             (await chatBindings())[msg.chatId] !== undefined,
+            // Seams added after the positional list stopped growing.
+            {
+              llm: ctx.get('llm') as HostLlm | undefined,
+              efforts: effortOverrides,
+            },
           )
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error)
