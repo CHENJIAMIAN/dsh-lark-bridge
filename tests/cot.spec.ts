@@ -141,10 +141,15 @@ describe('thinking process (CoT)', () => {
     emit('tool/call', { turn: 1, callId: 'c1', name: 'bash', arguments: '{"command":"ls -la"}' })
 
     await vi.waitFor(() => { expect(contentOf(harness, 'TOOL_CALL_START')).toBeDefined() })
-    // With no presenter composed the label is the bare name and the icon the default.
+    // With no presenter composed the label is the bare name and the icon the
+    // default. The title also carries the clock time: the AG-UI timestamp is
+    // an ordering key the client never renders, so "when did this happen" has
+    // to ride on the one string the reader actually sees.
     expect(contentOf(harness, 'TOOL_CALL_START')).toMatchObject({
-      toolCallId: 'c1', toolCallName: 'bash', icon: 'default', title: 'bash',
+      toolCallId: 'c1', toolCallName: 'bash', icon: 'default',
     })
+    expect((contentOf(harness, 'TOOL_CALL_START') as { title: string }).title)
+      .toMatch(/^bash · \d{2}:\d{2}:\d{2}$/)
     const written = events(harness).map((e) => e.type)
     expect(written).toContain('TOOL_CALL_ARGS')
     expect(written).toContain('TOOL_CALL_END')
@@ -166,6 +171,94 @@ describe('thinking process (CoT)', () => {
     expect(written).not.toContain(payload)
     // What identifies the call is kept.
     expect(contentOf(harness, 'TOOL_CALL_ARGS')).toMatchObject({ delta: 'path: /tmp/a.txt · content: 5000 字符' })
+    await harness.dispose()
+  })
+
+  it('stamps every tool call with the clock time it started', async () => {
+    const harness = await mountChannel()
+    const emit = await chat(harness)
+    emit('tool/call', { turn: 1, callId: 'c1', name: 'bash', arguments: '{}' })
+    emit('tool/call', { turn: 1, callId: 'c2', name: 'bash', arguments: '{}' })
+
+    await vi.waitFor(() => {
+      expect(events(harness).filter((e) => e.type === 'TOOL_CALL_START')).toHaveLength(2)
+    })
+    // The fake parses each event's payload on the way in, the way the API does.
+    const titles = events(harness)
+      .filter((e) => e.type === 'TOOL_CALL_START')
+      .map((e) => e.content.title as string)
+    // Two calls in the same run may share a second — but each carries a time,
+    // which is the thing a reader needs to line a step up against their message.
+    for (const title of titles) expect(title).toMatch(/ · \d{2}:\d{2}:\d{2}$/)
+    await harness.dispose()
+  })
+
+  it('reports how long a slow tool call took, and stays quiet about a fast one', async () => {
+    const harness = await mountChannel()
+    const emit = await chat(harness)
+    emit('tool/call', { turn: 1, callId: 'slow', name: 'bash', arguments: '{}' })
+    // The elapsed time is measured between the call and its result; a fake
+    // clock is the only way to say "this one took 18 seconds" deterministically.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(Date.now() + 18_200))
+    emit('tool/result', {
+      turn: 1,
+      message: { source: { callId: 'slow' }, content: [{ type: 'text', text: 'ok', toolCallId: 'slow' }] },
+    })
+    emit('tool/call', { turn: 1, callId: 'fast', name: 'bash', arguments: '{}' })
+    emit('tool/result', {
+      turn: 1,
+      message: { source: { callId: 'fast' }, content: [{ type: 'text', text: 'ok', toolCallId: 'fast' }] },
+    })
+    vi.useRealTimers()
+
+    await vi.waitFor(() => {
+      expect(events(harness).filter((e) => e.type === 'TOOL_CALL_RESULT')).toHaveLength(2)
+    })
+    const results = events(harness)
+      .filter((e) => e.type === 'TOOL_CALL_RESULT')
+      .map((e) => (e.content.content as { code: string }).code)
+    expect(results[0]).toContain('18.2s')
+    // A sub-second call says nothing rather than "0ms" — the noise is worse
+    // than the silence, and the line stays where a reader expects the output.
+    expect(results[1]).not.toContain('⏱')
+    expect(results[1]).toBe('ok')
+    await harness.dispose()
+  })
+
+  it('names the slowest step in the closing line, which lives in the chat', async () => {
+    const harness = await mountChannel()
+    const emit = await chat(harness)
+    emit('assistant/chunk', { turn: 1, chunk: { type: 'reasoning-delta', text: '跑两个命令' } })
+    emit('tool/call', { turn: 1, callId: 'c1', name: 'bash', arguments: '{"command":"build"}' })
+    emit('tool/result', {
+      turn: 1,
+      message: { source: { callId: 'c1' }, content: [{ type: 'text', text: 'done', toolCallId: 'c1' }] },
+    })
+    emit('tool/call', { turn: 1, callId: 'c2', name: 'bash', arguments: '{"command":"test"}' })
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(Date.now() + 252_000))
+    emit('tool/result', {
+      turn: 1,
+      message: { source: { callId: 'c2' }, content: [{ type: 'text', text: 'pass', toolCallId: 'c2' }] },
+    })
+    emit('assistant/message', { turn: 1, message: { content: [{ type: 'text', text: '结论。' }] } })
+    emit('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    vi.useRealTimers()
+
+    // The closing line goes to the chat, not the thinking area: the platform
+    // hides the process when a run ends, so a line written there would vanish.
+    await vi.waitFor(() => {
+      const texts = harness.fake.sent.map((m) => (m.input as { markdown?: string }).markdown ?? '')
+      expect(texts.some((t) => t.includes('本轮完成'))).toBe(true)
+    })
+    const closing = harness.fake.sent
+      .map((m) => (m.input as { markdown?: string }).markdown ?? '')
+      .find((text) => text.includes('本轮完成'))!
+    expect(closing).toContain('2 次工具调用')
+    // The total says how long; naming the slowest says where the time went.
+    expect(closing).toContain('最慢')
+    expect(closing).toContain('4 分 12 秒')
     await harness.dispose()
   })
 

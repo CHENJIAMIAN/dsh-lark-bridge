@@ -172,6 +172,12 @@ import { createSendFileTool, deliverFile } from './files.ts'
 import { createFeishuTools, feishuToolsPromptSection, FEISHU_NOTIFY_TOOL } from './feishu-tools.ts'
 import { FeishuCloud } from './sync/feishu-cloud.ts'
 import { pricingPromptLine } from './pricing.ts'
+// `messageTimeStamp` used to be defined here. It moved to `clock.ts` so the
+// thinking process renders the same instant the same way without `cot.ts`
+// importing this module (which imports `cot.ts`); re-exported so every
+// existing caller — and the tests that pin its exact form — is unchanged.
+import { elapsedPhrase, messageTimeStamp } from './clock.ts'
+export { messageTimeStamp } from './clock.ts'
 
 /**
  * The transport surface the bridge drives. `LarkChannel` from
@@ -650,36 +656,40 @@ export function chatUserMessage(msg: NormalizedMessage, images: CollectedImages)
 
 
 /**
- * Render one instant as the chat's local wall clock: `2026-11-01 01:42:33 (+08:00)`.
+ * When each session last had a turn start, so the next turn can say how long
+ * the conversation has been idle.
  *
- * 飞书给的 `createTime` 是毫秒时间戳，跟着服务器走；人说的是本地时间。一律
- * 按本机时区转，并在行里带上偏移（`+08:00`），跨时区看日志时也不会误读。
- *
- * 精确到秒是有意为之：同一分钟里会有好几条消息（一次重启、一次追问），
- * 只到分钟就分不出先后，而"先说了什么"往往正是要判断的东西。
- * @param at - epoch milliseconds, or undefined when the transport supplied none.
- * @returns the stamp, or undefined when there is nothing to render.
+ * Keyed by session id and held for the life of the process. A restart forgets
+ * it, which is the honest behaviour: after a restart the agent genuinely
+ * cannot say how long the chat was quiet, and inventing "刚刚" would be a lie
+ * the model then reasons from. Read-and-write in one call so the gap is always
+ * measured from the previous turn, never from this one.
  */
-export function messageTimeStamp(at: number | undefined): string | undefined {
-  if (at === undefined || !Number.isFinite(at) || at <= 0) return undefined
-  const date = new Date(at)
-  const parts: Record<string, string> = {}
-  for (const { type, value } of new Intl.DateTimeFormat('en-CA', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).formatToParts(date)) parts[type] = value
-  const offsetMinutes = -date.getTimezoneOffset()
-  const sign = offsetMinutes >= 0 ? '+' : '-'
-  const abs = Math.abs(offsetMinutes)
-  const offset = `${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`
-  // Intl renders a leap second as 60；Date 里不会出现这种值，出现也只是取整误差。
-  const second = parts.second === '60' ? '59' : parts.second
-  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${second} (${offset})`
+const lastTurnStarted = new Map<string, number>()
+
+/**
+ * The line that tells the model what time it is and how long the chat was quiet.
+ *
+ * The user's own message already carries its send time (`showMessageTime`), so
+ * this line deliberately does not repeat it. What was missing is the two facts
+ * around it: which day this is, and how much of the world happened in between.
+ * A model resuming after eight hours should re-check state it assumed; one
+ * resuming after three minutes should not waste a turn doing it.
+ * @param sessionId - the session this turn belongs to.
+ * @param now - epoch milliseconds at turn start.
+ * @returns the line, or '' when there is nothing worth saying.
+ */
+export function sessionGapLine(sessionId: string, now: number): string {
+  const previous = lastTurnStarted.get(sessionId)
+  lastTurnStarted.set(sessionId, now)
+  const clock = messageTimeStamp(now)
+  if (clock === undefined) return ''
+  const gap = previous === undefined ? '' : elapsedPhrase(now - previous)
+  // Both forms are bracketed the same way as the message stamp so the model
+  // reads one convention, not two.
+  return gap === '' || gap === '刚刚'
+    ? `[当前时间 ${clock}]`
+    : `[当前时间 ${clock} · 距上一轮 ${gap}]`
 }
 
 /**
@@ -2296,8 +2306,16 @@ export function installBridge(
       // 那个是不是没成」时，它只能去翻进程启动时间和文件修改时间，而且经常
       // 翻错。行首给一个时间戳，比事后按日志倒推便宜得多。
       const sentAt = config.showMessageTime ? messageTimeStamp(msg.createTime) : undefined
+      // 「现在是什么时候」和「上次说话隔了多久」。只告诉它这条消息的发出时刻
+      // 不够：模型不知道自己现在处在哪一天、这一轮跑完后过了多久才被叫醒。
+      // 隔了八小时回来的一句「继续」，和隔了三分钟的一句「继续」，该做的事
+      // 完全不同——前者先去核对世界有没有变，后者直接接着干。这条每轮都发，
+      // 因为一个会话可能横跨好几天，第一轮的时间早就过期了。
+      const gapLine = config.showMessageTime
+        ? sessionGapLine(opened.handle.agent.session.id, Date.now())
+        : ''
       const stamped = sentAt === undefined ? msg.content : `[${sentAt}]\n${msg.content}`
-      const spoken = [quoted, stamped, ...allNotes].filter(part => part !== '').join('\n')
+      const spoken = [quoted, gapLine, stamped, ...allNotes].filter(part => part !== '').join('\n')
       const turn = chatUserMessage({ ...msg, content: spoken }, images)
       let content = prefix === ''
         ? turn.content

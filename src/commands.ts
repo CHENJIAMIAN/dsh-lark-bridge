@@ -638,6 +638,10 @@ function runConfigCommand(config: ResolvedConfig | undefined): CommandOutcome {
     `· 忙时策略：${BUSY_POLICY_LABELS[config.busyPolicy]}`,
     `· 会话维度：${config.sessionScope}`,
     `· 显示过程：${on(config.showProcess)}${config.hideProcessWhenDone ? '（完成后隐藏）' : ''}`,
+    // 时间戳走的不是"过程"那条线：思考区里的时刻是插件给人看的，这条开关管的是
+    // 喂给模型的输入。两者都不会影响思考区的渲染，所以分开列，免得看到「显示
+    // 过程：关」还以为时间也没了。
+    `· 消息时间戳：${on(config.showMessageTime)}（给模型看当前时间与间隔）`,
     `· 图片传递：${on(config.attachImages)}`,
     `· 首次引导：${on(config.onboarding)}`,
     `· 同步面板：${on(config.syncSlashCommands)}`,

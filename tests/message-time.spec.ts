@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { messageTimeStamp, quotedPrefix } from '../src/bridge.ts'
+import { messageTimeStamp, quotedPrefix, sessionGapLine } from '../src/bridge.ts'
 import type { NormalizedMessage } from '@larksuite/channel'
 
 /** 一条最简消息，只有引用渲染会读的字段。 */
@@ -91,5 +91,43 @@ describe('quotedPrefix 的时间', () => {
     const block = quotedPrefix(message({ senderName: '陶佳明', content: 'x'.repeat(50), createTime: 1793464140000 }), 10, true)
     expect(block).toContain('已截断')
     expect(block).toContain('(+08:00)')
+  })
+})
+
+describe('sessionGapLine 的当前时间与间隔', () => {
+  const base = 1793464140000
+
+  it('第一轮只说当前时间，不编造间隔', () => {
+    // 进程刚起，不知道这个会话上次何时说话——编一个「刚刚」会让模型
+    // 把一段很长的空白当成刚发生的事。
+    const line = sessionGapLine('sess-first', base)
+    expect(line).toBe(`[当前时间 ${messageTimeStamp(base)}]`)
+    expect(line).not.toContain('距上一轮')
+  })
+
+  it('第二轮给出距上一轮的间隔', () => {
+    sessionGapLine('sess-gap', base)
+    const line = sessionGapLine('sess-gap', base + 8 * 3_600_000)
+    expect(line).toContain('距上一轮 8 小时前')
+  })
+
+  it('紧挨着说话时不啰嗦「刚刚」', () => {
+    sessionGapLine('sess-tight', base)
+    const line = sessionGapLine('sess-tight', base + 5_000)
+    expect(line).not.toContain('距上一轮')
+  })
+
+  it('间隔量的是上一轮，不是第一次', () => {
+    sessionGapLine('sess-chain', base)
+    sessionGapLine('sess-chain', base + 60_000)
+    // 第三条距的是第二条的一小时，不是距第一条的一小时零一分钟。
+    const line = sessionGapLine('sess-chain', base + 60_000 + 3_600_000)
+    expect(line).toContain('1 小时前')
+  })
+
+  it('会话之间互不影响', () => {
+    sessionGapLine('sess-a', base)
+    const line = sessionGapLine('sess-b', base + 3_600_000)
+    expect(line).not.toContain('距上一轮')
   })
 })

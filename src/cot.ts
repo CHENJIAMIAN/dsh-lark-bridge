@@ -26,6 +26,7 @@ import { stripToolCallMarkup } from './outbound.ts'
 import type { HostSessionEvent, OutboundRenderer, ReplyTarget, ToolPresentation } from './outbound.ts'
 import { DEFAULT_LIMITS } from './config.ts'
 import type { Limits } from './config.ts'
+import { clockTime, duration } from './clock.ts'
 
 /** One AG-UI event, as the write API takes it. */
 export interface CotEvent {
@@ -267,6 +268,21 @@ interface LiveRun {
   toolCalls: number
   /** How many mid-turn messages were shown, so each gets its own area. */
   userMessages: number
+  /**
+   * When each in-flight tool call started, keyed by its id, so its result can
+   * say how long it took.
+   *
+   * The gap between a call and its result is the one thing a reader watching a
+   * run cannot see: the process fills in order, but a step that sat for forty
+   * seconds and a step that returned instantly look exactly the same once both
+   * have scrolled past. The host's own event carries no elapsed time, so it is
+   * measured here, at the two points the renderer already sees.
+   */
+  readonly callStarted: Map<string, number>
+  /** The title of the most recent tool call, for the run's slowest-step line. */
+  lastToolTitle: string
+  /** The slowest call this run made, so the closing line can name it. */
+  slowest: { title: string; ms: number } | undefined
 }
 
 /**
@@ -296,10 +312,16 @@ function closingEvent(run: LiveRun, failure: string | undefined): HostSessionEve
  * moment: how much happened, and how long it took.
  */
 function closingLine(run: LiveRun): string {
-  const seconds = Math.max(0, Math.round((Date.now() - run.startedAt) / 1000))
-  const duration = seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`
   const calls = run.toolCalls === 0 ? '无工具调用' : `${run.toolCalls} 次工具调用`
-  return `✅ 本轮完成 · ${calls} · 用时 ${duration}`
+  const parts = [`✅ 本轮完成 · ${calls} · 用时 ${duration(Date.now() - run.startedAt)}`]
+  // A run's total says how long it took; it does not say where the time went.
+  // Naming the slowest step is what turns "四分钟" into something a reader can
+  // act on — which command to look at, and whether it should have been a
+  // background job.
+  if (run.slowest !== undefined && run.toolCalls > 1) {
+    parts.push(`最慢 ${run.slowest.title} ${duration(run.slowest.ms)}`)
+  }
+  return parts.join(' · ')
 }
 
 /**
@@ -403,6 +425,9 @@ export function createCotRenderer(
       startedAt: Date.now(),
       toolCalls: 0,
       userMessages: 0,
+      callStarted: new Map(),
+      lastToolTitle: '',
+      slowest: undefined,
     }
     enqueue(live, cotEvent('RUN_STARTED', { threadId: chatId, runId: `turn-${turn}` }))
     return live
@@ -544,13 +569,21 @@ export function createCotRenderer(
         const shown = presentCall(event.data.name, event.data.arguments)
         const toolCallId = event.data.callId
         run.toolCalls += 1
+        const startedAt = Date.now()
+        run.callStarted.set(toolCallId, startedAt)
         closeReasoning(run)
+        const title = subagentTitle(event.data.name, shown.title)
+        run.lastToolTitle = title
+        // The AG-UI event carries a timestamp, but only as an ordering key the
+        // client never shows. A reader who wants to line a step up against the
+        // message that asked for it has to read it off the title.
+        const shownAt = clockTime(startedAt)
         enqueue(
           run,
           cotEvent('TOOL_CALL_START', {
             toolCallId,
             icon: TOOL_ICONS[shown.kind ?? ''] ?? 'default',
-            title: subagentTitle(event.data.name, shown.title),
+            title: shownAt === undefined ? title : `${title} · ${shownAt}`,
             toolCallName: event.data.name,
           }),
           // The summary, not the arguments: a file write's arguments are
@@ -565,6 +598,18 @@ export function createCotRenderer(
         const { callId, text } = toolResultText(event.data)
         if (callId === undefined) return
         const run = ensure(event.data.turn)
+        const startedAt = run.callStarted.get(callId)
+        run.callStarted.delete(callId)
+        const elapsed = startedAt === undefined ? undefined : Date.now() - startedAt
+        if (elapsed !== undefined && (run.slowest === undefined || elapsed > run.slowest.ms)) {
+          // The title the call itself used, so the closing line names the step
+          // exactly as the reader saw it — not a second, differently-worded one.
+          run.slowest = { title: run.lastToolTitle, ms: elapsed }
+        }
+        // How long the call took, on the result line where a reader looks for
+        // "did it work, and how long did that take". A failure keeps the same
+        // shape, which is what makes two runs comparable.
+        const took = elapsed === undefined || elapsed < 1000 ? '' : `⏱ ${duration(elapsed)} · `
         enqueue(run, cotEvent('TOOL_CALL_RESULT', {
           messageId: `result-${callId}`,
           toolCallId: callId,
@@ -572,7 +617,10 @@ export function createCotRenderer(
           // A command's output reads as output, not prose — and not a
           // thousand lines of it either. The head carries the answer; the
           // rest is in the session log.
-          content: { type: 'code', code: summariseResult(text, limits.toolResultLines, limits.toolResultChars) },
+          content: {
+            type: 'code',
+            code: `${took}${summariseResult(text, limits.toolResultLines, limits.toolResultChars)}`,
+          },
           ...event.data.error === undefined ? {} : { error: event.data.error.code },
         }))
         return

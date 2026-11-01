@@ -63,6 +63,7 @@ interface StreamChunkLike {
         readonly text?: string;
     };
 }
+export { messageTimeStamp } from './clock.ts';
 /**
  * The transport surface the bridge drives. `LarkChannel` from
  * `@larksuite/channel` satisfies it structurally; tests substitute a fake.
@@ -114,24 +115,18 @@ export interface ChannelPort extends OutboundPort, SlashPanelPort, ImagePort, Co
  */
 export declare function chatUserMessage(msg: NormalizedMessage, images: CollectedImages): HostUserMessage;
 /**
- * How much of a quoted message the model is shown.
+ * The line that tells the model what time it is and how long the chat was quiet.
  *
- * A quote can be an entire bot answer. Repeating it verbatim buys nothing the
- * session history does not already hold, and a long one would push the actual
- * question out of the model's attention — so the head, and a marker.
+ * The user's own message already carries its send time (`showMessageTime`), so
+ * this line deliberately does not repeat it. What was missing is the two facts
+ * around it: which day this is, and how much of the world happened in between.
+ * A model resuming after eight hours should re-check state it assumed; one
+ * resuming after three minutes should not waste a turn doing it.
+ * @param sessionId - the session this turn belongs to.
+ * @param now - epoch milliseconds at turn start.
+ * @returns the line, or '' when there is nothing worth saying.
  */
-/**
- * Render one instant as the chat's local wall clock: `2026-11-01 01:42:33 (+08:00)`.
- *
- * 飞书给的 `createTime` 是毫秒时间戳，跟着服务器走；人说的是本地时间。一律
- * 按本机时区转，并在行里带上偏移（`+08:00`），跨时区看日志时也不会误读。
- *
- * 精确到秒是有意为之：同一分钟里会有好几条消息（一次重启、一次追问），
- * 只到分钟就分不出先后，而"先说了什么"往往正是要判断的东西。
- * @param at - epoch milliseconds, or undefined when the transport supplied none.
- * @returns the stamp, or undefined when there is nothing to render.
- */
-export declare function messageTimeStamp(at: number | undefined): string | undefined;
+export declare function sessionGapLine(sessionId: string, now: number): string;
 /**
  * Render the message a chat message quotes back, as a block to prepend.
  *
@@ -185,5 +180,4 @@ export declare function busyDelivery(busy: boolean, policy: BusyPolicy, agent: P
  * @param port - the transport to drive; production passes the real Lark channel.
  */
 export declare function installBridge(ctx: Context, config: ResolvedConfig, port: ChannelPort, notify: (line: string) => void, authorization: Authorization): void;
-export {};
 //# sourceMappingURL=bridge.d.ts.map

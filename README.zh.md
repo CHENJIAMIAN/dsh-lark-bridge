@@ -127,7 +127,8 @@ pnpm 10 默认拦截依赖的构建脚本，未放行时以非零退出码失败
 | 🧰 **能力全景** | `/tools` 列出这台机器此刻真能做什么——可见工具与接的 MCP 服务器 |
 | 🎙️ **媒体按形态送达** | ogg/opus 录音按语音条、mp4/m4v 视频按视频送达，聊天里直接能播 |
 | 🖼️ **图片输入（可选）** | `attachImages` 把聊天图片传给模型 |
-| 🕐 **消息时间戳** | showMessageTime（默认开）给每条来信和每条被引用的消息标上本地发送时间；设成 alse 则原文不动 |
+| 🕐 **消息时间戳** | showMessageTime（默认开）给每条来信和每条被引用的消息标上本地发送时间；设成 `false` 则原文不动 |
+| ⏱️ **时间两头都看得见** | 思考区里每次工具调用带开始的钟点、超过 1 秒的结果带耗时、收尾行点名最慢的一步；同时每轮把「现在几点、距上一轮多久」交给模型——隔八小时的「继续」和隔三分钟的「继续」不是同一个指令 |
 | 📎 **文件发送** | Agent 的 `send_file` 带 caption 投递到聊天（本地目录默认拒绝） |
 | 🔒 **授权窄化** | `senderAllowlist` / `groupAllowlist` / `approvers` |
 | ⏰ **定时提醒** | `/schedules` 视图（模型侧工具需组合 `@deepseek-ai/dsh-schedule`） |
@@ -334,13 +335,13 @@ pnpm 10 默认拦截依赖的构建脚本，未放行时以非零退出码失败
 
 ```sh
 pnpm hygiene                    # 仓库卫生（部署专有词只留在本机）
-pnpm test                       # 678 条测试 / 68 个 spec 文件
+pnpm test                       # 696 条测试 / 69 个 spec 文件
 pnpm contract-test              # 43 条宿主契约检查
 pnpm contract-drift             # 对上游 dsh master 的漂移检查
 node scripts/check-readme-parity.mjs   # 两份 README 保持同构
 ```
 
-测试在 `tests/` —— vitest 套件（68 个），含 harness 注入式假件。升级引擎前后各跑一次 `pnpm contract-drift`——桥所镜像的宿主接缝一旦挪位，它会红。
+测试在 `tests/` —— vitest 套件（69 个），含 harness 注入式假件。升级引擎前后各跑一次 `pnpm contract-drift`——桥所镜像的宿主接缝一旦挪位，它会红。
 
 ## 🤝 参与
 
