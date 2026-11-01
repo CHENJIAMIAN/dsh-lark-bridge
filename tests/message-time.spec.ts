@@ -30,10 +30,21 @@ function message(overrides: Partial<NormalizedMessage> = {}): NormalizedMessage 
 }
 
 describe('messageTimeStamp', () => {
-  it('按本地时区渲染到分钟，并带上偏移', () => {
+  it('按本地时区渲染到秒，并带上偏移', () => {
     // 2026-11-01 00:29:00 +08:00
     const stamp = messageTimeStamp(1793464140000)
-    expect(stamp).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2} \(\+08:00\)$/)
+    expect(stamp).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \(\+08:00\)$/)
+    expect(stamp).toContain(':29:00')
+  })
+
+  it('同一分钟里能分出先后', () => {
+    // 这是"精确到秒"存在的理由：一分钟内常有两条相对独立的消息。
+    const base = 1793464140000
+    const earlier = messageTimeStamp(base)
+    const later = messageTimeStamp(base + 1_500)
+    expect(earlier).toBe('2026-11-01 00:29:00 (+08:00)')
+    expect(later).toBe('2026-11-01 00:29:01 (+08:00)')
+    expect(earlier).not.toBe(later)
   })
 
   it('本地时区的分钟数换算正确，不差小时', () => {
@@ -44,7 +55,7 @@ describe('messageTimeStamp', () => {
       hour: '2-digit', minute: '2-digit', hour12: false,
     }).format(new Date(at)).replace(/,? /g, ' ')
     expect(messageTimeStamp(at)!.startsWith(expected.replace(/^(\d{4})-(\d{2})-(\d{2})/, '$1-$2-$3'))).toBe(true)
-    expect(messageTimeStamp(at)).toContain(':29')
+    expect(messageTimeStamp(at)).toContain(':29:')
   })
 
   it('没有时间就返回 undefined，不瞎编', () => {

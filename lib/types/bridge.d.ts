@@ -121,10 +121,13 @@ export declare function chatUserMessage(msg: NormalizedMessage, images: Collecte
  * question out of the model's attention — so the head, and a marker.
  */
 /**
- * Render one instant as the chat's local wall clock: `2026-11-01 01:29`.
+ * Render one instant as the chat's local wall clock: `2026-11-01 01:42:33 (+08:00)`.
  *
  * 飞书给的 `createTime` 是毫秒时间戳，跟着服务器走；人说的是本地时间。一律
  * 按本机时区转，并在行里带上偏移（`+08:00`），跨时区看日志时也不会误读。
+ *
+ * 精确到秒是有意为之：同一分钟里会有好几条消息（一次重启、一次追问），
+ * 只到分钟就分不出先后，而"先说了什么"往往正是要判断的东西。
  * @param at - epoch milliseconds, or undefined when the transport supplied none.
  * @returns the stamp, or undefined when there is nothing to render.
  */
