@@ -115,18 +115,22 @@ export interface ChannelPort extends OutboundPort, SlashPanelPort, ImagePort, Co
  */
 export declare function chatUserMessage(msg: NormalizedMessage, images: CollectedImages): HostUserMessage;
 /**
- * The line that tells the model what time it is and how long the chat was quiet.
+ * How long the chat was quiet before this turn, as a phrase for the model.
  *
- * The user's own message already carries its send time (`showMessageTime`), so
- * this line deliberately does not repeat it. What was missing is the two facts
- * around it: which day this is, and how much of the world happened in between.
- * A model resuming after eight hours should re-check state it assumed; one
- * resuming after three minutes should not waste a turn doing it.
+ * Only the GAP comes from here. The absolute time belongs to the message
+ * stamp beside it (`showMessageTime`), and saying the same instant twice put
+ * two timestamps three seconds apart at the top of every message — which
+ * leaves the model to guess which one is "now". One line, one time, one gap:
+ * the gap is the part the stamp cannot carry, and it is the part that
+ * actually changes behaviour. A model resuming after eight hours should
+ * re-check state it assumed; one resuming after three minutes should not
+ * spend a turn doing it.
  * @param sessionId - the session this turn belongs to.
  * @param now - epoch milliseconds at turn start.
- * @returns the line, or '' when there is nothing worth saying.
+ * @returns the phrase (e.g. `4 分钟前`), or '' when the gap is unknown or
+ *   too small to be worth a word.
  */
-export declare function sessionGapLine(sessionId: string, now: number): string;
+export declare function sessionGapPhrase(sessionId: string, now: number): string;
 /**
  * Render the message a chat message quotes back, as a block to prepend.
  *
