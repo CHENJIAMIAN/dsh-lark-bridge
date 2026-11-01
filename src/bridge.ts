@@ -82,6 +82,7 @@ import {
   RESTART_COMMAND,
   runCommandLine,
   SCHEDULES_COMMAND,
+  SESSION_COMMAND,
   SESSIONS_COMMAND,
   SKILLS_COMMAND,
   STOP_COMMAND,
@@ -1847,6 +1848,7 @@ export function installBridge(
   const channelCommands = (locale: Locale): Array<{ name: string; description: string }> => [
     { name: PRESET_COMMAND, description: describeCommand(PRESET_COMMAND, locale, 'View or switch mode') },
     { name: SESSIONS_COMMAND, description: describeCommand(SESSIONS_COMMAND, locale, 'View session history') },
+    { name: SESSION_COMMAND, description: describeCommand(SESSION_COMMAND, locale, 'Inspect the current session') },
     { name: TOOLS_COMMAND, description: describeCommand(TOOLS_COMMAND, locale, 'View, deny, or allow tools') },
     { name: SCHEDULES_COMMAND, description: describeCommand(SCHEDULES_COMMAND, locale, 'View scheduled reminders') },
     { name: JOBS_COMMAND, description: describeCommand(JOBS_COMMAND, locale, 'View background jobs') },
@@ -2182,6 +2184,9 @@ export function installBridge(
               llm: ctx.get('llm') as HostLlm | undefined,
               efforts: effortOverrides,
               ctx,
+              sessionCwd: await chatCwd(msg.chatId),
+              sessionCwdBound: (await chatBindings())[msg.chatId] !== undefined,
+              sessionPreset: sessionPresets.get(sessionId),
             },
           )
         } catch (error) {

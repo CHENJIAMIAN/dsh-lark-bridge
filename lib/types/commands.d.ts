@@ -55,6 +55,19 @@ export declare const HELP_COMMAND = "help";
 export declare const PRESET_COMMAND = "preset";
 /** List this chat's stored sessions. */
 export declare const SESSIONS_COMMAND = "sessions";
+/**
+ * What THIS session is: identity, model route, size, where it lives.
+ *
+ * `sessions` (plural) lists the chat's history and `context` reports token
+ * pressure; neither answers "which session am I talking to right now, on what
+ * model, since when, and how big has it grown". Every one of those facts was
+ * already reachable through some other command or not at all, so a reader
+ * trying to explain unexpected behaviour — a wrong model answering, a stale
+ * context, a session that reset without warning — had to reconstruct it from
+ * several replies and timestamps. One command that states them together is
+ * the difference between diagnosing that in one glance and in ten messages.
+ */
+export declare const SESSION_COMMAND = "session";
 /** Start a fresh session for this conversation; `/clear` is an alias. */
 export declare const NEW_COMMAND = "new";
 /** Bridge dual-end status, settings, and plugin sync. */
@@ -144,6 +157,12 @@ export interface CommandExtras {
     readonly efforts?: EffortOverrides | undefined;
     /** The bridge's context, for services reached only on demand (`/context`'s breakdown). */
     readonly ctx?: Context | undefined;
+    /** The directory the next session would land in, after any `/ws use` binding (`/session`). */
+    readonly sessionCwd?: string | undefined;
+    /** Whether {@link CommandExtras.sessionCwd} came from the chat's own binding. */
+    readonly sessionCwdBound?: boolean | undefined;
+    /** The this session's live preset choice, when one was made (`/session`). */
+    readonly sessionPreset?: string | undefined;
 }
 /**
  * Render the help listing for one agent's available commands.
