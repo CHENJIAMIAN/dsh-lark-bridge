@@ -18,10 +18,38 @@
 
 <p align="center">
   <a href="README.md">English</a> ·
+  <a href="#-关于这个-fork">关于这个 fork</a> ·
   <a href="#-60-秒上手">快速开始</a> ·
   <a href="#-它是干什么的">它是干什么的</a> ·
   <a href="#-faq">FAQ</a>
 </p>
+
+---
+
+## 🍴 关于这个 fork
+
+这是 [moyu-good/dsh-lark-bridge](https://github.com/moyu-good/dsh-lark-bridge) 的**个人 fork**，为日常使用维护，不为上游发版。上游项目本身很好，原始设计都出自那里；这里放着的是上游代码，加上把它当飞书工作台天天用之后添的东西。
+
+**这个 fork 与上游的关系**
+
+| | |
+|---|---|
+| 上游 | [moyu-good/dsh-lark-bridge](https://github.com/moyu-good/dsh-lark-bridge) —— 原始项目 |
+| 本 fork | [CHENJIAMIAN/dsh-lark-bridge](https://github.com/CHENJIAMIAN/dsh-lark-bridge) —— `main` 是主线 |
+| npm | 本 fork **不发布**。npm 上的 `@moyu-good/dsh-lark-bridge` 是上游的 |
+| 上游修复 | 用 `git fetch upstream` 取回来挑着合 |
+
+**本 fork 加了什么**（细节见 [CHANGELOG.md](CHANGELOG.md)）：
+
+- **时间两头都看得见** —— 思考区里每次工具调用带钟点与耗时；模型每轮知道现在几点、这个聊天安静了多久。
+- **`/session`** —— 一条命令说清会话的 id、目录、实际在用的模型路由、日志规模、上下文 token 与距提醒线的距离。
+- **`/think`** —— 会话级思考强度，对下一步请求生效；`/model` 不再把它丢掉。
+- **`/ws use <目录>` 与 `bind_workspace`** —— 把聊天永久绑定到项目目录，`/new` 才落在你要的地方。
+- **引用回复的正文进模型** —— 被引用的那条会先取回、放在提问之前。
+- **截断预算可配** —— 每个截断上限都是设置项，默认值按工作台用量放大。
+- **上游在 Linux 上碰不到的问题** —— Windows 上用 PowerShell 重启、重启后从会话日志恢复定时提醒、媒体先于 caption 发送。
+
+**回不回流上游** —— 通用改动会单独提 PR 回上游；带着这套部署工作流假设的改动留在这里。两条路都建立在这个 fork 跟随上游、而不是分道扬镳的前提上。
 
 ---
 

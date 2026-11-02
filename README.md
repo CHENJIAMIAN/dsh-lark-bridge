@@ -18,10 +18,38 @@
 
 <p align="center">
   <a href="README.zh.md">中文</a> ·
+  <a href="#-about-this-fork">About this fork</a> ·
   <a href="#-quick-start">Quick Start</a> ·
   <a href="#-what-it-does">What it does</a> ·
   <a href="#-faq">FAQ</a>
 </p>
+
+---
+
+## 🍴 About this fork
+
+This is a **personal fork** of [moyu-good/dsh-lark-bridge](https://github.com/moyu-good/dsh-lark-bridge), maintained for daily use rather than for upstream release. The upstream project is excellent and remains the source of the original design; what lives here is upstream's code plus a set of additions made while running it as a full-time Feishu workstation.
+
+**How this fork relates to upstream**
+
+| | |
+|---|---|
+| Upstream | [moyu-good/dsh-lark-bridge](https://github.com/moyu-good/dsh-lark-bridge) — the original |
+| This fork | [CHENJIAMIAN/dsh-lark-bridge](https://github.com/CHENJIAMIAN/dsh-lark-bridge) — `main` is the working line |
+| npm | This fork is **not published**. `@moyu-good/dsh-lark-bridge` on npm is upstream's |
+| Bug fixes | Upstream fixes are cherry-picked in via `git fetch upstream` |
+
+**What this fork adds** (see [CHANGELOG.md](CHANGELOG.md) for detail):
+
+- **Time made visible, both ways** — every tool call in the thinking process carries its clock time and elapsed duration; the model is told each turn's current time and how long the chat was idle.
+- **`/session`** — one command that states the session's id, directory, the model route actually used, log size, context tokens and distance to the warning line.
+- **`/think`** — per-session reasoning effort, applied to the next request; `/model` no longer drops it.
+- **`/ws use <dir>` and `bind_workspace`** — bind a chat to a project directory permanently, so `/new` lands where you meant.
+- **Quoted messages reach the model** — a reply's quoted body is fetched and placed ahead of the question.
+- **Configurable elision budgets** — every truncation limit is a setting, defaults sized for workstation use.
+- **Fixes upstream never hit on Linux** — restart via PowerShell on Windows, schedules recovered from the session log after a restart, media sent before its caption.
+
+**Contributing back** — changes that are generally useful get offered upstream as focused PRs. Changes that assume this deployment's workflow stay here. Either way this fork tracks upstream rather than diverging from it.
 
 ---
 

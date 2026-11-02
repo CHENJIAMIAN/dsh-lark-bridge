@@ -66,10 +66,14 @@
   "license": "BSD-3-Clause",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/moyu-good/dsh-lark-bridge.git"
+    "url": "git+https://github.com/CHENJIAMIAN/dsh-lark-bridge.git"
   },
   "bugs": {
-    "url": "https://github.com/moyu-good/dsh-lark-bridge/issues"
+    "url": "https://github.com/CHENJIAMIAN/dsh-lark-bridge/issues"
+  },
+  "forkOf": {
+    "url": "https://github.com/moyu-good/dsh-lark-bridge",
+    "npm": "@moyu-good/dsh-lark-bridge"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1"
