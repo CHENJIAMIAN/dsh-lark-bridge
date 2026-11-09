@@ -19,5 +19,12 @@ export default defineConfig({
     // workers and brings the starvation flakes back with it.
     maxWorkers: 1,
     minWorkers: 1,
+    // Pin the clock's zone. Several specs assert rendered timestamps
+    // (`(+08:00)`, `16:29:00`) because the deployment this bridge runs inside
+    // is in Asia/Shanghai, and those assertions were written on that machine.
+    // Without this, the same commit is green locally and red on a UTC runner —
+    // which is exactly what happened the first time CI got past the drift gate
+    // and actually reached `pnpm test`.
+    env: { TZ: 'Asia/Shanghai' },
   },
 })
