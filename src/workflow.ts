@@ -1,12 +1,12 @@
 /**
- * Workflow run progress as chat messages.
+ * Workflow event shapes and the one line still posted as chat text.
  *
- * dsh's `workflow` tool runs a JS orchestration script that fans out
- * subagents, and appends four event types to the session log: run-start,
- * agent-start, agent-end, run-end. The Web UI has a dedicated workflow-run
- * surface; a messaging client gets the same shape as a short text stream so
- * the human sees the fan-out happening instead of a silent gap followed by a
- * final answer.
+ * A run's progress is a CARD now (see `workflow-card.ts`), not a stream of
+ * lines: a fan-out is not a story, and one message per member is a wall to
+ * scroll past. What remains here are the event types the bridge mirrors and the
+ * narration line `workflow/log` still posts verbatim — a narration is something
+ * the workflow script chose to SAY, so it belongs in the chat rather than inside
+ * a card that gets rewritten under it.
  * @module dsh-lark-bridge/workflow
  */
 
@@ -34,41 +34,6 @@ export interface WorkflowAgentEnd {
 export interface WorkflowRunEnd {
   readonly runId: string
   readonly stopReason: 'completed' | 'cancelled' | 'error'
-}
-
-/** The run-opening line. */
-export function runStartLine(run: WorkflowRunStart): string {
-  return `🧩 工作流「${run.name}」开始，派出子任务…`
-}
-
-/** The per-member outcome emoji. */
-function outcomeMark(outcome: WorkflowAgentEnd['outcome']): string {
-  switch (outcome) {
-    case 'completed': return '✅'
-    case 'failed': return '❌'
-    case 'cancelled': return '⏹️'
-  }
-}
-
-/** One member starting line (deduped by seq). */
-export function agentStartLine(agent: WorkflowAgentStart): string {
-  return `  · ${agent.label} 启动…`
-}
-
-/** One member settling line. */
-export function agentEndLine(agent: WorkflowAgentEnd): string {
-  return `  · #${agent.seq} ${outcomeMark(agent.outcome)}`
-}
-
-/** The run-closing line. */
-export function runEndLine(run: WorkflowRunEnd): string {
-  const label = run.stopReason === 'completed' ? '全部完成' : run.stopReason === 'cancelled' ? '已取消' : '出错终止'
-  return `🧩 工作流结束：${label}`
-}
-
-/** A workflow phase-change line (live `workflow/phase` event). */
-export function phaseLine(title: string): string {
-  return `🗂️ 阶段：${title}`
 }
 
 /** A workflow narration line (live `workflow/log` event). */

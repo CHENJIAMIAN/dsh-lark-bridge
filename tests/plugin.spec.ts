@@ -194,34 +194,49 @@ describe('dsh-lark-bridge', () => {
     await harness.dispose()
   })
 
-  it('streams workflow fan-out events into the chat', async () => {
+  it('streams workflow fan-out into one live card', async () => {
     const harness = await mountChannel()
     await harness.fake.emitMessage(fakeMessage())
     await vi.waitFor(() => { expect(harness.agents.created).toHaveLength(1) })
     const session = harness.agents.created[0]!.agent.session
     const emit = (type: string, data: unknown) => harness.ctx.emit('session/event', session, { type, data })
 
+    /** Text a card carries, wherever it sits in the tree. */
+    const cardLines = (card: object): string => JSON.stringify(card)
+
+    // The run opens ONE card. It is never followed by a message per member.
     emit('tool-workflow/run-start', { runId: 'run-1', name: '调研' })
-    await vi.waitFor(() => { expect(harness.fake.sent.some(m => 'markdown' in m.input && m.input.markdown.includes('工作流「调研」'))).toBe(true) })
+    await vi.waitFor(() => {
+      expect(harness.fake.sent.some(m => 'card' in m.input && cardLines(m.input.card).includes('工作流「调研」'))).toBe(true)
+    })
+    const sentBefore = harness.fake.sent.length
+
     emit('tool-workflow/agent-start', { runId: 'run-1', seq: 1, label: '爬虫', childId: 'child-1' })
-    // Member events are coalesced: the label arrives inside one counted line a
-    // window later, not as one message per member.
-    await vi.waitFor(
-      () => { expect(harness.fake.sent.some(m => 'markdown' in m.input && m.input.markdown.includes('爬虫'))).toBe(true) },
-      { timeout: 5_000 },
-    )
+    emit('tool-workflow/agent-end', { runId: 'run-1', seq: 1, outcome: 'completed' })
     harness.ctx.emit('workflow/phase', { id: 'run-1', meta: {} }, '爬取数据')
-    await vi.waitFor(() => { expect(harness.fake.sent.some(m => 'markdown' in m.input && m.input.markdown.includes('阶段：爬取数据'))).toBe(true) })
+
+    // Progress is an in-place rewrite of that card: phase and counts land there.
+    await vi.waitFor(() => {
+      const latest = harness.fake.updated.at(-1)
+      expect(latest).toBeDefined()
+      const body = cardLines(latest!.card)
+      expect(body).toContain('爬取数据')
+      expect(body).toContain('启动 1')
+      expect(body).toContain('✅ 1')
+    }, { timeout: 5_000 })
+    // No extra chat messages: the card replaced the line-per-event stream.
+    expect(harness.fake.sent.length).toBe(sentBefore)
+
+    // A narration is something the script chose to say, so it stays a message.
     harness.ctx.emit('workflow/log', { id: 'run-1', meta: {} }, '正在抓取 100 页')
     await vi.waitFor(() => { expect(harness.fake.sent.some(m => 'markdown' in m.input && m.input.markdown.includes('正在抓取 100 页'))).toBe(true) })
-    emit('tool-workflow/agent-end', { runId: 'run-1', seq: 1, outcome: 'completed' })
-    // The settlement lands in the coalesced window too, so allow it to open.
-    await vi.waitFor(
-      () => { expect(harness.fake.sent.some(m => 'markdown' in m.input && m.input.markdown.includes('✅'))).toBe(true) },
-      { timeout: 5_000 },
-    )
+
     emit('tool-workflow/run-end', { runId: 'run-1', stopReason: 'completed' })
-    await vi.waitFor(() => { expect(harness.fake.sent.some(m => 'markdown' in m.input && m.input.markdown.includes('全部完成'))).toBe(true) })
+    await vi.waitFor(() => {
+      const latest = harness.fake.updated.at(-1)
+      expect(latest).toBeDefined()
+      expect(cardLines(latest!.card)).toContain('完成')
+    })
     await harness.dispose()
   })
 
