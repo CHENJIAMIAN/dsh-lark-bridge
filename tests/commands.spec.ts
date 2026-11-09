@@ -1218,8 +1218,12 @@ describe('/ws command', () => {
   // 绑定里存的是人手敲的串，注册表存的是 realpath：大小写、尾部分隔符、
   // 相对写法都能指向同一个目录，纯字符串相等会把它们判成不匹配。
   it('treats two spellings of one directory as the same workspace', async () => {
+    // Windows and macOS fold case; Linux does not. Asserting `/srv/proj/` names
+    // the same directory as `/srv/Proj` would be asserting POSIX behaves like
+    // NTFS, which is why this was green locally and red on the UTC runner.
+    // On POSIX the surviving spelling difference is the trailing separator.
     const marker = process.platform === 'win32' ? 'C:\\srv\\Proj' : '/srv/Proj'
-    const spelled = process.platform === 'win32' ? 'c:\\srv\\proj\\' : '/srv/proj/'
+    const spelled = process.platform === 'win32' ? 'c:\\srv\\proj\\' : '/srv/Proj/'
     const same = await runWs(fakeRegistry([{ id: 'ws_p', path: marker }]) as never, spelled, true)
     expect(same.reply).toContain('← 当前')
   })
