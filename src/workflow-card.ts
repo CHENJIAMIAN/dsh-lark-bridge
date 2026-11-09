@@ -74,7 +74,20 @@ interface CardSlot {
 
 /** The surface the bridge drives as workflow events arrive. */
 export interface WorkflowCard {
-  /** A run opened: show its card at once, then coalesce. */
+  /**
+   * A `workflow` tool call just started: put the card up NOW.
+   *
+   * `tool-workflow/run-start` is a durable session event and only reaches the
+   * bridge when the tool settles, so waiting for it means a 68-member scan
+   * shows nothing at all until it is over — the reader stares at silence and
+   * then gets a finished card. The tool call is what is actually observable in
+   * real time, so the card opens on that and is adopted by the run when the
+   * durable event arrives.
+   * @param chatId - the chat the tool call belongs to.
+   * @param name - the run name from the call arguments, when it can be read.
+   */
+  opening(chatId: string, name: string): void
+  /** The run took over an opening card, or opened its own. */
   runStart(run: WorkflowRunStart, chatId: string): void
   /** The run entered a named phase. */
   phase(runId: string, title: string): void
@@ -84,6 +97,14 @@ export interface WorkflowCard {
   agentEnd(agent: WorkflowAgentEnd): void
   /** A run closed: write the final card. */
   runEnd(run: WorkflowRunEnd): void
+  /**
+   * The tool call ended without a run opening — the workflow never started.
+   *
+   * Without this the "启动中" card would sit there forever, which reads as a
+   * hung run rather than a failed one.
+   * @param chatId - the chat whose opening card is still unclaimed.
+   */
+  abandon(chatId: string): void
   /**
    * Whether this chat is inside a running workflow.
    *
@@ -167,6 +188,47 @@ function workflowCard(state: RunState, maxNamedFailures: number, now: number): o
 }
 
 /**
+ * The card shown between "the model called `workflow`" and "the run opened".
+ *
+ * It exists because those two moments can be seconds or minutes apart: the
+ * durable run-start lands with the tool result. Keeping it deliberately bare —
+ * the name and a "starting" note — is the honest thing to show while nothing
+ * has actually happened yet.
+ * @param name - the run name read from the call arguments, or a fallback.
+ * @returns a Feishu card object.
+ */
+function openingCard(name: string): object {
+  return {
+    config: { wide_screen_mode: true },
+    header: { template: 'blue', title: { tag: 'plain_text', content: `🧩 工作流「${name}」启动中` } },
+    elements: [{
+      tag: 'note',
+      elements: [{ tag: 'plain_text', content: '正在准备子任务…' }],
+    }],
+  }
+}
+
+/**
+ * The card shown when the tool call ended without a run ever opening.
+ *
+ * Grey rather than red: nothing ran, so there is nothing to be alarmed about —
+ * but the reader who just watched a "启动中" card deserves to be told it will
+ * not progress.
+ * @param name - the run name read from the call arguments, or a fallback.
+ * @returns a Feishu card object.
+ */
+function abandonedCard(name: string): object {
+  return {
+    config: { wide_screen_mode: true },
+    header: { template: 'grey', title: { tag: 'plain_text', content: `⏹️ 工作流「${name}」没有启动` } },
+    elements: [{
+      tag: 'note',
+      elements: [{ tag: 'plain_text', content: '工具调用结束了，但没有收到工作流事件。' }],
+    }],
+  }
+}
+
+/**
  * Build the coalescing workflow card writer.
  * @param port - how to send and update the card.
  * @param options - coalesce window, failure-name budget, failure reporting.
@@ -183,6 +245,10 @@ export function createWorkflowCard(
   const runs = new Map<string, RunState>()
   /** One card per chat: a second run reuses and overwrites the first one's card. */
   const cards = new Map<string, CardSlot>()
+  /** Chats whose `workflow` tool call opened a card the run has not claimed yet. */
+  const openings = new Map<string, string>()
+  /** A run-start that never arrives must not leave an eternal "启动中" card. */
+  const openingTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** Pending coalesced write per run. */
   const timers = new Map<string, ReturnType<typeof setTimeout>>()
   /** Serialises writes per chat so a slow update cannot land out of order. */
@@ -197,14 +263,29 @@ export function createWorkflowCard(
     timers.delete(runId)
   }
 
-  const write = (runId: string, state: RunState, final: boolean): void => {
-    const card = workflowCard(state, maxNamedFailures, Date.now())
-    const previous = writing.get(state.chatId) ?? Promise.resolve()
+  const clearOpening = (chatId: string): void => {
+    const timer = openingTimers.get(chatId)
+    if (timer !== undefined) {
+      clearTimeout(timer)
+      openingTimers.delete(chatId)
+    }
+    openings.delete(chatId)
+  }
+
+  /**
+   * Write one card, creating it the first time a chat is served.
+   *
+   * Writes are chained per chat because `send`/`updateCard` are independent
+   * requests: without the chain a slow update can land AFTER the closing card
+   * and resurrect a finished run as "进行中".
+   */
+  const writeCard = (chatId: string, runId: string, card: object, final: boolean): void => {
+    const previous = writing.get(chatId) ?? Promise.resolve()
     const next = previous.then(async () => {
-      const slot = cards.get(state.chatId)
+      const slot = cards.get(chatId)
       if (slot === undefined) {
-        const sent = await port.send(state.chatId, { card })
-        cards.set(state.chatId, { messageId: sent.messageId, runId })
+        const sent = await port.send(chatId, { card })
+        cards.set(chatId, { messageId: sent.messageId, runId })
         return
       }
       slot.runId = runId
@@ -214,11 +295,15 @@ export function createWorkflowCard(
       // A card that failed to write must not take the run down: the answer
       // still arrives, and the next event retries the write.
       onFailure(error)
-      if (final) cards.delete(state.chatId)
+      if (final) cards.delete(chatId)
     }).finally(() => {
-      if (writing.get(state.chatId) === next) writing.delete(state.chatId)
+      if (writing.get(chatId) === next) writing.delete(chatId)
     })
-    writing.set(state.chatId, next)
+    writing.set(chatId, next)
+  }
+
+  const write = (runId: string, state: RunState, final: boolean): void => {
+    writeCard(state.chatId, runId, workflowCard(state, maxNamedFailures, Date.now()), final)
   }
 
   const schedule = (runId: string, state: RunState): void => {
@@ -236,9 +321,27 @@ export function createWorkflowCard(
   }
 
   return {
+    opening(chatId, name) {
+      // A run already on this chat owns the card; a second opening would
+      // overwrite live progress with "starting".
+      for (const state of runs.values()) if (state.chatId === chatId) return
+      openings.set(chatId, name)
+      writeCard(chatId, '', openingCard(name), false)
+      const previousTimer = openingTimers.get(chatId)
+      if (previousTimer !== undefined) clearTimeout(previousTimer)
+      const timer = setTimeout(() => {
+        openingTimers.delete(chatId)
+        if (openings.get(chatId) === undefined) return
+        openings.delete(chatId)
+        writeCard(chatId, '', abandonedCard(name), true)
+      }, 90_000)
+      ;(timer as unknown as { unref?: () => void }).unref?.()
+      openingTimers.set(chatId, timer)
+    },
     runStart(run, chatId) {
       // A re-delivered run-start must not reset a run that is already counting.
       if (runs.has(run.runId)) return
+      clearOpening(chatId)
       const state: RunState = {
         chatId,
         name: run.name,
@@ -251,8 +354,9 @@ export function createWorkflowCard(
         failedLabels: [],
       }
       runs.set(run.runId, state)
-      // The opening card is written immediately: it is the reader's proof that
-      // the fan-out started, and a 1.2 s silence at the start reads as a hang.
+      // The opening card (if any) is rewritten in place by the same writeCard
+      // path, so a run that started under a "启动中" card never leaves a
+      // second card behind.
       write(run.runId, state, false)
     },
     phase(runId, title) {
@@ -287,6 +391,12 @@ export function createWorkflowCard(
       runs.delete(run.runId)
       write(run.runId, state, true)
     },
+    abandon(chatId) {
+      const name = openings.get(chatId)
+      if (name === undefined) return
+      clearOpening(chatId)
+      writeCard(chatId, '', abandonedCard(name), true)
+    },
     isActive(chatId) {
       for (const state of runs.values()) {
         if (state.chatId === chatId) return true
@@ -295,9 +405,12 @@ export function createWorkflowCard(
     },
     dispose() {
       for (const timer of timers.values()) clearTimeout(timer)
+      for (const timer of openingTimers.values()) clearTimeout(timer)
       timers.clear()
+      openingTimers.clear()
       runs.clear()
       cards.clear()
+      openings.clear()
       again.clear()
     },
   }

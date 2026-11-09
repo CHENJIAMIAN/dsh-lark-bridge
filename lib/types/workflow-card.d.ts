@@ -46,7 +46,20 @@ export interface WorkflowCardOptions {
 }
 /** The surface the bridge drives as workflow events arrive. */
 export interface WorkflowCard {
-    /** A run opened: show its card at once, then coalesce. */
+    /**
+     * A `workflow` tool call just started: put the card up NOW.
+     *
+     * `tool-workflow/run-start` is a durable session event and only reaches the
+     * bridge when the tool settles, so waiting for it means a 68-member scan
+     * shows nothing at all until it is over — the reader stares at silence and
+     * then gets a finished card. The tool call is what is actually observable in
+     * real time, so the card opens on that and is adopted by the run when the
+     * durable event arrives.
+     * @param chatId - the chat the tool call belongs to.
+     * @param name - the run name from the call arguments, when it can be read.
+     */
+    opening(chatId: string, name: string): void;
+    /** The run took over an opening card, or opened its own. */
     runStart(run: WorkflowRunStart, chatId: string): void;
     /** The run entered a named phase. */
     phase(runId: string, title: string): void;
@@ -56,6 +69,14 @@ export interface WorkflowCard {
     agentEnd(agent: WorkflowAgentEnd): void;
     /** A run closed: write the final card. */
     runEnd(run: WorkflowRunEnd): void;
+    /**
+     * The tool call ended without a run opening — the workflow never started.
+     *
+     * Without this the "启动中" card would sit there forever, which reads as a
+     * hung run rather than a failed one.
+     * @param chatId - the chat whose opening card is still unclaimed.
+     */
+    abandon(chatId: string): void;
     /**
      * Whether this chat is inside a running workflow.
      *
