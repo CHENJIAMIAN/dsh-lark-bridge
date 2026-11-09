@@ -194,16 +194,23 @@ function workflowCard(state: RunState, maxNamedFailures: number, now: number): o
  * durable run-start lands with the tool result. Keeping it deliberately bare —
  * the name and a "starting" note — is the honest thing to show while nothing
  * has actually happened yet.
+ *
+ * The elapsed counter is the one thing the bridge can know on its own. Every
+ * workflow event this host emits arrives in batches with the tool result, so
+ * between the opening and the run's own first frame the card would otherwise
+ * sit unchanged for minutes — and an unchanged card is indistinguishable from
+ * a hung one. A counter that ticks proves the turn is alive.
  * @param name - the run name read from the call arguments, or a fallback.
+ * @param elapsedMs - how long the call has been running.
  * @returns a Feishu card object.
  */
-function openingCard(name: string): object {
+function openingCard(name: string, elapsedMs: number): object {
   return {
     config: { wide_screen_mode: true },
     header: { template: 'blue', title: { tag: 'plain_text', content: `🧩 工作流「${name}」启动中` } },
     elements: [{
       tag: 'note',
-      elements: [{ tag: 'plain_text', content: '正在准备子任务…' }],
+      elements: [{ tag: 'plain_text', content: `正在准备子任务… · 已等待 ${formatDuration(elapsedMs)}` }],
     }],
   }
 }
@@ -247,6 +254,10 @@ export function createWorkflowCard(
   const cards = new Map<string, CardSlot>()
   /** Chats whose `workflow` tool call opened a card the run has not claimed yet. */
   const openings = new Map<string, string>()
+  /** When each opening card was put up, for its elapsed counter. */
+  const openingBegan = new Map<string, number>()
+  /** The elapsed-counter ticker per chat. */
+  const openingTicks = new Map<string, ReturnType<typeof setInterval>>()
   /** A run-start that never arrives must not leave an eternal "启动中" card. */
   const openingTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** Pending coalesced write per run. */
@@ -269,6 +280,12 @@ export function createWorkflowCard(
       clearTimeout(timer)
       openingTimers.delete(chatId)
     }
+    const ticker = openingTicks.get(chatId)
+    if (ticker !== undefined) {
+      clearInterval(ticker)
+      openingTicks.delete(chatId)
+    }
+    openingBegan.delete(chatId)
     openings.delete(chatId)
   }
 
@@ -325,14 +342,26 @@ export function createWorkflowCard(
       // A run already on this chat owns the card; a second opening would
       // overwrite live progress with "starting".
       for (const state of runs.values()) if (state.chatId === chatId) return
+      clearOpening(chatId)
       openings.set(chatId, name)
-      writeCard(chatId, '', openingCard(name), false)
-      const previousTimer = openingTimers.get(chatId)
-      if (previousTimer !== undefined) clearTimeout(previousTimer)
+      const began = Date.now()
+      openingBegan.set(chatId, began)
+      writeCard(chatId, '', openingCard(name, 0), false)
+
+      // Tick the elapsed counter while nothing else is known. Five seconds is
+      // slow enough to stay far from Feishu's per-chat rate limit and fast
+      // enough that the card never looks frozen.
+      const ticker = setInterval(() => {
+        if (openings.get(chatId) === undefined) return
+        writeCard(chatId, '', openingCard(name, Date.now() - began), false)
+      }, 5_000)
+      ;(ticker as unknown as { unref?: () => void }).unref?.()
+      openingTicks.set(chatId, ticker)
+
       const timer = setTimeout(() => {
         openingTimers.delete(chatId)
         if (openings.get(chatId) === undefined) return
-        openings.delete(chatId)
+        clearOpening(chatId)
         writeCard(chatId, '', abandonedCard(name), true)
       }, 90_000)
       ;(timer as unknown as { unref?: () => void }).unref?.()
@@ -404,13 +433,13 @@ export function createWorkflowCard(
       return false
     },
     dispose() {
+      for (const chatId of new Set([...openings.keys(), ...openingTicks.keys(), ...openingTimers.keys()])) {
+        clearOpening(chatId)
+      }
       for (const timer of timers.values()) clearTimeout(timer)
-      for (const timer of openingTimers.values()) clearTimeout(timer)
       timers.clear()
-      openingTimers.clear()
       runs.clear()
       cards.clear()
-      openings.clear()
       again.clear()
     },
   }
