@@ -46,9 +46,11 @@ const FILES = {
   // `packages/team/` — the old `packages/experimental/agent-team/` path is a
   // 404 now, which is what made this gate fail on every run.
   agentTeam: 'packages/team/agent-team/src/types.ts',
-  // The team package's own entry point: the relayed-message source is built
-  // there, not in the event types.
-  agentTeamIndex: 'packages/team/agent-team/src/index.ts',
+  // The relayed-message source moved with the subagent orchestration: upstream
+  // declares it in the subagent package now, not in the team package's entry
+  // point. The shape is unchanged (`kind`/`form`/`senderSessionId`), only its
+  // home and its formatting are.
+  agentMessageSource: 'packages/subagent/subagent/src/continuation-messages.ts',
   // The skill body the `/skills <name>` view reads. The host names the field
   // `content`; reading `body` off the result reads `undefined`.
   skill: 'packages/skill/skill/src/index.ts',
@@ -90,9 +92,9 @@ const checks = [
     // team package steers it into the recipient's inbox, and it lands there
     // as a user message whose source says who sent it. The bridge reads the
     // card's message list from these, so the source shape is a contract.
-    name: 'a relayed team message carries the agent-message source',
-    file: 'agentTeamIndex',
-    pattern: /kind: 'agent-message' as const, form: 'relay' as const, senderSessionId: caller\.id/,
+    name: 'a relayed agent message keeps its source shape',
+    file: 'agentMessageSource',
+    pattern: /export interface AgentMessageSource \{[\s\S]*?readonly kind: 'agent-message'[\s\S]*?readonly form: 'relay'[\s\S]*?readonly senderSessionId: SessionId[\s\S]*?\}/,
   },
   {
     name: 'the skill body is named content',
