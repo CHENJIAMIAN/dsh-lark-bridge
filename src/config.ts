@@ -282,6 +282,26 @@ export interface Config {
    */
   resumeGoalsBootDelaySeconds?: number
   /**
+   * Surface scheduled tasks the host let slip past their time without sending.
+   *
+   * The host's schedule driver catches up on some later event instead of on the
+   * clock, so a task due at 09:00 can sit unsent for hours. With this on, the
+   * bridge checks the stored table every minute and, for an occurrence that is
+   * past due with no matching delivery, posts a card with a 「现在执行」 button.
+   *
+   * It does not run the task itself: dispatching means starting an agent turn,
+   * which is the host's authority, and starting yesterday's cleanup batch by
+   * surprise is not something a watchdog should decide.
+   */
+  notifyOverdueSchedules?: boolean
+  /**
+   * How far back a missed occurrence is still worth surfacing, in hours.
+   *
+   * Defaults to 24. Beyond that the occurrence is stale enough that running it
+   * would act on a world that has moved on, so it is dropped silently.
+   */
+  overdueScheduleWindowHours?: number
+  /**
    * Shell command the `/restart` slash command runs to restart the host
    * process, e.g. `systemctl restart my-dsh.service`. Empty (default) keeps
    * `/restart` unregistered — restarting a process is a deployment concern,
@@ -484,6 +504,10 @@ export interface ResolvedConfig {
   resumeGoalsOnBoot: boolean
   /** Seconds to wait after boot before re-arming (the host is still composing). */
   resumeGoalsBootDelaySeconds: number
+  /** Post a card when a scheduled task missed its occurrence. */
+  notifyOverdueSchedules: boolean
+  /** How far back a missed occurrence is still surfaced (hours). */
+  overdueScheduleWindowHours: number
   /** Shell command behind `/restart`; '' (default) keeps the command off. */
   restartCommand: string
   /** Control API port for dual-end sync (0 = ephemeral/disabled surface). */
@@ -538,6 +562,8 @@ export const Config: z<Config> = z.object({
   autoResumeGoals: z.boolean().default(false),
   resumeGoalsOnBoot: z.boolean().default(true),
   resumeGoalsBootDelaySeconds: z.number().step(1).min(0).max(600).default(8),
+  notifyOverdueSchedules: z.boolean().default(true),
+  overdueScheduleWindowHours: z.number().step(1).min(1).max(168).default(24),
   restartCommand: z.string().default(''),
   approvalReminderMs: z.number().min(0).default(0),
   notifyOnScheduleDispatch: z.boolean().default(true),
@@ -614,6 +640,8 @@ export function resolveConfig(config: Config): ResolvedConfig {
     autoResumeGoals: config.autoResumeGoals ?? false,
     resumeGoalsOnBoot: config.resumeGoalsOnBoot ?? true,
     resumeGoalsBootDelaySeconds: config.resumeGoalsBootDelaySeconds ?? 8,
+    notifyOverdueSchedules: config.notifyOverdueSchedules ?? true,
+    overdueScheduleWindowHours: config.overdueScheduleWindowHours ?? 24,
     restartCommand: config.restartCommand ?? '',
     approvalReminderMs: config.approvalReminderMs ?? 0,
     notifyOnScheduleDispatch: config.notifyOnScheduleDispatch ?? true,
