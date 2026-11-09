@@ -7,7 +7,9 @@
 
 import { randomUUID } from 'node:crypto'
 import { appendFileSync, statSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { readFile } from 'node:fs/promises'
 import { readDeviceState, ensureDeviceId } from './sync/migrate.ts'
 import { arbitrationForInbound, claimIfActiveStale, isActiveEndpoint, accountUseByName, accountForgetByName } from './sync/bot-command.ts'
 import { accountCardValue } from './account-card.ts'
@@ -110,6 +112,8 @@ import { readPreviews, describeScale, describeSpan } from './session-preview.ts'
 import { createReactionTracker } from './reaction.ts'
 import type { ReactionTracker } from './reaction.ts'
 import { createGoalWatch } from './goal-watch.ts'
+import { chatOfSession, overdueActionValue, overdueCard, overdueTasks } from './schedule-watchdog.ts'
+import type { StoredScheduleTask } from './schedule-watchdog.ts'
 import { createQuestionProvider } from './questions.ts'
 import type { HostUserQuestionRequest, HostQuestionAnswer } from './questions.ts'
 import { createTodoRenderer } from './todo.ts'
@@ -1819,6 +1823,57 @@ export function installBridge(
     : setInterval(pollTokenPressure, config.tokenPressure.intervalMs)
 
   /**
+   * Occurrences already surfaced, so a minute-by-minute check does not nag.
+   *
+   * Keyed by task id plus the exact scheduled instant: a daily task must get one
+   * card per missed day, not one card total.
+   */
+  const overdueNotified = new Set<string>()
+
+  /** The host's schedule table, in the same harness home the store uses. */
+  const scheduleTableFile = (): string =>
+    join(process.env.DSH_HOME ?? join(process.env.HOME ?? homedir(), '.dsh'), 'storages', 'schedule.json')
+
+  /**
+   * Surface scheduled tasks whose moment passed without the host delivering them.
+   *
+   * The host driver does not fire on the clock — it catches up on some later
+   * event — so a 09:00 task can land at 15:06 or not at all. This cannot
+   * dispatch (that is an agent turn, the host's authority), but it can put the
+   * miss in front of the person who scheduled it, with a button to run it now.
+   */
+  const checkOverdueSchedules = async (): Promise<void> => {
+    if (config.notifyOverdueSchedules === false) return
+    let table: { tables?: { tasks?: Record<string, StoredScheduleTask> } }
+    try {
+      table = JSON.parse(await readFile(scheduleTableFile(), 'utf8')) as typeof table
+    } catch {
+      // No table, unreadable file, or corrupt JSON: all mean "nothing to say".
+      return
+    }
+    const window = Math.max(1, config.overdueScheduleWindowHours) * 3_600_000
+    for (const task of overdueTasks(table.tables?.tasks ?? {}, Date.now(), window)) {
+      const key = `${task.id}@${task.scheduledAt}`
+      if (overdueNotified.has(key)) continue
+      const chatId = chatOfSession(task.sessionId)
+      if (chatId === undefined) continue
+      overdueNotified.add(key)
+      await replay.send(chatId, { card: overdueCard(task, chatId) }).catch(reportSendFailure)
+    }
+  }
+
+  const overdueTimer = config.notifyOverdueSchedules === false
+    ? undefined
+    : setInterval(() => { void checkOverdueSchedules().catch(reportSendFailure) }, 60_000)
+  // First pass shortly after boot rather than a minute in: a restart is exactly
+  // when a backlog is waiting.
+  const overdueFirstPass = config.notifyOverdueSchedules === false
+    ? undefined
+    : setTimeout(() => { void checkOverdueSchedules().catch(reportSendFailure) }, 20_000)
+  ;(overdueTimer as unknown as { unref?: () => void } | undefined)?.unref?.()
+  ;(overdueFirstPass as unknown as { unref?: () => void } | undefined)?.unref?.()
+
+  /**
    * The workspace chat sessions are accounted under, resolved once. Workspace
    * grouping is an ACCOUNT, not a cwd derivation: a session nobody attaches
    * stays in the GUI's Ungrouped bucket however its cwd reads. Registering the
@@ -3176,9 +3231,70 @@ export function installBridge(
     }
   }
 
+  /**
+   * Run one missed occurrence because a human pressed its button.
+   *
+   * The dispatch itself is the host's authority, so this goes the long way
+   * round: it rebuilds the inbound message the schedule driver would have sent
+   * and feeds it through the ordinary inbound path. That path carries the
+   * authorization, device-state and arbitration checks — which is the point.
+   * Faking a dispatch would skip them, and a task firing on a retired device is
+   * exactly the duplicate the arbitration exists to prevent.
+   *
+   * The sender is the human who pressed the button, so the run is attributable
+   * and passes the allowlist on its own merits.
+   * @param value - the payload the card button carried.
+   * @param evt - the card action, for the clicker's identity.
+   */
+  const runOverdueSchedule = async (value: { readonly key: string; readonly sessionId: string }, evt: CardActionEvent): Promise<void> => {
+    const taskId = value.key.split('@')[0]
+    let prompt: string | undefined
+    try {
+      const table = JSON.parse(await readFile(scheduleTableFile(), 'utf8')) as {
+        tables?: { tasks?: Record<string, StoredScheduleTask> }
+      }
+      prompt = table.tables?.tasks?.[taskId ?? '']?.record?.prompt
+    } catch {
+      // Fall through to the refusal below: a task whose prompt cannot be read
+      // is not something to invent a turn for.
+    }
+    if (prompt === undefined || prompt.trim() === '') {
+      await replay.send(evt.chatId, { markdown: '⚠️ 这条定时任务的定义已经读不到了，没法补跑。' }).catch(reportSendFailure)
+      return
+    }
+    const chatId = chatOfSession(value.sessionId) ?? evt.chatId
+    const msg: NormalizedMessage = {
+      messageId: `overdue-${Date.now()}`,
+      chatId,
+      chatType: 'p2p',
+      senderId: evt.operator.openId,
+      senderType: 'user',
+      senderIsBot: false,
+      content: prompt,
+      rawContentType: 'text',
+      resources: [],
+      mentions: [],
+      mentionAll: false,
+      mentionedBot: true,
+      createTime: Date.now(),
+    }
+    try {
+      await handleMessage(msg)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      notify(`dsh-lark-bridge: overdue schedule run failed for ${taskId}: ${detail}`)
+      ctx.logger.warn('overdue schedule run failed: %s', detail)
+    }
+  }
+
   const handleCardAction = (evt: CardActionEvent): CardActionResponse | undefined => {
     const questionResponse = questions.handleCardAction(evt)
     if (questionResponse !== undefined) return questionResponse
+    const overdue = overdueActionValue(evt.action.value)
+    if (overdue !== undefined) {
+      void runOverdueSchedule(overdue, evt)
+      return { toast: { type: 'info', content: '正在执行…' } }
+    }
     const acct = accountCardValue(evt.action.value)
     if (acct !== undefined) {
       void handleAccountCardAction(evt, acct)
