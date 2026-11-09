@@ -259,7 +259,12 @@ export interface ChannelPort extends OutboundPort, SlashPanelPort, ImagePort, Co
 interface HostGoalsService {
   /** The goal and its activation for one live agent. */
   get(agent: unknown): {
-    readonly goal?: { readonly id: string; readonly revision: number; readonly phase: string } | undefined
+    readonly goal?: {
+      readonly id: string
+      readonly revision: number
+      readonly phase: string
+      readonly objective?: string
+    } | undefined
     readonly activation?: string
   } | undefined
   /** Re-arm a goal so its round driver continues. */
@@ -2331,6 +2336,29 @@ export function installBridge(
       session,
     }
     bySession.set(sessionId, binding)
+    // Register this conversation's active goal for the boot-time re-arm.
+    //
+    // `goal/change` only fires when a goal is created or mutated, so a session
+    // that already held one before this build existed would never appear on the
+    // list — and the first restart would silently drop it. Touching the session
+    // is the one moment the bridge has an agent to ask, so it asks here too.
+    try {
+      const service = (ctx as unknown as { goals?: HostGoalsService }).goals
+      const live = agents.get(sessionId) ?? undefined
+      const view = live === undefined ? undefined : service?.get(live)
+      if (view?.goal?.phase === 'active') {
+        goalWatch.remember({
+          sessionId,
+          chatId: msg.chatId,
+          chatType: msg.chatType,
+          ...view.goal.id === undefined ? {} : { goalId: view.goal.id },
+          ...view.goal.revision === undefined ? {} : { revision: view.goal.revision },
+          objective: view.goal.objective ?? '',
+        })
+      }
+    } catch {
+      // Registration is an optimisation for the next boot; never fail a message.
+    }
     // First contact this boot: send the one-time guide. Best-effort — a send
     // failure must not block the chat that already has the agent working.
     if (config.onboarding && freshlyCreated.delete(sessionId)) {
