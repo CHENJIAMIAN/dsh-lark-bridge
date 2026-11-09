@@ -1861,12 +1861,27 @@ export function installBridge(
       return
     }
     const window = Math.max(1, config.overdueScheduleWindowHours) * 3_600_000
+    // Who an unattended dispatch is attributed to. Without an allowlisted
+    // sender there is no one to attribute the turn to, so the watchdog falls
+    // back to asking — the same path as when auto-dispatch is off.
+    const autoSender = config.autoDispatchOverdueSchedules === true && config.senderAllowlist.length > 0
+      ? config.senderAllowlist[0]
+      : undefined
     for (const task of overdueTasks(table.tables?.tasks ?? {}, Date.now(), window)) {
       const key = `${task.id}@${task.scheduledAt}`
       if (overdueNotified.has(key)) continue
       const chatId = chatOfSession(task.sessionId)
       if (chatId === undefined) continue
       overdueNotified.add(key)
+      if (autoSender !== undefined && task.sessionId !== undefined) {
+        const started = await dispatchOverdue(key, task.sessionId, chatId, autoSender)
+        await replay.send(chatId, {
+          markdown: started
+            ? `⏰ 定时任务「${task.title}」漏发了，已经自动补跑（本应 ${task.scheduledAt} 执行）。`
+            : `⏰ 定时任务「${task.title}」漏发了，自动补跑没起来，请手动处理。`,
+        }).catch(reportSendFailure)
+        continue
+      }
       await replay.send(chatId, { card: overdueCard(task, chatId) }).catch(reportSendFailure)
     }
   }
@@ -3262,7 +3277,8 @@ export function installBridge(
   }
 
   /**
-   * Run one missed occurrence because a human pressed its button.
+   * Run one missed occurrence, on a human's button or on the watchdog's own
+   * decision.
    *
    * The dispatch itself is the host's authority, so this goes the long way
    * round: it rebuilds the inbound message the schedule driver would have sent
@@ -3271,13 +3287,22 @@ export function installBridge(
    * Faking a dispatch would skip them, and a task firing on a retired device is
    * exactly the duplicate the arbitration exists to prevent.
    *
-   * The sender is the human who pressed the button, so the run is attributable
-   * and passes the allowlist on its own merits.
-   * @param value - the payload the card button carried.
-   * @param evt - the card action, for the clicker's identity.
+   * The sender is who asked for the run: the clicking human, or the first
+   * allowlisted sender when the watchdog decided on its own. Either way the run
+   * is attributable and passes the allowlist on its own merits.
+   * @param key - occurrence key: task id plus the scheduled instant.
+   * @param sessionId - the session the task is bound to.
+   * @param chatId - where the outcome is reported.
+   * @param senderId - open id the turn is attributed to.
+   * @returns whether a turn was actually started.
    */
-  const runOverdueSchedule = async (value: { readonly key: string; readonly sessionId: string }, evt: CardActionEvent): Promise<void> => {
-    const taskId = value.key.split('@')[0]
+  async function dispatchOverdue(
+    key: string,
+    sessionId: string,
+    chatId: string,
+    senderId: string,
+  ): Promise<boolean> {
+    const taskId = key.split('@')[0]
     let prompt: string | undefined
     try {
       const table = JSON.parse(await readFile(scheduleTableFile(), 'utf8')) as {
@@ -3289,15 +3314,14 @@ export function installBridge(
       // is not something to invent a turn for.
     }
     if (prompt === undefined || prompt.trim() === '') {
-      await replay.send(evt.chatId, { markdown: '⚠️ 这条定时任务的定义已经读不到了，没法补跑。' }).catch(reportSendFailure)
-      return
+      await replay.send(chatId, { markdown: '⚠️ 这条定时任务的定义已经读不到了，没法补跑。' }).catch(reportSendFailure)
+      return false
     }
-    const chatId = chatOfSession(value.sessionId) ?? evt.chatId
     const msg: NormalizedMessage = {
       messageId: `overdue-${Date.now()}`,
-      chatId,
+      chatId: chatOfSession(sessionId) ?? chatId,
       chatType: 'p2p',
-      senderId: evt.operator.openId,
+      senderId,
       senderType: 'user',
       senderIsBot: false,
       content: prompt,
@@ -3310,10 +3334,12 @@ export function installBridge(
     }
     try {
       await handleMessage(msg)
+      return true
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       notify(`dsh-lark-bridge: overdue schedule run failed for ${taskId}: ${detail}`)
       ctx.logger.warn('overdue schedule run failed: %s', detail)
+      return false
     }
   }
 
@@ -3322,7 +3348,7 @@ export function installBridge(
     if (questionResponse !== undefined) return questionResponse
     const overdue = overdueActionValue(evt.action.value)
     if (overdue !== undefined) {
-      void runOverdueSchedule(overdue, evt)
+      void dispatchOverdue(overdue.key, overdue.sessionId, evt.chatId, evt.operator.openId)
       return { toast: { type: 'info', content: '正在执行…' } }
     }
     const acct = accountCardValue(evt.action.value)

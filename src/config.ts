@@ -302,6 +302,20 @@ export interface Config {
    */
   overdueScheduleWindowHours?: number
   /**
+   * Dispatch a missed occurrence instead of only offering to.
+   *
+   * With this off, a miss posts a card and waits for a human to press 「现在执行」.
+   * With it on, the bridge replays the occurrence itself through the ordinary
+   * inbound path, attributed to the first allowlisted sender, so a background
+   * job keeps running through a restart with nobody watching.
+   *
+   * Off by default on purpose: the tasks people schedule include destructive
+   * ones, and "it started by itself at 03:00" is a different event from "I
+   * pressed the button". Turn it on when the deployment's scheduled work is
+   * known to be safe to run unattended.
+   */
+  autoDispatchOverdueSchedules?: boolean
+  /**
    * Shell command the `/restart` slash command runs to restart the host
    * process, e.g. `systemctl restart my-dsh.service`. Empty (default) keeps
    * `/restart` unregistered — restarting a process is a deployment concern,
@@ -508,6 +522,8 @@ export interface ResolvedConfig {
   notifyOverdueSchedules: boolean
   /** How far back a missed occurrence is still surfaced (hours). */
   overdueScheduleWindowHours: number
+  /** Dispatch a missed occurrence instead of only offering to. */
+  autoDispatchOverdueSchedules: boolean
   /** Shell command behind `/restart`; '' (default) keeps the command off. */
   restartCommand: string
   /** Control API port for dual-end sync (0 = ephemeral/disabled surface). */
@@ -564,6 +580,7 @@ export const Config: z<Config> = z.object({
   resumeGoalsBootDelaySeconds: z.number().step(1).min(0).max(600).default(8),
   notifyOverdueSchedules: z.boolean().default(true),
   overdueScheduleWindowHours: z.number().step(1).min(1).max(168).default(24),
+  autoDispatchOverdueSchedules: z.boolean().default(false),
   restartCommand: z.string().default(''),
   approvalReminderMs: z.number().min(0).default(0),
   notifyOnScheduleDispatch: z.boolean().default(true),
@@ -642,6 +659,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     resumeGoalsBootDelaySeconds: config.resumeGoalsBootDelaySeconds ?? 8,
     notifyOverdueSchedules: config.notifyOverdueSchedules ?? true,
     overdueScheduleWindowHours: config.overdueScheduleWindowHours ?? 24,
+    autoDispatchOverdueSchedules: config.autoDispatchOverdueSchedules ?? false,
     restartCommand: config.restartCommand ?? '',
     approvalReminderMs: config.approvalReminderMs ?? 0,
     notifyOnScheduleDispatch: config.notifyOnScheduleDispatch ?? true,
