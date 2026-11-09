@@ -2010,9 +2010,16 @@ export function installBridge(
           // Prefer the delivery block (label + duration + what it produced) over
           // the bare「子任务结束 [id]」line, which told the reader nothing.
           const delivery = settled === undefined ? undefined : subCard.deliveryText(settled)
-          void replay.send(binding.chatId, {
-            markdown: delivery ?? subagentEndLine(info),
-          }).catch(reportSendFailure)
+          // A child settling inside a running workflow is one of that run's
+          // members: the run card already counts it, and one line per child is
+          // what turned a 68-member scan into a wall of identical messages.
+          // The panel row above still settles, so nothing is lost — only the
+          // chat message is withheld. A standalone child keeps its report.
+          if (!workflows.isActive(binding.chatId)) {
+            void replay.send(binding.chatId, {
+              markdown: delivery ?? subagentEndLine(info),
+            }).catch(reportSendFailure)
+          }
         })
         const jobs = agentCtx.get('jobs') as HostJobs | undefined
         /**
