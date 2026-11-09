@@ -257,14 +257,18 @@ export interface ChannelPort extends OutboundPort, SlashPanelPort, ImagePort, Co
 
 /** The host goals service as this plugin consumes it. */
 interface HostGoalsService {
-  /** The goal and its activation for one live agent. */
+  /**
+   * The live goal for one agent, with its process-local activation.
+   *
+   * The fields are FLAT — `GoalView extends GoalSnapshot` on the host side.
+   * Reading `view.goal.phase` yields undefined every time, which silently
+   * disabled the auto-resume path this bridge shipped months ago.
+   */
   get(agent: unknown): {
-    readonly goal?: {
-      readonly id: string
-      readonly revision: number
-      readonly phase: string
-      readonly objective?: string
-    } | undefined
+    readonly id: string
+    readonly revision: number
+    readonly phase: string
+    readonly objective?: string
     readonly activation?: string
   } | undefined
   /** Re-arm a goal so its round driver continues. */
@@ -2346,14 +2350,14 @@ export function installBridge(
       const service = (ctx as unknown as { goals?: HostGoalsService }).goals
       const live = agents.get(sessionId) ?? undefined
       const view = live === undefined ? undefined : service?.get(live)
-      if (view?.goal?.phase === 'active') {
+      if (view?.phase === 'active') {
         goalWatch.remember({
           sessionId,
           chatId: msg.chatId,
           chatType: msg.chatType,
-          ...view.goal.id === undefined ? {} : { goalId: view.goal.id },
-          ...view.goal.revision === undefined ? {} : { revision: view.goal.revision },
-          objective: view.goal.objective ?? '',
+          ...view.id === undefined ? {} : { goalId: view.id },
+          ...view.revision === undefined ? {} : { revision: view.revision },
+          objective: view.objective ?? '',
         })
       }
     } catch {
@@ -2993,10 +2997,10 @@ export function installBridge(
       if (config.autoResumeGoals) {
         const agent = opened.handle.agent
         try {
-          const goalsHost = (ctx as unknown as { goals?: { get(agent: unknown): { readonly goal?: { readonly id: string; readonly revision: number; readonly phase: string }; readonly activation?: string } | undefined } }).goals
+          const goalsHost = (ctx as unknown as { goals?: HostGoalsService }).goals
           const view = goalsHost?.get(agent)
-          if (view !== undefined && view.goal?.phase === 'active' && view.activation === 'disarmed') {
-            const ref = { id: view.goal.id, revision: view.goal.revision }
+          if (view !== undefined && view?.phase === 'active' && view.activation === 'disarmed') {
+            const ref = { id: view.id, revision: view.revision }
             const goalsRemote = (ctx as unknown as { goals?: { resume(agent: unknown, ref: { id: string; revision: number }): unknown } }).goals
             await goalsRemote?.resume(agent, ref)
             notify(`dsh-lark-bridge: auto-resumed goal "${ref.id}" for session ${agent.session.id}`)
@@ -3184,20 +3188,18 @@ export function installBridge(
     if (agent === undefined) {
       return { toast: { type: 'info', content: '该会话当前不在线' } }
     }
-    const goals = (ctx as unknown as { goals?: {
-      get(agent: unknown): { readonly goal?: { readonly id: string; readonly revision: number; readonly phase: string } } | undefined
+    const goals = (ctx as unknown as { goals?: HostGoalsService & {
       pause(agent: unknown, ref: { id: string; revision: number }): unknown
-      resume(agent: unknown, ref: { id: string; revision: number }): unknown
       clear(agent: unknown, ref: { id: string; revision: number }): unknown
     } }).goals
     if (goals === undefined) {
       return { toast: { type: 'error', content: '目标服务不可用' } }
     }
     const view = goals.get(agent)
-    if (view?.goal === undefined) {
+    if (view === undefined) {
       return { toast: { type: 'info', content: '当前没有目标' } }
     }
-    const ref = { id: view.goal.id, revision: view.goal.revision }
+    const ref = { id: view.id, revision: view.revision }
     try {
       const labels: Record<GoalActionValue['operation'], string> = {
         pause: '已暂停',
@@ -4004,17 +4006,17 @@ export function installBridge(
         const pseudo = { chatId: entry.chatId, chatType: entry.chatType } as unknown as NormalizedMessage
         await bindingFor(entry.sessionId, pseudo, handle.agent.session)
         const view = service?.get(handle.agent)
-        if (view?.goal?.phase === 'active' && view.activation === 'disarmed') {
-          await service?.resume(handle.agent, { id: view.goal.id, revision: view.goal.revision })
-          notify(`dsh-lark-bridge: re-armed goal ${view.goal.id} for ${entry.chatId}`)
+        if (view?.phase === 'active' && view.activation === 'disarmed') {
+          await service?.resume(handle.agent, { id: view.id, revision: view.revision })
+          notify(`dsh-lark-bridge: re-armed goal ${view.id} for ${entry.chatId}`)
           // Refresh the record so a goal that keeps running does not age out of
           // the re-arm window while the bridge stays up.
           goalWatch.remember({
             sessionId: entry.sessionId,
             chatId: entry.chatId,
             chatType: entry.chatType,
-            goalId: view.goal.id,
-            revision: view.goal.revision,
+            goalId: view.id,
+            revision: view.revision,
             objective: entry.objective,
           })
         } else {
