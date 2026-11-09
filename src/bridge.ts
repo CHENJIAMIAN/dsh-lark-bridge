@@ -48,7 +48,7 @@ import type {
   ScheduleEntry,
 } from './host.ts'
 import type { HostJobs, HostJobSnapshot, HostLoaderEntry, HostMessageFeedback, HostSession, HostSessionQuery, HostSkills, HostTokenMeter, ScheduleChangeData, ScheduleStore, SubagentEndData, WorkflowRunInfoData } from './host.ts'
-import { isAssistantMessageEvent, isTeamRelayMessageEvent, isCompactionEndEvent, isPresentedEvent, isCompactionPruneEvent, isCompactionStartEvent, isCompactionSummaryEvent, isGoalChangeEvent, isLlmRetryEvent, isScheduleChangeEvent, isStepStartEvent, isSubagentCatalogEvent, isSubagentDescriptorEvent, isTodoWriteEvent, isToolCallEvent, isTurnEndEvent, isWebSearchRequestEvent, isWorkflowAgentEndEvent, isWorkflowAgentStartEvent, isWorkflowRunEndEvent, isWorkflowRunStartEvent ,
+import { isAssistantMessageEvent, isTeamRelayMessageEvent, isCompactionEndEvent, isPresentedEvent, isCompactionPruneEvent, isCompactionStartEvent, isCompactionSummaryEvent, isGoalChangeEvent, isLlmRetryEvent, isScheduleChangeEvent, isStepStartEvent, isSubagentCatalogEvent, isSubagentDescriptorEvent, isTodoWriteEvent, isToolCallEvent, isToolResultEvent, isTurnEndEvent, isWebSearchRequestEvent, isWorkflowAgentEndEvent, isWorkflowAgentStartEvent, isWorkflowRunEndEvent, isWorkflowRunStartEvent ,
   isTeamMemberEvent,
   isTeamTaskEvent,
   isTeamMessageEvent,
@@ -154,7 +154,7 @@ interface StreamChunkLike {
 }
 import { createGoalRenderer } from './goal.ts'
 import { goalActionValue, type GoalActionValue } from './goal.ts'
-import { workflowLogLine } from './workflow.ts'
+import { WORKFLOW_TOOL_NAME, workflowLogLine, workflowNameFromArguments } from './workflow.ts'
 import { createWorkflowCard } from './workflow-card.ts'
 import type { CompactionUsage, ShadowedBreakdown } from './notices.ts'
 import {
@@ -3525,8 +3525,22 @@ export function installBridge(
     }
     if (isToolCallEvent(event)) {
       pendingCallArguments.set(event.data.callId, event.data.arguments)
+      // A `workflow` call is the FIRST real-time sign that a run is coming:
+      // `tool-workflow/run-start` is durable and only lands with the tool
+      // result. Opening the card here is what makes progress visible during a
+      // long fan-out instead of only after it is over.
+      if (event.data.name === WORKFLOW_TOOL_NAME) {
+        workflows.opening(binding.chatId, workflowNameFromArguments(event.data.arguments))
+      }
     } else if (isTurnEndEvent(event)) {
       pendingCallArguments.clear()
+    }
+    // A failed tool leaves no result payload to attribute; a `workflow` call
+    // that failed never opened a run, so its "启动中" card has to settle here
+    // or it sits there looking hung. `abandon` is a no-op when no opening card
+    // is waiting, so this needs no per-tool filtering.
+    if (isToolResultEvent(event) && event.data.error !== undefined) {
+      workflows.abandon(binding.chatId)
     }
     // Reaction lifecycle: the agent started working once a step opens, and
     // settles when the turn ends. `currentMessageId` is undefined between

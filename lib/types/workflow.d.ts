@@ -33,4 +33,17 @@ export interface WorkflowRunEnd {
 }
 /** A workflow narration line (live `workflow/log` event). */
 export declare function workflowLogLine(message: string): string;
+/** The tool name the model calls to run a workflow script. */
+export declare const WORKFLOW_TOOL_NAME = "workflow";
+/**
+ * Read the run name out of a `workflow` tool call's arguments.
+ *
+ * The card opens on `tool/call`, seconds before the durable run-start event
+ * arrives, so the name has to come from the call itself. The arguments are
+ * model-produced and untrusted: anything unparseable degrades to a neutral
+ * label rather than throwing into the event stream.
+ * @param argumentsJson - the raw arguments JSON the model produced.
+ * @returns the run name, or a neutral fallback.
+ */
+export declare function workflowNameFromArguments(argumentsJson: string): string;
 //# sourceMappingURL=workflow.d.ts.map

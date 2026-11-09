@@ -195,6 +195,92 @@ describe('workflow card', () => {
     card.dispose()
   })
 
+  it('puts the card up on the tool call, before any run event exists', async () => {
+    const port = fakePort()
+    const card = createWorkflowCard(port, { coalesceMs: 5 })
+
+    // This is the whole point: the durable run-start only lands with the tool
+    // result, so waiting for it means a long fan-out shows nothing until it is
+    // over. The opening card is what the reader sees during the silence.
+    card.opening('oc_chat', 'scan-pitfalls-batch')
+    await tick()
+
+    expect(port.sent).toHaveLength(1)
+    expect(title(port.sent[0]!.card)).toContain('scan-pitfalls-batch')
+    expect(title(port.sent[0]!.card)).toContain('启动中')
+
+    card.dispose()
+  })
+
+  it('keeps the opening card when the run takes over', async () => {
+    const port = fakePort()
+    const card = createWorkflowCard(port, { coalesceMs: 5 })
+
+    card.opening('oc_chat', 'scan')
+    await tick()
+    card.runStart({ runId: 'r1', name: 'scan' }, 'oc_chat')
+    card.agentStart({ runId: 'r1', seq: 0, label: 'chunk-1.txt' })
+    await settle()
+
+    // Same message, rewritten: a run that started under the opening card must
+    // not leave two cards behind.
+    expect(port.sent).toHaveLength(1)
+    expect(port.updated.length).toBeGreaterThan(0)
+    expect(title(port.updated.at(-1)!.card)).toContain('scan')
+    expect(title(port.updated.at(-1)!.card)).not.toContain('启动中')
+
+    card.dispose()
+  })
+
+  it('settles an opening card the run never claimed', async () => {
+    const port = fakePort()
+    const card = createWorkflowCard(port, { coalesceMs: 5 })
+
+    card.opening('oc_chat', 'scan')
+    await tick()
+    card.abandon('oc_chat')
+    await settle()
+
+    // Without this the "启动中" card sits forever, which reads as hung.
+    expect(title(port.updated.at(-1)!.card)).toContain('没有启动')
+    expect(template(port.updated.at(-1)!.card)).toBe('grey')
+
+    card.dispose()
+  })
+
+  it('ignores an abandon when no opening card is waiting', async () => {
+    const port = fakePort()
+    const card = createWorkflowCard(port, { coalesceMs: 5 })
+
+    card.abandon('oc_chat')
+    await settle()
+
+    // Every failed tool calls this; it must not emit anything by itself.
+    expect(port.sent).toHaveLength(0)
+    expect(port.updated).toHaveLength(0)
+
+    card.dispose()
+  })
+
+  it('does not reopen a card while a run owns it', async () => {
+    const port = fakePort()
+    const card = createWorkflowCard(port, { coalesceMs: 5 })
+
+    card.runStart({ runId: 'r1', name: 'scan' }, 'oc_chat')
+    await tick()
+    card.agentStart({ runId: 'r1', seq: 0, label: 'chunk-1.txt' })
+    await settle()
+
+    // A second delegation inside the same run must not reset the card to
+    // "启动中" and wipe the live counts.
+    card.opening('oc_chat', 'other')
+    await settle()
+    expect(port.updated.at(-1)!.card).not.toBeUndefined()
+    expect(JSON.stringify(port.updated.at(-1)!.card)).not.toContain('启动中')
+
+    card.dispose()
+  })
+
   it('ignores events for a run it never opened', async () => {
     const port = fakePort()
     const card = createWorkflowCard(port, { coalesceMs: 5 })

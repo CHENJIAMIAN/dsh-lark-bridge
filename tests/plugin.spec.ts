@@ -240,6 +240,41 @@ describe('dsh-lark-bridge', () => {
     await harness.dispose()
   })
 
+  it('opens the workflow card on the tool call, not on the durable run event', async () => {
+    const harness = await mountChannel()
+    await harness.fake.emitMessage(fakeMessage())
+    await vi.waitFor(() => { expect(harness.agents.created).toHaveLength(1) })
+    const session = harness.agents.created[0]!.agent.session
+    const emit = (type: string, data: unknown) => harness.ctx.emit('session/event', session, { type, data })
+
+    // The durable `tool-workflow/run-start` only lands with the tool result, so
+    // a long fan-out would show nothing at all until it finished. The tool call
+    // itself is observable immediately — that is what the card hangs on.
+    emit('tool/call', {
+      turn: 1,
+      callId: 'call-1',
+      name: 'workflow',
+      arguments: JSON.stringify({ meta: { name: 'scan-pitfalls-batch' }, script: '' }),
+    })
+    await vi.waitFor(() => {
+      const opener = harness.fake.sent.find(m => 'card' in m.input && JSON.stringify(m.input.card).includes('启动中'))
+      expect(opener).toBeDefined()
+      expect(JSON.stringify(opener!.input)).toContain('scan-pitfalls-batch')
+    })
+
+    // The run adopts that same card instead of opening a second one.
+    const sentBefore = harness.fake.sent.length
+    emit('tool-workflow/run-start', { runId: 'run-1', name: 'scan-pitfalls-batch' })
+    await vi.waitFor(() => {
+      const latest = harness.fake.updated.at(-1)
+      expect(latest).toBeDefined()
+      expect(JSON.stringify(latest!.card)).not.toContain('启动中')
+    })
+    expect(harness.fake.sent.length).toBe(sentBefore)
+
+    await harness.dispose()
+  })
+
   it('announces compaction start and reports a failing one', async () => {
     const harness = await mountChannel()
     await harness.fake.emitMessage(fakeMessage())
