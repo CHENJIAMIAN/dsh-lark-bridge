@@ -319,9 +319,14 @@ describe('dsh-lark-bridge', () => {
 
   it('re-arms an interrupted goal when autoResumeGoals is on', async () => {
     const resumed: { id: string; revision: number }[] = []
+    // The host's `GoalView` is FLAT (`GoalView extends GoalSnapshot`), not
+    // `{ goal: … }`. This mock used to nest it, which matched the bridge's
+    // wrong read and kept a dead auto-resume path green for months.
     const goals = {
       get: () => ({
-        goal: { id: 'goal-1', revision: 2, phase: 'active' },
+        id: 'goal-1',
+        revision: 2,
+        phase: 'active',
         activation: 'disarmed',
       }),
       resume: async (_agent: unknown, ref: { id: string; revision: number }) => { resumed.push(ref) },
