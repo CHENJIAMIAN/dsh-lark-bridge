@@ -379,13 +379,13 @@ Repo map, the branch/MR flow and the version policy live in **[CONTRIBUTING.md](
 
 ```sh
 pnpm hygiene                    # repo hygiene (deployment terms stay local)
-pnpm test                       # 852 tests in 78 spec files
+pnpm test                       # 861 tests in 79 spec files
 pnpm contract-test              # 43 host-contract checks
 pnpm contract-drift             # drift check against upstream dsh master
 node scripts/check-readme-parity.mjs   # the two READMEs stay in step
 ```
 
-The suite lives in `tests/` — vitest suites (78), including harness-based fakes. Upgrading the harness: run `pnpm contract-drift` before and after — it fails when a host seam the bridge mirrors has moved.
+The suite lives in `tests/` — vitest suites (79), including harness-based fakes. Upgrading the harness: run `pnpm contract-drift` before and after — it fails when a host seam the bridge mirrors has moved.
 
 ## 🤝 Contributing
 
