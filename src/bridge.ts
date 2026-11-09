@@ -2607,7 +2607,13 @@ export function installBridge(
     if (msg.content.trim() === '') return
     // The bot received a real request: acknowledge immediately so the sender
     // sees it landed, before any agent work starts.
-    reactions?.ack(msg.messageId)
+    //
+    // A synthetic message — one the bridge replayed for a missed schedule —
+    // carries an id this platform never issued, so reacting to it is rejected
+    // and replying to it is rejected too. The check is on the id's shape
+    // because that is the only thing that distinguishes the two.
+    const realMessage = msg.messageId.startsWith('om_')
+    if (realMessage) reactions?.ack(msg.messageId)
     // A retired device answers with a one-line notice instead of an agent
     // turn — the successor machine owns the Feishu app's reply path now.
     // `/bot activate` passes through so this end can be re-enabled in chat.
@@ -2982,10 +2988,14 @@ export function installBridge(
       }
       // Aimed before the turn starts: the reply belongs to the message that
       // asked for it, and in a topic group an unaimed reply leaves the thread.
-      binding.renderer.aim({
-        messageId: msg.messageId,
-        ...msg.threadId === undefined ? {} : { threadId: msg.threadId },
-      } satisfies ReplyTarget)
+      // A synthetic message has no real id to quote, so it replies plainly
+      // rather than failing the send on an id the platform never issued.
+      if (msg.messageId.startsWith('om_')) {
+        binding.renderer.aim({
+          messageId: msg.messageId,
+          ...msg.threadId === undefined ? {} : { threadId: msg.threadId },
+        } satisfies ReplyTarget)
+      }
       const images = await collectImages(
         msg,
         port,
