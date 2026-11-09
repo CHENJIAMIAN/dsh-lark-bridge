@@ -1,12 +1,12 @@
 /**
- * Workflow run progress as chat messages.
+ * Workflow event shapes and the one line still posted as chat text.
  *
- * dsh's `workflow` tool runs a JS orchestration script that fans out
- * subagents, and appends four event types to the session log: run-start,
- * agent-start, agent-end, run-end. The Web UI has a dedicated workflow-run
- * surface; a messaging client gets the same shape as a short text stream so
- * the human sees the fan-out happening instead of a silent gap followed by a
- * final answer.
+ * A run's progress is a CARD now (see `workflow-card.ts`), not a stream of
+ * lines: a fan-out is not a story, and one message per member is a wall to
+ * scroll past. What remains here are the event types the bridge mirrors and the
+ * narration line `workflow/log` still posts verbatim — a narration is something
+ * the workflow script chose to SAY, so it belongs in the chat rather than inside
+ * a card that gets rewritten under it.
  * @module dsh-lark-bridge/workflow
  */
 /** One workflow run's identity and display name (from `tool-workflow/run-start`). */
@@ -31,16 +31,6 @@ export interface WorkflowRunEnd {
     readonly runId: string;
     readonly stopReason: 'completed' | 'cancelled' | 'error';
 }
-/** The run-opening line. */
-export declare function runStartLine(run: WorkflowRunStart): string;
-/** One member starting line (deduped by seq). */
-export declare function agentStartLine(agent: WorkflowAgentStart): string;
-/** One member settling line. */
-export declare function agentEndLine(agent: WorkflowAgentEnd): string;
-/** The run-closing line. */
-export declare function runEndLine(run: WorkflowRunEnd): string;
-/** A workflow phase-change line (live `workflow/phase` event). */
-export declare function phaseLine(title: string): string;
 /** A workflow narration line (live `workflow/log` event). */
 export declare function workflowLogLine(message: string): string;
 //# sourceMappingURL=workflow.d.ts.map
