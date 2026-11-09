@@ -245,6 +245,27 @@ export interface Config {
      */
     autoResumeGoals?: boolean;
     /**
+     * Re-arm watched goals at boot, without waiting for the chat to speak.
+     *
+     * `autoResumeGoals` only fires when a human message reaches the session, so an
+     * unattended restart leaves a long task stopped until someone talks to it —
+     * which for a background job is never. With this on, the bridge walks the
+     * conversations it recorded as having an active goal, reopens each one and
+     * re-arms the goal itself, `resumeGoalsOnBoot` seconds after boot.
+     *
+     * Defaults to on. It does start agent turns without being asked, so a
+     * deployment that must never spend tokens unattended should turn it off.
+     * `autoResumeGoals` still has to be on for this to have anything to resume.
+     */
+    resumeGoalsOnBoot?: boolean;
+    /**
+     * How long to wait after boot before re-arming, in seconds.
+     *
+     * Defaults to 8. The host is still composing its own services right after
+     * start; reopening sessions too early races that setup and loses the agent.
+     */
+    resumeGoalsBootDelaySeconds?: number;
+    /**
      * Shell command the `/restart` slash command runs to restart the host
      * process, e.g. `systemctl restart my-dsh.service`. Empty (default) keeps
      * `/restart` unregistered — restarting a process is a deployment concern,
@@ -410,6 +431,10 @@ export interface ResolvedConfig {
     groupAllowlist: string[];
     approvers: string[];
     autoResumeGoals: boolean;
+    /** Re-arm watched goals at boot, without waiting for the chat to speak. */
+    resumeGoalsOnBoot: boolean;
+    /** Seconds to wait after boot before re-arming (the host is still composing). */
+    resumeGoalsBootDelaySeconds: number;
     /** Shell command behind `/restart`; '' (default) keeps the command off. */
     restartCommand: string;
     /** Control API port for dual-end sync (0 = ephemeral/disabled surface). */

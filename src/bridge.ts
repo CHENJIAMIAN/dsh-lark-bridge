@@ -109,6 +109,7 @@ import { baseSessionIdOf, createRotationStore } from './session-rotation.ts'
 import { readPreviews, describeScale, describeSpan } from './session-preview.ts'
 import { createReactionTracker } from './reaction.ts'
 import type { ReactionTracker } from './reaction.ts'
+import { createGoalWatch } from './goal-watch.ts'
 import { createQuestionProvider } from './questions.ts'
 import type { HostUserQuestionRequest, HostQuestionAnswer } from './questions.ts'
 import { createTodoRenderer } from './todo.ts'
@@ -248,6 +249,17 @@ export interface ChannelPort extends OutboundPort, SlashPanelPort, ImagePort, Co
   addReaction(messageId: string, emojiType: string): Promise<string>
   /** Remove a reaction by the id {@link addReaction} returned. */
   removeReaction(messageId: string, reactionId: string): Promise<void>
+}
+
+/** The host goals service as this plugin consumes it. */
+interface HostGoalsService {
+  /** The goal and its activation for one live agent. */
+  get(agent: unknown): {
+    readonly goal?: { readonly id: string; readonly revision: number; readonly phase: string } | undefined
+    readonly activation?: string
+  } | undefined
+  /** Re-arm a goal so its round driver continues. */
+  resume(agent: unknown, ref: { id: string; revision: number }): unknown
 }
 
 /** One conversation's chat and its outbound renderer, keyed by session id. */
@@ -1864,6 +1876,16 @@ export function installBridge(
 
   /** Live goal cards: `goal/change` snapshots render as one card per session. */
   const goals = createGoalRenderer(port, reportSendFailure)
+
+  /**
+   * The conversations whose goal must be re-armed after a restart.
+   *
+   * A goal stays durable in the session log across a boot, but its continuation
+   * authority resets to `disarmed` and the runtime waits for a human message.
+   * That default stops a long task dead on every deploy, so the bridge keeps the
+   * short list of conversations to reopen and re-arm by itself.
+   */
+  const goalWatch = createGoalWatch()
 
   /**
    * The model-to-human question flow. dsh's `ask_user_question` tool pauses a
@@ -3570,6 +3592,21 @@ export function installBridge(
           goal: { objective: goal.objective, phase: goal.phase, ...goal.blockedReason !== undefined ? { blockedReason: goal.blockedReason } : {}, ...goal.maxGoalRounds !== undefined ? { maxGoalRounds: goal.maxGoalRounds } : {} },
         })
       }
+      // Keep the boot-time re-arm list in step with the goal. Only `active`
+      // belongs on it: a goal the human paused, or one that blocked or finished,
+      // must not come back to life because the bridge was deployed to.
+      if (goal !== undefined && goal.phase === 'active') {
+        goalWatch.remember({
+          sessionId: session.id,
+          chatId: binding.chatId,
+          chatType: binding.chatType,
+          ...goal.id === undefined ? {} : { goalId: goal.id },
+          ...goal.revision === undefined ? {} : { revision: goal.revision },
+          objective: goal.objective,
+        })
+      } else {
+        goalWatch.forget(session.id)
+      }
     }
     // Live workflow fan-out: a text stream per run, so the chat sees the
     // subagent fan-out instead of a silent gap. Best-effort, like todo/goal.
@@ -3794,6 +3831,67 @@ export function installBridge(
     if (binding === undefined) return next()
     return askViaCard(binding, request, next)
   }, { prepend: true })
+
+  /**
+   * Re-open the conversations we recorded as having an active goal, and re-arm
+   * each of them.
+   *
+   * A goal's phase survives a restart, but its continuation authority does not:
+   * the runtime leaves it `disarmed` until a human message arrives. For a
+   * background job that message never comes, so the task sits stopped with
+   * nobody watching — which is exactly what a deploy must not do to it.
+   *
+   * Two things have to happen for a re-armed goal to be useful, and both are
+   * done here: the session has to be reopened (an agent is what holds the goal),
+   * and the chat binding has to be rebuilt (a renderer is what its output goes
+   * through). Re-arming without either would leave a goal running with nowhere
+   * to report.
+   */
+  const resumeWatchedGoals = async (): Promise<void> => {
+    const watched = goalWatch.pending()
+    if (watched.length === 0) return
+    notify(`dsh-lark-bridge: re-arming ${watched.length} active goal(s) after boot`)
+    const service = (ctx as unknown as { goals?: HostGoalsService }).goals
+    for (const entry of watched) {
+      try {
+        const handle = await ladder.resume(entry.sessionId)
+        // Only `chatId` and `chatType` are read when a binding is built; the
+        // rest of a normalised message belongs to inbound handling.
+        const pseudo = { chatId: entry.chatId, chatType: entry.chatType } as unknown as NormalizedMessage
+        await bindingFor(entry.sessionId, pseudo, handle.agent.session)
+        const view = service?.get(handle.agent)
+        if (view?.goal?.phase === 'active' && view.activation === 'disarmed') {
+          await service?.resume(handle.agent, { id: view.goal.id, revision: view.goal.revision })
+          notify(`dsh-lark-bridge: re-armed goal ${view.goal.id} for ${entry.chatId}`)
+          // Refresh the record so a goal that keeps running does not age out of
+          // the re-arm window while the bridge stays up.
+          goalWatch.remember({
+            sessionId: entry.sessionId,
+            chatId: entry.chatId,
+            chatType: entry.chatType,
+            goalId: view.goal.id,
+            revision: view.goal.revision,
+            objective: entry.objective,
+          })
+        } else {
+          // Nothing left to resume (settled, paused, or already armed by the
+          // host). Drop it rather than retrying every boot.
+          goalWatch.forget(entry.sessionId)
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        notify(`dsh-lark-bridge: goal re-arm failed for ${entry.sessionId}: ${detail}`)
+        ctx.logger.warn('goal re-arm failed for %s: %s', entry.sessionId, detail)
+      }
+    }
+  }
+
+  if (config.resumeGoalsOnBoot && config.autoResumeGoals) {
+    const delay = Math.max(0, config.resumeGoalsBootDelaySeconds) * 1_000
+    const timer = setTimeout(() => { void resumeWatchedGoals().catch(reportSendFailure) }, delay)
+    // A boot timer must never hold the process open on its own.
+    ;(timer as unknown as { unref?: () => void }).unref?.()
+  }
 
   // Owned live state unwinds with the fiber: agents down, open questions
   // closed, open streaming cards settled. The session store owns the agents, so
