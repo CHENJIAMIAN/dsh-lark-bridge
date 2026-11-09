@@ -42,11 +42,13 @@ const FILES = {
   // below is a contract it depends on.
   toolPresent: 'packages/deliverables/tool-present/src/types.ts',
   // The team events: one roster, one task board, and a mailbox. The bridge
-  // renders a fleet panel from them.
-  agentTeam: 'packages/experimental/agent-team/src/types.ts',
+  // renders a fleet panel from them. Upstream regrouped these packages under
+  // `packages/team/` — the old `packages/experimental/agent-team/` path is a
+  // 404 now, which is what made this gate fail on every run.
+  agentTeam: 'packages/team/agent-team/src/types.ts',
   // The team package's own entry point: the relayed-message source is built
   // there, not in the event types.
-  agentTeamIndex: 'packages/experimental/agent-team/src/index.ts',
+  agentTeamIndex: 'packages/team/agent-team/src/index.ts',
   // The skill body the `/skills <name>` view reads. The host names the field
   // `content`; reading `body` off the result reads `undefined`.
   skill: 'packages/skill/skill/src/index.ts',
