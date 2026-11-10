@@ -280,3 +280,54 @@ export function panelFormValue(formValue: Record<string, unknown> | undefined): 
   }
   return undefined
 }
+
+/**
+ * What one console interaction asks the bridge to do.
+ *
+ * Kept as data rather than as side effects so the routing decision is testable
+ * without a live host: the question "does a submitted model actually become a
+ * set-model effect, and does a malformed one become an error" is a pure question,
+ * and it is the half that tends to be wrong.
+ */
+export type PanelEffect =
+  | { readonly kind: 'set-model'; readonly provider: string; readonly model: string }
+  | { readonly kind: 'set-workspace'; readonly path: string }
+  | { readonly kind: 'new-session' }
+  | { readonly kind: 'refresh' }
+  | { readonly kind: 'invalid'; readonly reason: string }
+
+/**
+ * Turn one card interaction into the effect it means.
+ *
+ * Every refusal names what was wrong, because a button that silently does
+ * nothing is indistinguishable from a bridge that is broken.
+ * @param action - the parsed button/form payload.
+ * @param submitted - the value its form carried, when it was a form submit.
+ * @returns the effect the bridge should perform.
+ */
+export function resolvePanelAction(action: PanelActionValue, submitted: string | undefined): PanelEffect {
+  if (action.section === 'actions') {
+    if (action.op === 'refresh') return { kind: 'refresh' }
+    if (action.op === 'new-session') return { kind: 'new-session' }
+    return { kind: 'invalid', reason: `不认识的动作 ${action.op}` }
+  }
+  if (action.section === 'model' && action.op === 'set') {
+    if (submitted === undefined) return { kind: 'invalid', reason: '没有拿到选择的模型' }
+    // `provider/model`, split at the FIRST slash: model ids may contain slashes
+    // (`openrouter/anthropic/claude-…`), provider routes may not.
+    const slash = submitted.indexOf('/')
+    if (slash <= 0 || slash === submitted.length - 1) {
+      return { kind: 'invalid', reason: '这个模型标识看不懂' }
+    }
+    return {
+      kind: 'set-model',
+      provider: submitted.slice(0, slash),
+      model: submitted.slice(slash + 1),
+    }
+  }
+  if (action.section === 'workspace' && action.op === 'set') {
+    if (submitted === undefined) return { kind: 'invalid', reason: '没有拿到选择的工作区' }
+    return { kind: 'set-workspace', path: submitted }
+  }
+  return { kind: 'invalid', reason: `不认识的面板节 ${action.section}` }
+}
