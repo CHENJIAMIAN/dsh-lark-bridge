@@ -168,7 +168,15 @@ export async function effortCatalog(
  * that chat's agent and to no other.
  */
 export class EffortOverrides {
-  private readonly bySession = new Map<string, string>()
+  /**
+   * What each session asked to run as: the route it wants, its effort, or both.
+   *
+   * Storing the whole selection rather than just the effort is what lets a
+   * switch reach the CURRENT session: the deployment's default is written into
+   * the agent at creation, and a home-patch overlay refuses to be rewritten at
+   * runtime, so saveSelection alone only ever reaches the next session.
+   */
+  private readonly bySession = new Map<string, ModelSelection>()
 
   /** Advertised levels per route, so the capability lookup runs once per model. */
   private readonly accepted = new Map<string, ReadonlySet<string>>()
@@ -186,9 +194,9 @@ export class EffortOverrides {
   /**
    * The override in force for one session.
    * @param sessionId - the session to look up.
-   * @returns the chosen effort, or undefined when the session follows the default.
+   * @returns the chosen selection, or undefined when the session follows the default.
    */
-  get(sessionId: string): string | undefined {
+  get(sessionId: string): ModelSelection | undefined {
     return this.bySession.get(sessionId)
   }
 
@@ -202,8 +210,19 @@ export class EffortOverrides {
   restore(session: HostSession): void {
     const recorded = lastSelection(session)
     if (recorded === undefined) return
-    if (recorded.reasoningEffort === undefined) this.bySession.delete(session.id)
-    else this.bySession.set(session.id, recorded.reasoningEffort)
+    this.bySession.set(session.id, recorded)
+  }
+
+  /**
+   * Drop one session's override entirely, returning it to the deployment default.
+   *
+   * Distinct from recording a selection with no effort: that keeps a route
+   * override in place, while a reset means 'nothing of mine applies here' —
+   * both the route and the effort go back to the deployment's choice.
+   * @param session - the session being reset.
+   */
+  clear(session: HostSession): void {
+    this.bySession.delete(session.id)
   }
 
   /**
@@ -213,8 +232,7 @@ export class EffortOverrides {
    *   (`undefined` clears the override and returns the session to the default).
    */
   set(session: HostSession, selection: ModelSelection): void {
-    if (selection.reasoningEffort === undefined) this.bySession.delete(session.id)
-    else this.bySession.set(session.id, selection.reasoningEffort)
+    this.bySession.set(session.id, selection)
     // Best effort by design: a host without `append` still honours the choice
     // for this process, and the reply says which of the two happened.
     session.append?.('model/selection', selection)
@@ -233,6 +251,17 @@ export class EffortOverrides {
       const resolved = await next()
       const wanted = this.bySession.get(sessionId)
       if (wanted === undefined) return resolved
+      // The route is part of the override, not just the effort. A deployment
+      // that pins `agent-default-model` in a home patch refuses runtime writes,
+      // so `saveSelection` only ever reaches the NEXT session; rewriting the
+      // envelope is the one seam that moves the CURRENT one.
+      const routed: RequestEnvelope = {
+        ...resolved,
+        provider: wanted.provider ?? resolved.provider,
+        model: wanted.model ?? resolved.model,
+      }
+      const effort = wanted.reasoningEffort
+      if (effort === undefined) return routed
       // `off` 必须发成「没有这个字段」，而不是把 `off` 这个名字交给适配器去查表。
       //
       // 起因（2026-11-05 查实）：宿主把 `off` 解析成什么，取决于该模型
@@ -247,18 +276,17 @@ export class EffortOverrides {
       // 所以在协议边界上把 `off` 换成 `undefined`：宿主见到 `reasoningEffort`
       // 缺席，就不会往请求里放 reasoning 字段，与配置里那个 wire 值无关，
       // 也不会被 magpie 的写回打回原形。
-      const cleared = wanted === EFFORT_OFF
-      // exactOptionalPropertyTypes 下不能赋 undefined 了事：那会让键继续存在，
-      // 而「字段缺席」要求的是这个键根本不在信封里。
-      if (cleared) {
-        const { reasoningEffort: _dropped, ...rest } = resolved
+      if (effort === EFFORT_OFF) {
+        // exactOptionalPropertyTypes 下不能赋 undefined 了事：那会让键继续存在，
+        // 而「字段缺席」要求的是这个键根本不在信封里。
+        const { reasoningEffort: _dropped, ...rest } = routed
         return rest
       }
-      // A stale choice must not break every turn: after `/model` moves the
-      // session to a route that does not offer it, the request goes out as the
+      // A stale choice must not break every turn: after a switch to a route
+      // that does not offer the old effort, the request goes out as that
       // route's own default instead of failing validation.
-      if (!(await this.accepts(resolved.provider, resolved.model, wanted))) return resolved
-      return { ...resolved, reasoningEffort: wanted }
+      if (!(await this.accepts(routed.provider, routed.model, effort))) return routed
+      return { ...routed, reasoningEffort: effort }
     }
     // `agent/request` is a host event whose declaration this package does not
     // import — the bridge keeps its host contract as structural copies so the
@@ -361,7 +389,7 @@ export async function runThinkCommand(
   }
 
   if (intent.kind === 'reset') {
-    overrides.set(session, { provider: route.provider, model: route.model })
+    overrides.clear(session)
     const back = configured?.reasoningEffort
     return {
       reply: `✅ 已回到部署默认${back === undefined ? '（未设置，由模型决定）' : `（\`${back}\`）`}，下一步请求生效。`,

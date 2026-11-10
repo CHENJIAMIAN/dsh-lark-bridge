@@ -3385,9 +3385,15 @@ export function installBridge(
   const consoleView = async (sessionId: string): Promise<PanelView> => {
     const defaults = ctx.get('agentDefaultModel') as HostDefaultModel | undefined
     const selection = defaults?.currentSelection()
-    const currentModel = selection === undefined
-      ? '未配置'
-      : `${selection.provider}/${selection.model}`
+    // A per-session override wins: it is what the next request will actually
+    // send, while the deployment default only decides sessions not yet opened.
+    const liveSession = agents.get(sessionId)?.session
+    const override = liveSession === undefined ? undefined : effortOverrides.get(liveSession.id)
+    const currentModel = override?.provider !== undefined && override.model !== undefined
+      ? `${override.provider}/${override.model}`
+      : selection === undefined
+        ? '未配置'
+        : `${selection.provider}/${selection.model}`
     const models = await discoverModels(ctx.get('llm') as HostLlm | undefined)
     const registry = ctx.get('workspaceRegistry') as HostWorkspaceRegistry | undefined
     const workspaces = (registry?.list?.() ?? []).map(entry => entry.path)
@@ -3480,28 +3486,36 @@ export function installBridge(
     }
 
     if (effect.kind === 'set-model') {
-      if (defaults?.saveSelection === undefined) {
-        notify('dsh-lark-bridge: model switch refused - no saveSelection on agentDefaultModel')
-        return { toast: { type: 'error', content: '本部署没有设置持久化层，切换保存不下来' } }
-      }
-      try {
-        // saveSelection replaces the whole selection: carrying the current
-        // effort across is what keeps a model switch from also disabling
-        // reasoning.
-        const before = defaults.currentSelection()
-        await defaults.saveSelection({
-          ...before,
+      // Switch the running session FIRST, through the request-side override.
+      // `saveSelection` alone cannot do it: a deployment that pins
+      // `agent-default-model` in a home patch refuses every runtime write
+      // ("Configuration … is overridden by a home patch or command-line
+      // overlay"), so saving only ever changes the NEXT session — which is why
+      // the card used to look like it ignored the pick.
+      const liveSession = agents.get(sessionId)?.session
+      if (liveSession !== undefined) {
+        const kept = effortOverrides.get(liveSession.id)?.reasoningEffort
+        effortOverrides.set(liveSession, {
           provider: effect.provider,
           model: effect.model,
+          ...kept === undefined ? {} : { reasoningEffort: kept },
         })
-        const after = defaults.currentSelection()
-        notify(`dsh-lark-bridge: model ${before.provider}/${before.model} -> saved ${effect.provider}/${effect.model} -> reads back ${after.provider}/${after.model}`)
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error)
-        // A toast alone is invisible here: the click already returned its own
-        // acknowledgment, so a thrown save would vanish without a trace.
-        notify(`dsh-lark-bridge: model switch failed - ${detail}`)
-        return { toast: { type: 'error', content: `切换失败：${detail}` } }
+        notify(`dsh-lark-bridge: model -> ${effect.provider}/${effect.model} for ${liveSession.id}`)
+      }
+      // Then try to make it the default too. A refusal here is expected on a
+      // pinned deployment and must not fail the switch the session already got.
+      if (defaults?.saveSelection !== undefined) {
+        try {
+          await defaults.saveSelection({
+            ...defaults.currentSelection(),
+            provider: effect.provider,
+            model: effect.model,
+          })
+          notify(`dsh-lark-bridge: model default saved as ${effect.provider}/${effect.model}`)
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error)
+          notify(`dsh-lark-bridge: model default not saved (session already switched): ${detail}`)
+        }
       }
     } else if (effect.kind === 'set-workspace') {
       try {

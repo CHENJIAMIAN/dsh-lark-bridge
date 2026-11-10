@@ -122,15 +122,17 @@ describe('EffortOverrides', () => {
     const overrides = new EffortOverrides(fakeCtx())
     const session = fakeSession()
     overrides.set(session, { provider: 'p', model: 'm', reasoningEffort: 'low' })
-    expect(overrides.get(session.id)).toBe('low')
+    expect(overrides.get(session.id)?.reasoningEffort).toBe('low')
   })
 
-  it('clears the choice when the selection carries no effort', () => {
+  it('keeps the route when the selection carries no effort', () => {
+    // A selection without an effort still names a route, and the route must
+    // keep overriding — only the effort falls back to the route's default.
     const overrides = new EffortOverrides(fakeCtx())
     const session = fakeSession()
     overrides.set(session, { provider: 'p', model: 'm', reasoningEffort: 'low' })
-    overrides.set(session, { provider: 'p', model: 'm' })
-    expect(overrides.get(session.id)).toBeUndefined()
+    overrides.set(session, { provider: 'p', model: 'm2' })
+    expect(overrides.get(session.id)).toEqual({ provider: 'p', model: 'm2' })
   })
 
   it('appends the choice as a durable model/selection event', () => {
@@ -145,7 +147,7 @@ describe('EffortOverrides', () => {
     const overrides = new EffortOverrides(fakeCtx())
     const session = fakeSession()
     expect(() => overrides.set(session, { provider: 'p', model: 'm', reasoningEffort: 'off' })).not.toThrow()
-    expect(overrides.get(session.id)).toBe('off')
+    expect(overrides.get(session.id)?.reasoningEffort).toBe('off')
   })
 
   it('restores a resumed session’s choice from its own log', () => {
@@ -154,17 +156,19 @@ describe('EffortOverrides', () => {
       { type: 'model/selection', data: { provider: 'p', model: 'm', reasoningEffort: 'low' } },
     ])
     overrides.restore(session)
-    expect(overrides.get(session.id)).toBe('low')
+    expect(overrides.get(session.id)?.reasoningEffort).toBe('low')
   })
 
-  it('restores "follow the default" from a selection without an effort', () => {
+  it('restores the route from a selection that carries no effort', () => {
+    // The last recorded selection is the truth: a later one without an effort
+    // means "this route, at its own default effort", not "forget everything".
     const overrides = new EffortOverrides(fakeCtx())
     const session = fakeSession([
       { type: 'model/selection', data: { provider: 'p', model: 'm', reasoningEffort: 'low' } },
-      { type: 'model/selection', data: { provider: 'p', model: 'm' } },
+      { type: 'model/selection', data: { provider: 'p', model: 'm2' } },
     ])
     overrides.restore(session)
-    expect(overrides.get(session.id)).toBeUndefined()
+    expect(overrides.get(session.id)).toEqual({ provider: 'p', model: 'm2' })
   })
 
   describe('the request hook', () => {
@@ -239,7 +243,8 @@ describe('EffortOverrides', () => {
       }))
       overrides.set(fakeSession(), { provider: 'p', model: 'm', reasoningEffort: 'max' })
       const run = hook(overrides, 'ses_1')
-      await expect(run({ provider: 'p', model: 'other' })).resolves.toEqual({ provider: 'p', model: 'other' })
+      // The route still switches; only the unsupported effort is dropped.
+      await expect(run({ provider: 'p', model: 'other' })).resolves.toEqual({ provider: 'p', model: 'm' })
     })
 
     it('applies the choice when the adapter cannot describe the route', async () => {
@@ -297,7 +302,7 @@ describe('runThinkCommand', () => {
     const session = fakeSession()
     const outcome = await runThinkCommand(`/${THINK_COMMAND} low`, fakeAgent(session), overrides, undefined, defaults)
     expect(outcome.resolved).toBe(true)
-    expect(overrides.get(session.id)).toBe('low')
+    expect(overrides.get(session.id)?.reasoningEffort).toBe('low')
     expect(outcome.reply).toContain('下一步请求即生效')
   })
 
