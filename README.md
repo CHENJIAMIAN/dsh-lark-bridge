@@ -193,6 +193,7 @@ pnpm 10 默认拦截依赖的构建脚本，未放行时以非零退出码失败
 | `/new` | 新开会话（`/clear` 是同义命令） |
 | `/resume` | 切回本聊天的历史会话：不带参数列出（序号、时间、目录、**轮次 / 你说过几句 / 工具调用次数 / 体积 / 历时**、「上次你说的话」），`/resume <序号>` 或 `/resume <会话 id>` 切过去 |
 | `/panel` | 把子代理执行面板重新发到消息流最下面（旧的那张会冻结成「历史快照」并停止更新）；面板被后面的消息挤远了就用它 |
+| `/console` | 打开控制台卡片：会话、当前模型、工作区、上下文占用；模型和工作区下拉直接切换，点「刷新」重读状态 |
 | `/manual` | 完整使用说明（新人从这里开始） |
 | `/sessions` | 本聊天会话历史检索 |
 | `/session` | 当前这个会话的全部事实：id、目录、实际在用的模型路由、日志规模、上下文 token 与距提醒线、模式与忙时策略 |
@@ -378,13 +379,13 @@ pnpm 10 默认拦截依赖的构建脚本，未放行时以非零退出码失败
 
 ```sh
 pnpm hygiene                    # 仓库卫生（部署专有词只留在本机）
-pnpm test                       # 878 条测试 / 81 个 spec 文件
+pnpm test                       # 890 条测试 / 82 个 spec 文件
 pnpm contract-test              # 43 条宿主契约检查
 pnpm contract-drift             # 对上游 dsh master 的漂移检查
 node scripts/check-readme-parity.mjs   # 两份 README 保持同构
 ```
 
-测试在 `tests/` —— vitest 套件（81 个），含 harness 注入式假件。升级引擎前后各跑一次 `pnpm contract-drift`——桥所镜像的宿主接缝一旦挪位，它会红。
+测试在 `tests/` —— vitest 套件（82 个），含 harness 注入式假件。升级引擎前后各跑一次 `pnpm contract-drift`——桥所镜像的宿主接缝一旦挪位，它会红。
 
 ## 🤝 参与
 

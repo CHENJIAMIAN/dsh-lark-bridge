@@ -135,6 +135,9 @@ export const RESUME_COMMAND = 'resume'
  */
 export const PANEL_COMMAND = 'panel'
 
+/** 可操作的控制台卡片。 */
+export const CONSOLE_COMMAND = 'console'
+
 /** Bridge dual-end status, settings, and plugin sync. */
 export const BOT_COMMAND = 'bot'
 
@@ -335,6 +338,7 @@ export function helpText(
     `\`/${NEW_COMMAND}\` — ${describeCommand(NEW_COMMAND, locale, 'Start a new session')}`,
     `\`/${RESUME_COMMAND}\` — ${describeCommand(RESUME_COMMAND, locale, 'Switch to a stored session')}`,
     `\`/${PANEL_COMMAND}\` — ${describeCommand(PANEL_COMMAND, locale, 'Repost the subagent panel')}`,
+    `\`/${CONSOLE_COMMAND}\` — ${describeCommand(CONSOLE_COMMAND, locale, 'Open the console card')}`,
     `\`/${PRESET_COMMAND}\` — ${describeCommand(PRESET_COMMAND, locale, 'View or switch mode')}`,
     `\`/${SESSIONS_COMMAND}\` — ${describeCommand(SESSIONS_COMMAND, locale, 'View session history')}`,
     `\`/${SESSION_COMMAND}\` — ${describeCommand(SESSION_COMMAND, locale, 'Inspect the current session')}`,
