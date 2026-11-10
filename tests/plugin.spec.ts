@@ -42,6 +42,34 @@ function clickAction(
 }
 
 describe('dsh-lark-bridge', () => {
+  it('creates one console entity and then updates it in place', async () => {
+    const harness = await mountChannel()
+    const consoleMessage = (id: string) => fakeMessage({ messageId: id, content: '/console' })
+    // The inbound path composes an agent before it reaches the command branch;
+    // give it the same margin the other command tests use.
+    const wait = { timeout: 20_000, interval: 50 }
+    await harness.fake.emitMessage(consoleMessage('om_console_1'))
+    await vi.waitFor(() => { expect(harness.fake.createdCards).toHaveLength(1) }, wait)
+    // First send attaches the entity; it must be a cardId reference, not a
+    // card body inline.
+    expect(harness.fake.sent.length).toBe(1)
+    const first = harness.fake.sent[0]!.input as Record<string, unknown>
+    expect(first.cardId).toBeDefined()
+
+    await harness.fake.emitMessage(consoleMessage('om_console_2'))
+    await vi.waitFor(() => { expect(harness.fake.updatedEntities).toHaveLength(1) }, wait)
+    // In-place update means NO second message. This is the whole point of the
+    // managed entity: a switch refreshes the card without stacking duplicates.
+    expect(harness.fake.sent.length).toBe(1)
+    expect(harness.fake.updatedEntities[0]!.sequence).toBe(1)
+
+    await harness.fake.emitMessage(consoleMessage('om_console_3'))
+    await vi.waitFor(() => { expect(harness.fake.updatedEntities).toHaveLength(2) }, wait)
+    expect(harness.fake.sent.length).toBe(1)
+    expect(harness.fake.updatedEntities.map(update => update.sequence)).toEqual([1, 2])
+    await harness.dispose()
+  })
+
   it('preserves the function-plugin namespace through Loader unwrapping', () => {
     expect('default' in plugin).toBe(false)
 
