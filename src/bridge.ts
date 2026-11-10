@@ -115,6 +115,7 @@ import type { ReactionTracker } from './reaction.ts'
 import { discoverModels } from './model-catalog.ts'
 import { createGoalWatch } from './goal-watch.ts'
 import { panelActionValue, panelCard, panelSubmitted, resolvePanelAction } from './panel.ts'
+import type { PanelActionValue } from './panel.ts'
 import type { PanelView } from './panel.ts'
 import { chatOfSession, overdueActionValue, overdueCard, overdueTasks } from './schedule-watchdog.ts'
 import type { StoredScheduleTask } from './schedule-watchdog.ts'
@@ -3433,7 +3434,7 @@ export function installBridge(
    * @param action - what the control asked for.
    * @returns the toast to show the clicker.
    */
-  const handlePanelAction = async (evt: CardActionEvent, action: { readonly section: string; readonly op: string }): Promise<CardActionResponse> => {
+  const handlePanelAction = async (evt: CardActionEvent, action: PanelActionValue): Promise<CardActionResponse> => {
     const sessionId = bySession.get([...bySession.keys()].find(id => bySession.get(id)?.chatId === evt.chatId) ?? '')?.session.id ?? ''
     const defaults = ctx.get('agentDefaultModel') as HostDefaultModel | undefined
     // Routing lives in `resolvePanelAction` so it can be tested without a host;
@@ -3442,7 +3443,9 @@ export function installBridge(
     // 「点了没反应」既可能是没拿到值、也可能存了但读回旧值，只有把三个都打出来
     // 才能一次分清。跑通后可以降级成 debug。
     notify(`dsh-lark-bridge: panel ${action.section}/${action.op} option=${evt.action.option ?? '∅'} formValue=${JSON.stringify(evt.action.formValue ?? null)} picked=${panelSubmitted(evt.action) ?? '∅'}`)
-    const effect = resolvePanelAction(action, panelSubmitted(evt.action))
+    // 按钮自带 value，下拉才需要从 formValue / option 里找。按钮这条路在 1.0 和
+    // 2.0 上都成立，所以优先用它。
+    const effect = resolvePanelAction(action, action.value ?? panelSubmitted(evt.action))
     if (effect.kind === 'invalid') {
       return { toast: { type: 'warning', content: effect.reason } }
     }
