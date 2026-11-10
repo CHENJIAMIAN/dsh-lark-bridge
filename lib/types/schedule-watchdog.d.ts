@@ -89,6 +89,17 @@ export interface OverdueActionValue {
  */
 export declare function overdueActionValue(value: unknown): OverdueActionValue | undefined;
 /**
+ * Render a scheduled instant the way a human reads it.
+ *
+ * `scheduledAt` is an ISO UTC string. Printing it raw produced
+ * 「本应在 2026-11-10T04:00:00.000Z 执行，已经晚了 44 分钟」 — the reader sees
+ * 04:00 while their clock says 12:44, so the two halves of the sentence look
+ * contradictory. Render in the machine's local zone and keep the offset.
+ * @param iso - the stored scheduled instant.
+ * @returns a local stamp, or the raw string when it cannot be parsed.
+ */
+export declare function localDue(iso: string): string;
+/**
  * Build the card that surfaces one missed occurrence.
  *
  * It offers a button rather than acting: running the task means starting an

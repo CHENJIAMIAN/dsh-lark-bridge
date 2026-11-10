@@ -50,6 +50,8 @@ export interface OverdueTask {
   readonly overdueMs: number
 }
 
+import { messageTimeStamp } from './clock.ts'
+
 /** How far back the bridge is willing to surface a missed occurrence. */
 export const DEFAULT_OVERDUE_WINDOW_MS = 24 * 60 * 60 * 1000
 
@@ -148,6 +150,21 @@ function describeLateness(ms: number): string {
 }
 
 /**
+ * Render a scheduled instant the way a human reads it.
+ *
+ * `scheduledAt` is an ISO UTC string. Printing it raw produced
+ * 「本应在 2026-11-10T04:00:00.000Z 执行，已经晚了 44 分钟」 — the reader sees
+ * 04:00 while their clock says 12:44, so the two halves of the sentence look
+ * contradictory. Render in the machine's local zone and keep the offset.
+ * @param iso - the stored scheduled instant.
+ * @returns a local stamp, or the raw string when it cannot be parsed.
+ */
+export function localDue(iso: string): string {
+  const at = Date.parse(iso)
+  return Number.isFinite(at) ? messageTimeStamp(at) ?? iso : iso
+}
+
+/**
  * Build the card that surfaces one missed occurrence.
  *
  * It offers a button rather than acting: running the task means starting an
@@ -166,7 +183,7 @@ export function overdueCard(task: OverdueTask, chatId: string): object {
     elements: [
       {
         tag: 'div',
-        text: { tag: 'lark_md', content: `**${task.title}**\n本应在 ${task.scheduledAt} 执行，已经晚了 ${describeLateness(task.overdueMs)}。` },
+        text: { tag: 'lark_md', content: `**${task.title}**\n本应在 ${localDue(task.scheduledAt)} 执行，已经晚了 ${describeLateness(task.overdueMs)}。` },
       },
       {
         tag: 'action',

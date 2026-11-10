@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createConsoleCardStore, PANEL_ACTION, panelActionValue, panelCard, panelFormValue, panelSubmitted, resolvePanelAction } from '../src/panel.ts'
+import { createConsoleCardStore, PANEL_ACTION, PANEL_SUBMIT_PREFIX, panelActionValue, panelCard, panelFormValue, panelSubmitted, panelSubmitAction, resolvePanelAction } from '../src/panel.ts'
 import type { PanelView } from '../src/panel.ts'
 
 const VIEW: PanelView = {
@@ -50,15 +50,15 @@ describe('console card', () => {
 
   it('preselects the active model and workspace', () => {
     const selects = walk(panelCard(VIEW)).filter(node => node.tag === 'select_static')
-    expect(selects[0]!.initial_index).toBe(1)
-    expect(selects[1]!.initial_index).toBe(1)
+    expect(selects[0]!.initial_option).toBe('DeepSeek · V4')
+    expect(selects[1]!.initial_option).toBe('D:\\Proj')
   })
 
-  it('uses a 1-based index whose 0 means no selection', () => {
-    // initial_index is 1-based per the CardKit spec: 0 = show no option.
-    // A model outside the list must not silently pre-select the first one.
+  it('leaves the dropdown unselected when the current value is not offered', () => {
+    // Passing a value absent from the options would silently pre-select the
+    // first one, showing a model that is not the one in use.
     const selects = walk(panelCard({ ...VIEW, currentModel: 'other/x' })).filter(node => node.tag === 'select_static')
-    expect(selects[0]!.initial_index).toBe(0)
+    expect(selects[0]!.initial_option).toBeUndefined()
   })
 
   it('offers refresh and new-session as pressable actions', () => {
@@ -69,10 +69,13 @@ describe('console card', () => {
     expect(ops).toContain('new-session')
   })
 
-  it('marks every submit button with this plugin\'s action kind', () => {
+  it('marks every plain button with this plugin\'s action kind', () => {
     const buttons = walk(panelCard(VIEW)).filter(node => node.tag === 'button')
     expect(buttons.length).toBeGreaterThan(0)
+    // Form submit buttons are identified by `name`, not `value` — see the
+    // dedicated test below. Only the plain buttons carry the action payload.
     for (const button of buttons) {
+      if (button.form_action_type === 'submit') continue
       const value = (button.value ?? {}) as Record<string, unknown>
       expect(value.kind).toBe(PANEL_ACTION)
     }
@@ -185,6 +188,13 @@ describe('console action values', () => {
     expect(panelSubmitted({ option: '' })).toBeUndefined()
     expect(panelSubmitted({})).toBeUndefined()
   })
+  it('parses a submit button name into its section action', () => {
+    expect(panelSubmitAction(`${PANEL_SUBMIT_PREFIX}model`)).toEqual({ section: 'model', op: 'set' })
+    expect(panelSubmitAction(`${PANEL_SUBMIT_PREFIX}workspace`)).toEqual({ section: 'workspace', op: 'set' })
+    expect(panelSubmitAction('panel-refresh')).toBeUndefined()
+    expect(panelSubmitAction(undefined)).toBeUndefined()
+    expect(panelSubmitAction(`${PANEL_SUBMIT_PREFIX}nope`)).toBeUndefined()
+  })
 })
 
 describe('console card entity lifecycle', () => {
@@ -230,6 +240,19 @@ describe('console card entity lifecycle', () => {
     expect(store.planFor('chat')).toEqual({ kind: 'create' })
     store.created('chat', 'card-2')
     expect(store.planFor('chat')).toEqual({ kind: 'update', cardId: 'card-2', sequence: 1 })
+  })
+
+  it('names each submit button so a 2.0 form callback can be identified', () => {
+    // A form submit does NOT echo the button's `value`: it reports `action.name`
+    // and the fields under `formValue`. Without these names the callback is
+    // unrecognisable and both dropdowns look like they cannot switch.
+    const submits = walk(panelCard(VIEW))
+      .filter(node => node.tag === 'button' && node.form_action_type === 'submit')
+    expect(submits.map(button => button.name)).toEqual([
+      `${PANEL_SUBMIT_PREFIX}model`,
+      `${PANEL_SUBMIT_PREFIX}workspace`,
+    ])
+    for (const button of submits) expect(button.value).toBeUndefined()
   })
 
   it('keeps chats independent', () => {

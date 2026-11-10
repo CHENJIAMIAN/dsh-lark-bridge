@@ -26,6 +26,9 @@ import type { ModelEntry } from './model-catalog.ts'
 /** The card-button / form-submit payload the console uses. */
 export const PANEL_ACTION = 'dsh-lark-bridge/panel'
 
+/** Prefix of a form submit button's `name`, carrying which section it submits. */
+export const PANEL_SUBMIT_PREFIX = 'panel-submit-'
+
 /** One console interaction, as the card reports it. */
 export interface PanelActionValue {
   /** Section that owns the control. */
@@ -133,11 +136,12 @@ function modelSection(view: PanelView): PanelSectionRender {
     text: plainText(`${entry.providerName} · ${entry.name}`),
     value: `${entry.provider}/${entry.id}`,
   }))
-  // `initial_option` in the CardKit spec is the option's DISPLAY TEXT, not its
-  // `value` — passing `provider/model` here silently pre-selects nothing.
-  // `initial_index` is numeric and 1-based (0 = no selection), so it cannot
-  // drift when a display name changes.
-  const activeIndex = options.findIndex(option => option.value === view.currentModel)
+  // `initial_option` is the option's DISPLAY TEXT, not its `value`. Passing a
+  // `provider/model` (or an index the client ignores) leaves the dropdown
+  // showing the first option while the header shows a different model —
+  // exactly the "model looks wrong" report. Only set it when the current
+  // model is actually among the offered options.
+  const activeInList = options.some(option => option.value === view.currentModel)
   elements.push({
     tag: 'form',
     name: 'panel-model-form',
@@ -152,17 +156,16 @@ function modelSection(view: PanelView): PanelSectionRender {
         // Must stay false: a required control makes the client swallow the
         // submission instead of reporting it.
         required: false,
-        initial_index: activeIndex + 1,
+        ...activeInList ? { initial_option: label } : {},
         placeholder: plainText('选择模型'),
         options,
       },
       {
         tag: 'button',
-        name: 'panel-model-submit',
+        name: `${PANEL_SUBMIT_PREFIX}model`,
         form_action_type: 'submit',
         type: 'primary',
         text: plainText('切换'),
-        value: actionValue('model', 'set'),
       },
     ],
   })
@@ -190,7 +193,7 @@ function workspaceSection(view: PanelView): PanelSectionRender {
     text: plainText(path),
     value: path,
   }))
-  const activeIndex = options.findIndex(option => option.value === view.currentWorkspace)
+  const currentInList = options.some(option => option.value === view.currentWorkspace)
   elements.push({
     tag: 'form',
     name: 'panel-workspace-form',
@@ -203,17 +206,16 @@ function workspaceSection(view: PanelView): PanelSectionRender {
         type: 'default',
         width: 'fill',
         required: false,
-        initial_index: activeIndex + 1,
+        ...currentInList ? { initial_option: view.currentWorkspace } : {},
         placeholder: plainText('选择工作区'),
         options,
       },
       {
         tag: 'button',
-        name: 'panel-workspace-submit',
+        name: `${PANEL_SUBMIT_PREFIX}workspace`,
         form_action_type: 'submit',
         type: 'primary',
         text: plainText('切换'),
-        value: actionValue('workspace', 'set'),
       },
     ],
   })
@@ -335,6 +337,25 @@ export function createConsoleCardStore(): {
       byChat.delete(chatId)
     },
   }
+}
+
+/**
+ * Identify a 2.0 form submit from its button `name`.
+ *
+ * A `form_action_type: 'submit'` button does NOT echo its `value` back — the
+ * callback carries `action.name` (the button's unique name) and the form's
+ * fields under `action.formValue`. This package's question cards are built on
+ * exactly that contract. Reading only `action.value` here is why both dropdowns
+ * looked like they could not switch at all: the callback arrived but nothing
+ * recognised it.
+ * @param name - `action.name` as the channel SDK hands it over.
+ * @returns the section/op the submit means, or undefined for other buttons.
+ */
+export function panelSubmitAction(name: string | undefined): PanelActionValue | undefined {
+  if (name === undefined || !name.startsWith(PANEL_SUBMIT_PREFIX)) return undefined
+  const section = name.slice(PANEL_SUBMIT_PREFIX.length)
+  if (section !== 'model' && section !== 'workspace') return undefined
+  return { section, op: 'set' }
 }
 
 /**
