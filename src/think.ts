@@ -318,7 +318,14 @@ export class EffortOverrides {
     try {
       const info = await llm.resolveModelInfo(provider, model)
       const efforts = info.reasoning?.efforts
-      if (efforts === undefined || efforts.length === 0) return true
+      // An adapter that declares no levels has no levels. Treating silence as
+      // "accepts anything" is what shipped `reasoningEffort: "max"` to a route
+      // that answered `UNSUPPORTED_REASONING_EFFORT` and killed the turn — a
+      // switch to that route then looked like it broke the chat.
+      if (efforts === undefined || efforts.length === 0) {
+        this.accepted.set(key, new Set())
+        return false
+      }
       const ids = new Set(efforts.map(level => level.id))
       this.accepted.set(key, ids)
       return ids.has(effort)

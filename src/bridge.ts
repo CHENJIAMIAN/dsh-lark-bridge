@@ -3494,12 +3494,11 @@ export function installBridge(
       // the card used to look like it ignored the pick.
       const liveSession = agents.get(sessionId)?.session
       if (liveSession !== undefined) {
-        const kept = effortOverrides.get(liveSession.id)?.reasoningEffort
-        effortOverrides.set(liveSession, {
-          provider: effect.provider,
-          model: effect.model,
-          ...kept === undefined ? {} : { reasoningEffort: kept },
-        })
+        // The old route's effort does NOT carry over: another model has another
+        // set of levels, and shipping `max` to a route without one fails the
+        // whole turn with UNSUPPORTED_REASONING_EFFORT. A switch means "run as
+        // this model defaults"; `/think` is where a level is chosen.
+        effortOverrides.set(liveSession, { provider: effect.provider, model: effect.model })
         notify(`dsh-lark-bridge: model -> ${effect.provider}/${effect.model} for ${liveSession.id}`)
       }
       // Then try to make it the default too. A refusal here is expected on a
@@ -3528,6 +3527,14 @@ export function installBridge(
 
     try {
       await openConsole(evt.chatId, sessionId)
+      // Some clients keep the dropdown's previously rendered value when a card
+      // is rewritten in place, so the switch looks like it "snapped back" even
+      // though the new card carries the new value. One delayed rewrite forces a
+      // fresh render; it is cheap and invisible when the first one already won.
+      const settle = setTimeout(() => {
+        void openConsole(evt.chatId, sessionId).catch(() => {})
+      }, 900)
+      ;(settle as unknown as { unref?: () => void }).unref?.()
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       notify(`dsh-lark-bridge: console redraw failed: ${detail}`)
