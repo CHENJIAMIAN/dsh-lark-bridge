@@ -70,6 +70,27 @@ export interface PanelSectionRender {
  * @param view - the state being rendered.
  * @returns the section's elements.
  */
+/** How many options a dropdown will offer before it is truncated. */
+export declare const PANEL_CHOICES_MAX = 40;
+/**
+ * The model section: a dropdown that reports the pick by itself.
+ *
+ * Two things the platform requires and that a naive card misses, both from the
+ * `select_static` reference:
+ *
+ * - **A root-level select must live inside an `action` container's `actions`.**
+ *   Outside one it renders but never reports anything.
+ * - **`behaviors` is required.** It carries the callback payload, and it is what
+ *   makes picking a value fire a card action instead of waiting for a submit
+ *   button that JSON 1.0 does not have.
+ *
+ * Without `behaviors` the click still reaches the bridge — as an action with no
+ * value — which reads as "the switch did nothing" rather than as a missing
+ * field. That is exactly how this was diagnosed: a live click logged
+ * `option=∅ formValue=null`.
+ * @param view - the state being rendered.
+ * @returns the section's elements.
+ */
 declare function modelSection(view: PanelView): PanelSectionRender;
 /**
  * The workspace section: a dropdown of registered directories.
