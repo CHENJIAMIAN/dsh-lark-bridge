@@ -47,6 +47,14 @@ export interface SentMessage {
   to: string
   input: SendInput
   opts?: SendOptions | undefined
+  /**
+   * The id this send answered with.
+   *
+   * Needed by tests that check a later recall: `createCard` shares the same
+   * counter as `send`, so a hard-coded `om_sent_1` would depend on how many
+   * entities the test happened to create first.
+   */
+  messageId?: string | undefined
 }
 
 type MessageHandler = (msg: NormalizedMessage) => void | Promise<void>
@@ -79,6 +87,13 @@ export function createFakePort() {
   /** Managed card entities created and the in-place updates they received. */
   const createdCards: object[] = []
   const updatedEntities: { cardId: string; cardJson: object; sequence: number }[] = []
+  /**
+   * Messages the bridge recalled.
+   *
+   * The console replaces its card message instead of editing it in place, so a
+   * test that counts messages is really asking "did the old one go away".
+   */
+  const recalled: string[] = []
   const streams: StreamedCard[] = []
   /** Commands already on the app's panel, and the ones this run registered. */
   const panelCommands: string[] = []
@@ -167,9 +182,10 @@ export function createFakePort() {
         state.failNextSend = false
         throw new Error('send failed (fake)')
       }
-      sent.push({ to, input, opts })
       counter += 1
-      return { messageId: `om_sent_${counter}` }
+      const messageId = `om_sent_${counter}`
+      sent.push({ to, input, opts, messageId })
+      return { messageId }
     },
     async updateCard(messageId, card) {
       updated.push({ messageId, card })
@@ -181,6 +197,9 @@ export function createFakePort() {
     },
     async updateCardById(cardId, cardJson, sequence) {
       updatedEntities.push({ cardId, cardJson, sequence })
+    },
+    async recallMessage(messageId) {
+      recalled.push(messageId)
     },
     async createCot(chatId, options) {
       if (state.failCotCreate) throw new Error('cot unavailable (fake)')
@@ -269,6 +288,7 @@ export function createFakePort() {
     updated,
     createdCards,
     updatedEntities,
+    recalled,
     streams,
     panelCommands,
     panelCreated,

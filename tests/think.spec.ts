@@ -307,6 +307,20 @@ describe('runThinkCommand', () => {
     expect(outcome.reply).toContain('上一次请求实际使用')
   })
 
+  it('prints the header’s branded effort id, not [object Object]', async () => {
+    // 宿主把 `reasoningEffort` 记成 `ReasoningEffortId`——一个带 `id` 的品牌
+    // 对象，不是字符串。直接插进模板串就是 `[object Object]`（2026-11-11 现场）。
+    const overrides = new EffortOverrides(fakeCtx())
+    const session = {
+      ...fakeSession(),
+      requestHeader: () => ({ config: { provider: 'p', model: 'm', reasoningEffort: { id: 'max' } } }),
+    } as unknown as HostSession
+    const outcome = await runThinkCommand(`/${THINK_COMMAND}`, fakeAgent(session), overrides, undefined, defaults)
+    expect(outcome.reply).not.toContain('[object Object]')
+    expect(outcome.reply).toContain('`max`')
+    expect(outcome.reply).toContain('上一次请求实际使用')
+  })
+
   it('switches a known level and says when it lands', async () => {
     const overrides = new EffortOverrides(fakeCtx())
     const session = fakeSession()

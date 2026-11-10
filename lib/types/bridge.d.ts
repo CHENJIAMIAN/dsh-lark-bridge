@@ -92,6 +92,14 @@ export interface ChannelPort extends OutboundPort, SlashPanelPort, ImagePort, Co
     }>;
     updateCardById(cardId: string, cardJson: object, sequence: number): Promise<void>;
     updateCard(messageId: string, card: object): Promise<void>;
+    /**
+     * Withdraw one of this app's own messages (`im.v1.messages.delete`).
+     *
+     * Optional like {@link updateCard}: the console replaces its previous card
+     * rather than editing it in place, and a transport double that does not model
+     * recall must still satisfy the port. Absence only costs a leftover card.
+     */
+    recallMessage?(messageId: string): Promise<void>;
     /** Subscribe one normalized inbound event; returns the unsubscriber. */
     on(name: 'message', handler: (msg: NormalizedMessage) => void | Promise<void>): () => void;
     on(name: 'cardAction', handler: (evt: CardActionEvent) => void | CardActionResponse | Promise<void | CardActionResponse>): () => void;

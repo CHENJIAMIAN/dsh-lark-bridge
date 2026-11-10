@@ -44,14 +44,26 @@ token：`POST /open-apis/auth/v3/tenant_access_token/internal`，appId/appSecret
 - **2.0 卡片是可用的**，但要走正确发法：先 `POST /open-apis/cardkit/v1/cards`
   （body `{type:'card_json', data:'<2.0 JSON 字符串>'}`）拿 `card_id`，再发
   `msg_type=interactive`、`content` 为 `{type:'card', data:{card_id}}`。
-  用 `updateCardById(cardId, json, sequence)`（sequence 严格递增）可做**真正的原地更新**。
-  桥的控制台已走这条路；发卡用 `port.createCard` + `send({cardId})`，刷新用
-  `port.updateCardById`，回调字段是 `formValue`。
-- **判断卡片渲染是否正常只能让人看截图，别拿 `GET /im/v1/messages` 取回的 `body.content` 当依据——2.0 卡片那里存的只是给旧客户端的兜底文本。**
+  回调字段是 `formValue`。
+- **`updateCardById` 刷新的是 entity，不产生新消息——用户主动要的东西必须发新卡。**
+  `cardkit.v1.card.update` 返回 `code=0 success`，`/im/v1/messages` 里一条新消息都没有。
+  所以「用户发一条命令、要一张卡」这种交互只有 `createCard` + `send({cardId})` 一定会让他看见；
+  原地更新只适合"他刚点了这张卡上的按钮、正盯着它"的场景。
+  2026-11-10 的 `/console` 连续三次无响应就是这么来的：日志里
+  `console card updated in place (seq 5/6/7)` 三条全部成功，而操作者屏幕上什么都没变，
+  他只能判断「机器人没反应」。控制台现在改成**每次发新卡 + `recallMessage` 撤回上一张**，
+  聊天里始终只留一张；`/console` 的 send/create 每一步独立 try，失败会直接回消息带飞书错误码。
 - **`port.updateCard(messageId, card)` 对 1.0 interactive 消息无效**：它 resolves 不报错，
-  但客户端不重绘。它面向的是 `createCard` 建出来的 CardKit 2.0 card entity。表现是「第一张卡
-  正常，之后每次 `/console` 和每次切换都石沉大海」，以及「选完又闪回旧值」。
+  但客户端不重绘。它面向的是 `createCard` 建出来的 CardKit 2.0 card entity。
   要刷新就**发一张新卡**，别指望原地更新。
+- **2.0 不支持 `tag: 'note'`（以及一批 1.0 元素），而且拒绝是整卡级的。**
+  `{ tag: 'note', elements: [...] }` 让 cardkit 回 `code=200861 … unsupported tag note`、
+  `data.card_id: ""`；SDK 只读 `data.card_id`，于是调用方看到的永远是一句
+  `cardkit.card.create returned no card_id (code=unknown)`——**服务端的真实错误码被吞掉**，
+  2026-11-10 因此把一次字段错误误判成网络抖动，查了半小时。
+  提示行改用 `div` + `plain_text`（见 `panel.ts` 的 `hint()`），别再用 `note`。
+  排查这类问题的正确姿势：把 `panelCard()` 的真实 JSON 直接 POST `cardkit/v1/cards` 读返回体，
+  一次就能看到是哪个元素、哪个 tag 被拒。
 
 ## 重启宿主
 

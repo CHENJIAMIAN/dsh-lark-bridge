@@ -26,7 +26,7 @@ import { contextPressureLine, scheduleName, scheduleNextLabel, scheduleRuleLabel
 import { shortStamp } from './clock.ts'
 import { readContextBreakdown } from './context-breakdown.ts'
 import { readToolCosts } from './tool-costs.ts'
-import { runThinkCommand } from './think.ts'
+import { effortName, runThinkCommand } from './think.ts'
 import type { EffortOverrides } from './think.ts'
 import { cachedModels, discoverModels, formatModelCatalog, modelByNumber } from './model-catalog.ts'
 
@@ -739,7 +739,10 @@ function runSessionCommand(
   try {
     const header = session.requestHeader?.()
     if (header !== undefined) route = `${header.config.provider}/${header.config.model}`
-    if (header?.config.reasoningEffort !== undefined) route = `${route}（思考强度 ${header.config.reasoningEffort}）`
+    // The header's effort is a branded object, not a string — printing it raw
+    // shows `[object Object]`. See `effortName`.
+    const effort = effortName(header?.config.reasoningEffort)
+    if (effort !== undefined) route = `${route}（思考强度 ${effort}）`
   } catch {
     // A header that cannot be read is not worth failing the whole command.
   }

@@ -67,8 +67,42 @@ describe('overdue schedule detection', () => {
     expect(overdueTasks({ k: broken }, NOW)).toEqual([])
   })
 
-  it('sorts oldest first so the most stale is dealt with first', () => {
-    const rows = overdueTasks({
+  it('does not call an every-row missed when the cadence already carried it past', () => {
+    // 2026-11-10 现场：每 2 小时的任务因为一次提前投递，scheduledAt 前移到了
+    // 20:00，而 lastDelivery 还停在 16:00 那一次上。旧判据只比「相等」，于是
+    // 20:00 这个点每轮扫描都被报成漏发——可它 16:00 就执行过了。
+    const due = new Date(NOW + 60 * 60_000).toISOString()
+    const every: StoredScheduleTask = {
+      record: { id: 'every', title: '盯进度', kind: 'every', everySeconds: 7200, scheduledAt: due },
+      status: 'active',
+      lastDelivery: { scheduledAt: new Date(NOW - 6 * 3600_000).toISOString() },
+      deliveryHistory: {
+        records: [
+          { scheduledAt: new Date(NOW - 6 * 3600_000).toISOString(), deliveredAt: new Date(NOW - 6 * 3600_000).toISOString() },
+          { scheduledAt: due, deliveredAt: new Date(NOW - 30 * 60_000).toISOString() },
+        ],
+      },
+    }
+    expect(overdueTasks({ k: every }, NOW)).toEqual([])
+  })
+
+  it('still reports an every-row whose instants were genuinely skipped', () => {
+    // 反过来也要成立：所有交付记录都停在该时间点之前，说明中间那几轮真没跑。
+    const due = new Date(NOW - 60 * 60_000).toISOString()
+    const skipped: StoredScheduleTask = {
+      record: { id: 'every', title: '盯进度', kind: 'every', everySeconds: 7200, scheduledAt: due },
+      status: 'active',
+      lastDelivery: { scheduledAt: new Date(NOW - 9 * 3600_000).toISOString() },
+    }
+    expect(overdueTasks({ k: skipped }, NOW)).toHaveLength(1)
+  })
+
+  it('does not cry wolf over a firing a few seconds late', () => {
+    // 「已经晚了 0 分钟」是 2026-11-10 那条卡片的原话。几秒的抖动不算漏发。
+    expect(overdueTasks({ k: daily(1) }, NOW)).toEqual([])
+  })
+
+  it('sorts oldest first so the most stale is dealt with first', () => {    const rows = overdueTasks({
       a: daily(10, { record: { id: 'a', title: 'A', scheduledAt: new Date(NOW - 10 * 60_000).toISOString() } }),
       b: daily(90, { record: { id: 'b', title: 'B', scheduledAt: new Date(NOW - 90 * 60_000).toISOString() } }),
     }, NOW)

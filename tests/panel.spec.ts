@@ -33,6 +33,17 @@ describe('console card', () => {
     expect(card.body).toHaveProperty('elements')
   })
 
+  it('uses no tag that schema 2.0 rejects', () => {
+    // 2026-11-10 现场：给提示行用了 `tag: 'note'`，cardkit 直接拒绝整张卡——
+    // `code=200861 … unsupported tag note`、`card_id: ""`。SDK 只读 `data.card_id`，
+    // 于是调用方看到的全是 `returned no card_id (code=unknown)`，服务端真正的错误码
+    // 一次都没露出来，排查因此绕了一大圈。整卡级拒绝意味着任何一个元素写错都致命。
+    const tags = walk(panelCard(VIEW))
+      .map(node => node.tag)
+      .filter((tag): tag is string => typeof tag === 'string')
+    expect(tags).not.toContain('note')
+  })
+
   it('puts each dropdown in its own form with a submit button', () => {
     // 2.0 has a form container, so a dropdown reports through formValue`r
     // instead of the 1.0 ehaviors callback workaround.
@@ -139,6 +150,13 @@ describe('console action dispatch', () => {
       kind: 'set-workspace',
       path: 'D:\\Proj',
     })
+  })
+
+  it('says on the workspace section that the binding lands on the next /new', () => {
+    // 和 `bind_workspace` 同一行为：点了不会当场换目录，卡片上必须写明，
+    // 否则「点完没变化」会被读成桥坏了。
+    const text = JSON.stringify(panelCard(VIEW))
+    expect(text).toContain('绑定后发 /new')
   })
 
   it('refuses unknown sections and operations instead of doing nothing', () => {

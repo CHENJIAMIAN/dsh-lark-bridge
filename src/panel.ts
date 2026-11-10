@@ -77,6 +77,11 @@ export interface PanelView {
   readonly contextUsed?: number
   /** Context window, when the host reports one. */
   readonly contextWindow?: number
+  /**
+   * Failure lines for the diagnostics section, when this card is reporting a
+   * failed operation rather than showing the console. Absent on a normal card.
+   */
+  readonly diagnostics?: readonly string[]
 }
 
 /** A group of card elements contributed by one section. */
@@ -90,6 +95,22 @@ export interface PanelSectionRender {
 /** A `plain_text` element: the only text form untrusted values may take. */
 function plainText(content: string): object {
   return { tag: 'plain_text', content }
+}
+
+/**
+ * A small explanatory line.
+ *
+ * **Not `tag: 'note'`.** schema 2.0 dropped that tag, and cardkit rejects the
+ * WHOLE card rather than the one element: `code=200861 … unsupported tag note`,
+ * with `card_id: ""` in the response body. The SDK only reads `data.card_id`,
+ * so the caller sees the useless `cardkit.card.create returned no card_id
+ * (code=unknown)` — the platform's real error never surfaces. A `div` holding
+ * `plain_text` is the shape this card already uses elsewhere and 2.0 accepts.
+ * @param content - the line to show.
+ * @returns a body element.
+ */
+function hint(content: string): object {
+  return { tag: 'div', text: plainText(content) }
 }
 
 /** `45,000 / 128,000（35%）` — a usage figure a reader can judge at a glance. */
@@ -129,7 +150,7 @@ function modelSection(view: PanelView): PanelSectionRender {
     { tag: 'div', text: { tag: 'lark_md', content: `**模型**　${label}` } },
   ]
   if (view.models.length === 0) {
-    elements.push({ tag: 'note', elements: [plainText('宿主没有报出可用的模型目录。')] })
+    elements.push(hint('宿主没有报出可用的模型目录。'))
     return { id: 'model', elements }
   }
   const options = view.models.slice(0, PANEL_CHOICES_MAX).map(entry => ({
@@ -186,7 +207,7 @@ function workspaceSection(view: PanelView): PanelSectionRender {
     { tag: 'div', text: { tag: 'lark_md', content: `**工作区**　\`${view.currentWorkspace}\`` } },
   ]
   if (view.workspaces.length === 0) {
-    elements.push({ tag: 'note', elements: [plainText('还没有注册过其他工作区。用 /ws 注册一个。')] })
+    elements.push(hint('还没有注册过其他工作区。用 /ws 注册一个。'))
     return { id: 'workspace', elements }
   }
   const options = view.workspaces.slice(0, PANEL_CHOICES_MAX).map(path => ({
@@ -215,10 +236,13 @@ function workspaceSection(view: PanelView): PanelSectionRender {
         name: `${PANEL_SUBMIT_PREFIX}workspace`,
         form_action_type: 'submit',
         type: 'primary',
-        text: plainText('切换'),
+        text: plainText('绑定'),
       },
     ],
   })
+  // 和 `bind_workspace` 一致：只写绑定，不替用户把当前对话切掉。不说清这一句，
+  // 点完看不出变化就会被当成「切了没反应」。
+  elements.push(hint('绑定后发 /new 开新会话生效'))
   return { id: 'workspace', elements }
 }
 
@@ -259,8 +283,37 @@ function actionsSection(_view: PanelView): PanelSectionRender {
   }
 }
 
+/**
+ * The diagnostics section: what the last card operation actually returned.
+ *
+ * Exists because "the card never appeared" is the one failure a card cannot
+ * report about itself — there is nothing on screen to press. When `/console`
+ * fails, the bridge sends a plain-text message that carries this section's data
+ * as a card, so the platform's own error code and log id are readable in the
+ * chat instead of being swallowed by the caller's `catch`.
+ * @param view - the state being rendered.
+ * @returns the section's elements.
+ */
+function diagnosticsSection(view: PanelView): PanelSectionRender {
+  const lines = view.diagnostics ?? []
+  const elements: object[] = [
+    { tag: 'div', text: { tag: 'lark_md', content: `**诊断**　最近一次卡片操作` } },
+  ]
+  if (lines.length === 0) {
+    elements.push(hint('没有记录到失败的卡片操作。'))
+    return { id: 'diagnostics', elements }
+  }
+  for (const line of lines) {
+    elements.push({ tag: 'div', text: { tag: 'plain_text', content: line } })
+  }
+  return { id: 'diagnostics', elements }
+}
+
 /** The sections this card is made of, in display order. */
 export const PANEL_SECTIONS = [modelSection, workspaceSection, actionsSection] as const
+
+/** The sections a failure report shows: the error, then what was being done. */
+export const PANEL_FAILURE_SECTIONS = [diagnosticsSection, modelSection, workspaceSection] as const
 
 /**
  * Build the console card for one view of the state.
@@ -279,14 +332,20 @@ export function panelCard(view: PanelView): object {
       text: { tag: 'lark_md', content: `会话 \`${view.sessionId}\`\n${describeUsage(view.contextUsed, view.contextWindow)}` },
     },
   ]
-  PANEL_SECTIONS.forEach((section, index) => {
+  // A failure report leads with the failure: the reader asked for a console and
+  // did not get one, so the reason outranks the model and workspace rows.
+  const sections = view.diagnostics === undefined ? PANEL_SECTIONS : PANEL_FAILURE_SECTIONS
+  sections.forEach((section, index) => {
     if (index > 0) elements.push({ tag: 'hr' })
     elements.push(...section(view).elements)
   })
   return {
     schema: '2.0',
     config: { width_mode: 'fill' },
-    header: { template: 'blue', title: plainText('🎛 DSH 控制台') },
+    header: {
+      template: view.diagnostics === undefined ? 'blue' : 'red',
+      title: plainText(view.diagnostics === undefined ? '🎛 DSH 控制台' : '⚠️ DSH 控制台打不开'),
+    },
     body: { elements },
   }
 }

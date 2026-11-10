@@ -32,7 +32,14 @@ export interface CollectedImages {
  * @param port - transport used to download the bytes.
  * @param attachments - the attachment store, when composed.
  * @param enabled - whether this deployment's route accepts images at all.
+ * @param report - where attachment failures go, so the log names them too.
+ * @param sourceMessageId - the message that actually CARRIES these resources.
+ *   Feishu's "share/quote" sends the image as its own message and the text as a
+ *   reply that names it; the reply's event still lists the image in
+ *   `resources`, but the resource can only be fetched from the message it
+ *   belongs to. Asking the text message's id returns HTTP 400 (2026-11-11:
+ *   「分享过来带文字，图片就附加失败」). Defaults to the message itself.
  * @returns the blocks to attach and the notes to append to the text.
  */
-export declare function collectImages(msg: NormalizedMessage, port: ImagePort, attachments: HostAttachments | undefined, enabled: boolean): Promise<CollectedImages>;
+export declare function collectImages(msg: NormalizedMessage, port: ImagePort, attachments: HostAttachments | undefined, enabled: boolean, report?: (line: string) => void, sourceMessageId?: string): Promise<CollectedImages>;
 //# sourceMappingURL=images.d.ts.map

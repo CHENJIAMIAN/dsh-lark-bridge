@@ -28,11 +28,15 @@ export interface StoredScheduleTask {
       readonly kind?: string
       readonly scheduledAt?: string
       readonly prompt?: string
+      /** `every` rows advance `scheduledAt` on each firing; one-shot kinds do not. */
+      readonly everySeconds?: number
     }
     | undefined
   readonly status?: string
   readonly target?: { readonly sessionId?: string } | undefined
-  readonly lastDelivery?: { readonly scheduledAt?: string } | undefined
+  readonly lastDelivery?: { readonly scheduledAt?: string; readonly deliveredAt?: string } | undefined
+  /** Newer rows keep the whole history; its newest record is the real last delivery. */
+  readonly deliveryHistory?: { readonly records?: readonly { readonly scheduledAt?: string; readonly deliveredAt?: string }[] } | undefined
   /** Where the prompt should go when there is no target session. */
   readonly sessionId?: string
 }
@@ -56,11 +60,52 @@ import { messageTimeStamp } from './clock.ts'
 export const DEFAULT_OVERDUE_WINDOW_MS = 24 * 60 * 60 * 1000
 
 /**
+ * How late an occurrence may be before it counts as missed.
+ *
+ * The driver sometimes fires an instant a few seconds late; announcing that as
+ * "漏发了 … 已经晚了 0 分钟" is noise, and on 2026-11-10 it was the whole
+ * complaint. Anything inside this margin counts as on time.
+ */
+export const OVERDUE_TOLERANCE_MS = 2 * 60 * 1000
+
+/**
+ * The newest delivery a row recorded, from either place it stores one.
+ *
+ * `deliveryHistory.records` is authoritative when present: on an `every` row the
+ * top-level `lastDelivery` can lag behind it.
+ * @param row - the stored task row.
+ * @returns the newest recorded delivery, or undefined.
+ */
+function lastRecordedDelivery(row: StoredScheduleTask): { scheduledAt?: string; deliveredAt?: string } | undefined {
+  let best: { scheduledAt?: string; deliveredAt?: string } | undefined = row.lastDelivery
+  let bestAt = best?.deliveredAt === undefined ? undefined : Date.parse(best.deliveredAt)
+  for (const candidate of row.deliveryHistory?.records ?? []) {
+    const at = candidate.deliveredAt === undefined ? undefined : Date.parse(candidate.deliveredAt)
+    if (at === undefined) continue
+    if (bestAt === undefined || at > bestAt) {
+      best = candidate
+      bestAt = at
+    }
+  }
+  return best
+}
+
+/**
  * List the occurrences the host should have delivered and did not.
  *
- * A task counts as delivered only when `lastDelivery.scheduledAt` matches the
- * occurrence exactly. Comparing "is there any delivery at all" would hide every
- * miss on a daily task after its first successful run.
+ * Two shapes of row, two answers:
+ *
+ * - **One-shot** (`after`): delivered only when a record names this exact
+ *   occurrence. Comparing "is there any delivery at all" would hide every miss
+ *   on a repeating task after its first successful run.
+ * - **`every`**: `scheduledAt` is the NEXT firing and moves forward each time
+ *   one lands, so "record.scheduledAt was delivered" is unanswerable — after any
+ *   early delivery (a restart catching up, a manual re-run) the top-level
+ *   record no longer names the upcoming instant at all. The row was announced
+ *   as overdue forever on 2026-11-10 for exactly this reason. What is decidable
+ *   is whether the instant has already been overtaken: a firing at or after it
+ *   means it was covered, and the next one is still ahead.
+ *
  * @param tasks - rows keyed by id, as stored.
  * @param now - current time in epoch ms.
  * @param windowMs - how far back to look.
@@ -82,9 +127,15 @@ export function overdueTasks(
     const due = Date.parse(record.scheduledAt)
     if (!Number.isFinite(due)) continue
     const overdueMs = now - due
-    if (overdueMs <= 0) continue
+    if (overdueMs <= OVERDUE_TOLERANCE_MS) continue
     if (overdueMs > windowMs) continue
-    if (row.lastDelivery?.scheduledAt === record.scheduledAt) continue
+    // A row was fired for THIS instant when a record names it exactly (one-shot),
+    // or when the cadence has already carried it past this instant (`every`).
+    if (record.everySeconds === undefined) {
+      if (lastRecordedDelivery(row)?.scheduledAt === record.scheduledAt) continue
+    } else if (isOvertaken(row, due)) {
+      continue
+    }
     const id = record.id ?? key
     const sessionId = row.target?.sessionId ?? row.sessionId
     found.push({
@@ -97,6 +148,27 @@ export function overdueTasks(
     })
   }
   return found.sort((a, b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt))
+}
+
+/**
+ * Whether a repeating row's instant has already been covered.
+ *
+ * Each firing is recorded with the instant it belonged to. On an `every` row
+ * that instant may be one the row has since moved past, but the FACT that a
+ * firing belongs to an instant at or after `due` is what matters: the cadence
+ * reached it. A record only ever gets older than `due` when several firings
+ * were skipped — which is a genuine gap and must still be announced.
+ * @param row - the stored task row.
+ * @param due - the instant currently recorded as next.
+ * @returns true when some recorded firing covers `due`.
+ */
+function isOvertaken(row: StoredScheduleTask, due: number): boolean {
+  for (const candidate of row.deliveryHistory?.records ?? []) {
+    const at = candidate.scheduledAt === undefined ? undefined : Date.parse(candidate.scheduledAt)
+    if (at !== undefined && at >= due) return true
+  }
+  const top = row.lastDelivery?.scheduledAt === undefined ? undefined : Date.parse(row.lastDelivery.scheduledAt)
+  return top !== undefined && top >= due
 }
 
 /**

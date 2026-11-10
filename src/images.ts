@@ -59,6 +59,13 @@ function mediaTypeOf(
  * @param port - transport used to download the bytes.
  * @param attachments - the attachment store, when composed.
  * @param enabled - whether this deployment's route accepts images at all.
+ * @param report - where attachment failures go, so the log names them too.
+ * @param sourceMessageId - the message that actually CARRIES these resources.
+ *   Feishu's "share/quote" sends the image as its own message and the text as a
+ *   reply that names it; the reply's event still lists the image in
+ *   `resources`, but the resource can only be fetched from the message it
+ *   belongs to. Asking the text message's id returns HTTP 400 (2026-11-11:
+ *   「分享过来带文字，图片就附加失败」). Defaults to the message itself.
  * @returns the blocks to attach and the notes to append to the text.
  */
 export async function collectImages(
@@ -66,6 +73,8 @@ export async function collectImages(
   port: ImagePort,
   attachments: HostAttachments | undefined,
   enabled: boolean,
+  report?: (line: string) => void,
+  sourceMessageId: string = msg.messageId,
 ): Promise<CollectedImages> {
   const images = msg.resources.filter((resource: ResourceDescriptor) => resource.type === 'image')
   if (images.length === 0) return { blocks: [], notes: [] }
@@ -91,7 +100,7 @@ export async function collectImages(
       break
     }
     try {
-      const { buffer, contentType } = await port.downloadResourceWithMeta(msg.messageId, image.fileKey, 'image')
+      const { buffer, contentType } = await port.downloadResourceWithMeta(sourceMessageId, image.fileKey, 'image')
       const mediaType = mediaTypeOf(contentType, image.fileName, limits.mediaTypes)
       if (mediaType === undefined) {
         notes.push(`（一张图片的格式 ${contentType ?? '未知'} 不被支持，未附加）`)
@@ -110,7 +119,13 @@ export async function collectImages(
       blocks.push({ type: 'image', attachment: ref })
     } catch (error) {
       // The model must know an image existed even when it cannot be shown one.
-      notes.push(`（一张图片附加失败：${error instanceof Error ? error.message : String(error)}）`)
+      const detail = error instanceof Error ? error.message : String(error)
+      // The log gets the same line: a note only the model reads leaves whoever
+      // debugs it guessing, and the store's own refusal codes
+      // (IMAGE_TYPE_MISMATCH, INVALID_IMAGE, ATTACHMENT_WRITE_FAILED) are the
+      // whole diagnosis.
+      report?.(`image ${image.fileKey} of ${sourceMessageId} not attached: ${detail}`)
+      notes.push(`（一张图片附加失败：${detail}）`)
     }
   }
   return { blocks, notes }

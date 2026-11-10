@@ -26,6 +26,8 @@ export interface StoredScheduleTask {
         readonly kind?: string;
         readonly scheduledAt?: string;
         readonly prompt?: string;
+        /** `every` rows advance `scheduledAt` on each firing; one-shot kinds do not. */
+        readonly everySeconds?: number;
     } | undefined;
     readonly status?: string;
     readonly target?: {
@@ -33,6 +35,14 @@ export interface StoredScheduleTask {
     } | undefined;
     readonly lastDelivery?: {
         readonly scheduledAt?: string;
+        readonly deliveredAt?: string;
+    } | undefined;
+    /** Newer rows keep the whole history; its newest record is the real last delivery. */
+    readonly deliveryHistory?: {
+        readonly records?: readonly {
+            readonly scheduledAt?: string;
+            readonly deliveredAt?: string;
+        }[];
     } | undefined;
     /** Where the prompt should go when there is no target session. */
     readonly sessionId?: string;
@@ -52,11 +62,29 @@ export interface OverdueTask {
 /** How far back the bridge is willing to surface a missed occurrence. */
 export declare const DEFAULT_OVERDUE_WINDOW_MS: number;
 /**
+ * How late an occurrence may be before it counts as missed.
+ *
+ * The driver sometimes fires an instant a few seconds late; announcing that as
+ * "漏发了 … 已经晚了 0 分钟" is noise, and on 2026-11-10 it was the whole
+ * complaint. Anything inside this margin counts as on time.
+ */
+export declare const OVERDUE_TOLERANCE_MS: number;
+/**
  * List the occurrences the host should have delivered and did not.
  *
- * A task counts as delivered only when `lastDelivery.scheduledAt` matches the
- * occurrence exactly. Comparing "is there any delivery at all" would hide every
- * miss on a daily task after its first successful run.
+ * Two shapes of row, two answers:
+ *
+ * - **One-shot** (`after`): delivered only when a record names this exact
+ *   occurrence. Comparing "is there any delivery at all" would hide every miss
+ *   on a repeating task after its first successful run.
+ * - **`every`**: `scheduledAt` is the NEXT firing and moves forward each time
+ *   one lands, so "record.scheduledAt was delivered" is unanswerable — after any
+ *   early delivery (a restart catching up, a manual re-run) the top-level
+ *   record no longer names the upcoming instant at all. The row was announced
+ *   as overdue forever on 2026-11-10 for exactly this reason. What is decidable
+ *   is whether the instant has already been overtaken: a firing at or after it
+ *   means it was covered, and the next one is still ahead.
+ *
  * @param tasks - rows keyed by id, as stored.
  * @param now - current time in epoch ms.
  * @param windowMs - how far back to look.

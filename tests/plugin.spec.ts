@@ -1,4 +1,6 @@
-import { isAbsolute } from 'node:path'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { isAbsolute, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { Context } from '@deepseek-ai/cordis'
@@ -8,6 +10,7 @@ import * as invariant from '../src/invariant.ts'
 import type { HostApprovalOutcome, HostApprovalRequest } from '../src/host.ts'
 import type { RegisterAppPort, RegisterAppRequest } from '../src/onboarding.ts'
 import { stripToolCallMarkup } from '../src/outbound.ts'
+import { PANEL_ACTION } from '../src/panel.ts'
 import {
   approvalValueFromCard,
   createFakeAttachments,
@@ -42,7 +45,38 @@ function clickAction(
 }
 
 describe('dsh-lark-bridge', () => {
-  it('creates one console entity and then updates it in place', async () => {
+  it('绑定工作区之后自动重绘卡片，不用人手点刷新', async () => {
+    // 这是 2026-11-10 的操作者反馈：改模型卡片会自动刷，改工作区不刷，得手动点刷新。
+    // 原因是 set-workspace 那一支直接 `return` 了一个 toast，跳过了共用的重绘尾段。
+    // 绑定本身仍只写聊天级配置，不换会话（和 `bind_workspace` 一致）。
+    const dir = mkdtempSync(join(tmpdir(), 'panel-ws-'))
+    const workspaces = createFakeWorkspaces()
+    const harness = await mountChannel({}, { workspaces: workspaces.service })
+    const wait = { timeout: 20_000, interval: 50 }
+    try {
+      await harness.fake.emitMessage(fakeMessage({ chatId: 'oc_panel_ws', content: '/console' }))
+      await vi.waitFor(() => { expect(harness.fake.createdCards).toHaveLength(1) }, wait)
+      const cards = harness.fake.createdCards.length
+
+      harness.fake.emitCardAction({
+        messageId: 'om_panel_1',
+        chatId: 'oc_panel_ws',
+        operator: { openId: SENDER_ID },
+        action: { value: { kind: PANEL_ACTION, section: 'workspace', op: 'set' }, tag: 'button', formValue: { 'panel-workspace': dir } },
+      })
+
+      // 一张新卡出现，就是「自动刷新」这个事实本身。
+      await vi.waitFor(() => { expect(harness.fake.createdCards.length).toBe(cards + 1) }, wait)
+      expect(harness.fake.recalled.length).toBeGreaterThan(0)
+    } finally {
+      await harness.dispose()
+    }
+  })
+
+  it('每次 /console 发一张新卡，并撤回上一张', async () => {    // 原地更新（`updateCardById`）会让卡片 entity 在服务端刷新，但**不产生新消息**；
+    // 聊天界面上什么都不冒出来，操作者只会以为机器人没反应——2026-11-10 的
+    // `/console` 三次无响应就是这条路径（日志里 seq 5/6/7 全部 update 成功）。
+    // 所以控制台改为每次发一张新卡、再把旧的撤回：屏幕上一定有变化，且只留一张。
     const harness = await mountChannel()
     const consoleMessage = (id: string) => fakeMessage({ messageId: id, content: '/console' })
     // The inbound path composes an agent before it reaches the command branch;
@@ -55,18 +89,26 @@ describe('dsh-lark-bridge', () => {
     expect(harness.fake.sent.length).toBe(1)
     const first = harness.fake.sent[0]!.input as Record<string, unknown>
     expect(first.cardId).toBeDefined()
+    // Nothing to replace yet, so nothing is recalled.
+    expect(harness.fake.recalled).toEqual([])
 
     await harness.fake.emitMessage(consoleMessage('om_console_2'))
-    await vi.waitFor(() => { expect(harness.fake.updatedEntities).toHaveLength(1) }, wait)
-    // In-place update means NO second message. This is the whole point of the
-    // managed entity: a switch refreshes the card without stacking duplicates.
-    expect(harness.fake.sent.length).toBe(1)
-    expect(harness.fake.updatedEntities[0]!.sequence).toBe(1)
+    await vi.waitFor(() => { expect(harness.fake.createdCards).toHaveLength(2) }, wait)
+    // A second message is the whole point: the operator has to see something.
+    expect(harness.fake.sent.length).toBe(2)
+    // And the first card's message is taken down, so the chat keeps one console.
+    const firstCardMessage = harness.fake.sent[0]!.messageId
+    await vi.waitFor(() => { expect(harness.fake.recalled).toHaveLength(1) }, wait)
+    expect(harness.fake.recalled[0]).toBe(firstCardMessage)
 
     await harness.fake.emitMessage(consoleMessage('om_console_3'))
-    await vi.waitFor(() => { expect(harness.fake.updatedEntities).toHaveLength(2) }, wait)
-    expect(harness.fake.sent.length).toBe(1)
-    expect(harness.fake.updatedEntities.map(update => update.sequence)).toEqual([1, 2])
+    await vi.waitFor(() => { expect(harness.fake.createdCards).toHaveLength(3) }, wait)
+    expect(harness.fake.sent.length).toBe(3)
+    const secondCardMessage = harness.fake.sent[1]!.messageId
+    await vi.waitFor(() => { expect(harness.fake.recalled).toHaveLength(2) }, wait)
+    expect(harness.fake.recalled).toEqual([firstCardMessage, secondCardMessage])
+    // 原地更新不再参与控制台的刷新路径。
+    expect(harness.fake.updatedEntities).toEqual([])
     await harness.dispose()
   })
 

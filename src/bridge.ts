@@ -181,7 +181,7 @@ import {
 } from './notices.ts'
 import { readContextBreakdown, readContextWindow } from './context-breakdown.ts'
 import { onboardingMessage } from './first-contact.ts'
-import { createReplayPort } from './replay.ts'
+import { createReplayPort, isUndeliveredId } from './replay.ts'
 import { createSendFileTool, deliverFile } from './files.ts'
 import { createFeishuTools, feishuToolsPromptSection, FEISHU_NOTIFY_TOOL } from './feishu-tools.ts'
 import { FeishuCloud } from './sync/feishu-cloud.ts'
@@ -216,6 +216,14 @@ export interface ChannelPort extends OutboundPort, SlashPanelPort, ImagePort, Co
   createCard(cardJson: object): Promise<{ cardId: string }>
   updateCardById(cardId: string, cardJson: object, sequence: number): Promise<void>
   updateCard(messageId: string, card: object): Promise<void>
+  /**
+   * Withdraw one of this app's own messages (`im.v1.messages.delete`).
+   *
+   * Optional like {@link updateCard}: the console replaces its previous card
+   * rather than editing it in place, and a transport double that does not model
+   * recall must still satisfy the port. Absence only costs a leftover card.
+   */
+  recallMessage?(messageId: string): Promise<void>
   /** Subscribe one normalized inbound event; returns the unsubscriber. */
   on(name: 'message', handler: (msg: NormalizedMessage) => void | Promise<void>): () => void
   on(
@@ -1956,6 +1964,42 @@ export function installBridge(
     ctx.logger.warn('outbound send failed: %s', detail)
   }
 
+  /**
+   * One platform error as an operator can act on.
+   *
+   * The SDK's `LarkChannelError` keeps the open-platform `code` and `log_id`
+   * away from the message text, and those two are precisely what Feishu's
+   * ticket system and its docs ask for — "Invalid ids" without the code is a
+   * dead end. Reading them off the error object costs nothing when absent.
+   * @param error - whatever was thrown.
+   * @returns message plus code/log id when the SDK supplied them.
+   */
+  const describeError = (error: unknown): string => {
+    const message = error instanceof Error ? error.message : String(error)
+    const record = (typeof error === 'object' && error !== null ? error : {}) as Record<string, unknown>
+    const code = record.code ?? record.errorCode
+    const logId = record.logId ?? record.log_id
+    // The SDK keeps the platform's own answer on the `cause` chain (a `code` +
+    // `msg` response body), not in the message it composes. Walking a couple of
+    // levels is enough and cannot cycle forever.
+    const causes: string[] = []
+    let cause: unknown = record.cause
+    for (let depth = 0; depth < 3 && typeof cause === 'object' && cause !== null; depth++) {
+      const inner = cause as Record<string, unknown>
+      const parts = [inner.code, inner.msg ?? inner.message]
+        .filter(part => part !== undefined && part !== '')
+        .map(part => String(part))
+      if (parts.length > 0 && !causes.includes(parts.join(' '))) causes.push(parts.join(' '))
+      cause = inner.cause
+    }
+    const extras = [
+      code === undefined ? '' : `code=${String(code)}`,
+      logId === undefined ? '' : `log_id=${String(logId)}`,
+      causes.length === 0 ? '' : `飞书返回：${causes.join(' ← ')}`,
+    ].filter(part => part !== '')
+    return extras.length === 0 ? message : `${message}（${extras.join('，')}）`
+  }
+
   /** Lifecycle emoji feedback on triggering messages; disabled by configuration. */
   const reactions: ReactionTracker | undefined = config.reactionFeedback
     ? createReactionTracker(port, undefined, reportSendFailure)
@@ -3019,12 +3063,6 @@ export function installBridge(
           ...msg.threadId === undefined ? {} : { threadId: msg.threadId },
         } satisfies ReplyTarget)
       }
-      const images = await collectImages(
-        msg,
-        port,
-        ctx.get('attachments') as HostAttachments | undefined,
-        config.attachImages,
-      )
       // Inbound file saving: non-image resources land in the workspace.
       let fileNotes: string[] = []
       if (config.autoSaveFiles && msg.resources?.length) {
@@ -3070,12 +3108,16 @@ export function installBridge(
       //
       // 话题群是例外：那里 `parent_id` 指的是话题根，不是用户主动引用的一条，
       // 拿它当引用会让每条消息都背上一段历史，把真正的提问挤出注意力。
-      const quoted = await stage(msg.messageId, 'quote', async () => {
+      //
+      // 除了正文，这里还要留下那条消息的 id：飞书「从别的应用分享」时会发成
+      // 两条——图片一条、带文字的回一条并引用它。回的那条事件里照样列着图片，
+      // 但只有图片自己那条消息能取到它（拿文字那条的 id 去取，飞书回 400）。
+      const quote = await stage(msg.messageId, 'quote', async () => {
         const parentId = msg.replyToMessageId
-        if (parentId === undefined || parentId === '' || parentId === msg.messageId) return ''
-        if (msg.threadId !== undefined && parentId === msg.threadId) return ''
+        if (parentId === undefined || parentId === '' || parentId === msg.messageId) return undefined
+        if (msg.threadId !== undefined && parentId === msg.threadId) return undefined
         const fetchOne = port.fetchMessage
-        if (typeof fetchOne !== 'function') return ''
+        if (typeof fetchOne !== 'function') return undefined
         try {
           const quotedMsg = await fetchOne.call(port, parentId)
           // fetchRawMessage 是 transport 实例上的方法，内部要读 this.rawClient，
@@ -3083,18 +3125,34 @@ export function installBridge(
           const fetchRaw = typeof port.fetchRawMessage === 'function'
             ? port.fetchRawMessage.bind(port)
             : undefined
-          return quotedPrefix(
-            await withCardText(quotedMsg, parentId, fetchRaw),
-            config.limits.quoteChars,
-            config.showMessageTime,
-          )
+          return {
+            prefix: quotedPrefix(
+              await withCardText(quotedMsg, parentId, fetchRaw),
+              config.limits.quoteChars,
+              config.showMessageTime,
+            ),
+            message: quotedMsg,
+          }
         } catch (error) {
           // A quote the app cannot read must not cost the whole message: the
           // user's own words still reach the model, minus the quote.
           notify(`dsh-lark-bridge: quoted message ${parentId} unreadable: ${error instanceof Error ? error.message : String(error)}`)
-          return ''
+          return undefined
         }
       })
+      const quoted = quote?.prefix ?? ''
+      // …and the images belong to whichever message actually holds them.
+      const quotedHasImages = quote?.message?.resources?.some(resource => resource.type === 'image') === true
+      const imageSource = quotedHasImages && quote?.message !== undefined ? quote.message.messageId : msg.messageId
+      // 图片必须等 `imageSource` 定下来再收：分享过来的图挂在被引用那条消息上。
+      const images = await collectImages(
+        msg,
+        port,
+        ctx.get('attachments') as HostAttachments | undefined,
+        config.attachImages,
+        line => notify(`dsh-lark-bridge: ${line}`),
+        imageSource,
+      )
       // Append file notes to the user's text so the agent knows what arrived.
       // (`chatUserMessage` folds `images.notes` into the text itself — adding
       // them here as well made every image note reach the model twice.)
@@ -3383,39 +3441,119 @@ export function installBridge(
   const consoleCards = createConsoleCardStore()
 
   /**
-   * Put the console in front of a chat, or update the one already there.
+   * The message each chat's console card currently lives in.
    *
-   * CardKit 2.0 managed-entity lifecycle: `createCard` makes the entity,
-   * `send({cardId})` attaches it to a message, and every later refresh calls
-   * `updateCardById` on the SAME entity. Every message referencing that card
-   * re-renders in place — no new messages, no stale duplicate cards, and no
-   * dependency on `updateCard(messageId)` which silently does nothing for a
-   * JSON 1.0 interactive message.
+   * A replacement is only invisible when the previous message is taken down
+   * with it, so this map decides what to recall after the new card is sent.
+   */
+  const consoleMessages = new Map<string, string>()
+
+  /**
+   * Put the console in front of a chat.
+   *
+   * **Always a new message.** The card is a managed CardKit 2.0 entity, so
+   * `createCard` + `send({cardId})` is the only sequence that is guaranteed to
+   * appear: `updateCardById` re-renders that entity in place and emits no new
+   * message, which from the chat side is indistinguishable from a bridge that
+   * ignored the command. That is exactly how `/console` looked dead — the log
+   * shows `console card updated in place (seq 5/6/7)` for three consecutive
+   * commands while the operator's screen never changed.
+   *
+   * The previous console message is recalled after the new one lands, so the
+   * chat keeps one live card instead of a column of them. Recall is
+   * best-effort: a refusal must never turn a command that worked into an error.
    * @param chatId - the chat it belongs to.
    * @param sessionId - the session its controls act on.
    */
   async function openConsole(chatId: string, sessionId: string): Promise<void> {
     const card = panelCard(await consoleView(sessionId, chatId))
-    const plan = consoleCards.planFor(chatId)
-    if (plan.kind === 'update') {
+    // A failure here used to propagate into the caller's `catch`, which turned
+    // it into "命令执行失败" or into nothing at all — and the operator saw an
+    // empty chat and had no way to tell a refused card from a hung bridge.
+    // Every step now names itself, so the report says WHICH call the platform
+    // rejected and with what code.
+    let cardId: string
+    try {
+      cardId = (await replay.createCard(card)).cardId
+    } catch (first) {
+      // cardkit 是 bey 消息通道之外的又一步 HTTP 调用，最常失败的是瞬时网络
+      // 抖动（2026-11-10 17:06 现场：先是整串 connect ETIMEDOUT，网络恢复后
+      // 又报 `returned no card_id`——请求发出去了，响应没带回来）。这种失败
+      // 隔一下重发就成，不值得直接把它判成「控制台不可用」。
+      notify(`dsh-lark-bridge: cardkit create failed for ${chatId}, retrying once: ${describeError(first)}`)
+      await new Promise<void>(resolve => { setTimeout(resolve, 600) })
       try {
-        await replay.updateCardById(plan.cardId, card, plan.sequence)
-        consoleCards.updated(chatId, plan.sequence)
-        notify(`dsh-lark-bridge: console card updated in place (seq ${plan.sequence}) for ${chatId}`)
+        cardId = (await replay.createCard(card)).cardId
       } catch (error) {
-        // A stale or deleted entity can no longer be updated. Drop it so the
-        // next `/console` creates a fresh one instead of failing forever.
-        const detail = error instanceof Error ? error.message : String(error)
-        consoleCards.forget(chatId)
-        notify(`dsh-lark-bridge: console card update failed, will recreate: ${detail}`)
-        await openConsole(chatId, sessionId)
+        await reportConsoleFailure(chatId, sessionId, `cardkit.v1.card.create 失败：${describeError(error)}`)
+        return
       }
+    }
+    notify(`dsh-lark-bridge: console card entity created for ${chatId} (${cardId})`)
+    const previous = consoleMessages.get(chatId)
+    try {
+      const sent = await replay.send(chatId, { cardId })
+      consoleCards.created(chatId, cardId)
+      const messageId = sent.messageId
+      // A queued send answers with a placeholder (`queued:N`), NOT a message id.
+      // Storing it means the next `/console` recalls a message that never
+      // existed and Feishu answers `99992354 … Invalid ids: [queued:1]` — which
+      // is exactly what happened the first time this ran on a dropped socket.
+      // Wait for the real id instead: `whenDelivered` repairs it on flush.
+      if (messageId !== undefined && messageId !== '' && !isUndeliveredId(messageId)) {
+        consoleMessages.set(chatId, messageId)
+      } else {
+        consoleMessages.delete(chatId)
+        if (messageId !== undefined && isUndeliveredId(messageId)) {
+          replay.whenDelivered(messageId, realId => { consoleMessages.set(chatId, realId) })
+        }
+      }
+      notify(`dsh-lark-bridge: console card sent for ${chatId} (${messageId ?? 'no id'})`)
+    } catch (error) {
+      // The entity exists but no message references it. Leaving it out of the
+      // store is right: the next `/console` must create a fresh entity that its
+      // own message actually points at.
+      await reportConsoleFailure(chatId, sessionId, `im.v1.messages 发送失败：${describeError(error)}`)
       return
     }
-    const { cardId } = await replay.createCard(card)
-    const sent = await replay.send(chatId, { cardId })
-    consoleCards.created(chatId, cardId)
-    notify(`dsh-lark-bridge: console card created for ${chatId} (${sent.messageId ?? 'no id'})`)
+    // Only now: a recall before the replacement lands would leave the chat with
+    // no console at all if the send had failed.
+    const recall = port.recallMessage
+    if (
+      previous !== undefined
+      && !isUndeliveredId(previous)
+      && previous !== consoleMessages.get(chatId)
+      && recall !== undefined
+    ) {
+      try {
+        await recall.call(port, previous)
+        notify(`dsh-lark-bridge: recalled previous console message ${previous}`)
+      } catch (error) {
+        // A message older than the recall window, or one already deleted, is
+        // ordinary history rather than a fault: say so and keep the new card.
+        notify(`dsh-lark-bridge: could not recall previous console message ${previous}: ${describeError(error)}`)
+      }
+    }
+  }
+
+  /**
+   * Tell the chat a console card failed, in a way that survives whatever broke.
+   *
+   * **Plain text only.** The failed step may well be cardkit itself, and a
+   * `schema: "2.0"` card pushed through `im.v1.messages` is downgraded to its
+   * fallback text by the platform (the mistake AGENTS.md records) — so a
+   * "diagnostic card" here would be the one thing guaranteed not to render.
+   * The text carries the same four facts and always goes out.
+   * @param chatId - the chat that asked.
+   * @param sessionId - the session whose state was being rendered.
+   * @param detail - what failed, with the platform's message.
+   */
+  async function reportConsoleFailure(chatId: string, sessionId: string, detail: string): Promise<void> {
+    notify(`dsh-lark-bridge: console failed for ${chatId}: ${detail}`)
+    ctx.logger.warn('console failed for chat %s: %s', chatId, detail)
+    await port
+      .send(chatId, { text: `⚠️ 控制台打不开：${detail}\n\n会话 \`${sessionId}\`\n再发一次 \`/console\` 可重试。` })
+      .catch(reportSendFailure)
   }
 
   /**
@@ -3464,6 +3602,52 @@ export function installBridge(
   }
 
   /**
+   * The session one chat currently talks to, or undefined when it has none.
+   *
+   * This is the session the console card describes, and the id its redraw has
+   * to be bounded to: an unrouted redraw (empty id) renders a card about no
+   * session at all.
+   * @param chatId - the chat to look up.
+   * @returns the session id, or undefined.
+   */
+  const chatSessionId = (chatId: string): string | undefined =>
+    [...bySession.values()].find(binding => binding.chatId === chatId)?.session.id
+
+  /**
+   * Redraw this chat's console after an interaction.
+   *
+   * The front half of {@link handlePanelAction} was broken out so the workspace
+   * branch can end in the SAME redraw every other branch gets. It used to
+   * `return` a toast from inside that branch instead, so a workspace pick wrote
+   * the binding and then left the card untouched — the operator's description
+   * was exact: "改完工作区，卡片不会自动更新，要手动点一下刷新". The toast said
+   * the click landed, the card said nothing happened, and the two disagreed.
+   *
+   * Failures are reported, never thrown: the caller has already answered the
+   * click, and a redraw problem must not turn into. A chat with no session at
+   * all gets an explicit line rather than a card about nothing.
+   * @param chatId - the chat whose card is being redrawn.
+   */
+  async function redrawConsole(chatId: string): Promise<void> {
+    const sessionId = chatSessionId(chatId)
+    if (sessionId === undefined) {
+      notify(`dsh-lark-bridge: console redraw skipped for ${chatId}: no session`)
+      await port
+        .send(chatId, { text: '这个聊天还没有会话，先发一条消息或 `/new`，再 `/console`。' })
+        .catch(reportSendFailure)
+      return
+    }
+    try {
+      // A new card, not an in-place rewrite: see `openConsole` for why the
+      // latter silently does nothing on this platform.
+      await openConsole(chatId, sessionId)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      notify(`dsh-lark-bridge: console redraw failed: ${detail}`)
+    }
+  }
+
+  /**
    * Apply one console interaction, then redraw the card.
    *
    * The redraw is unconditional: a switch that succeeded and one that silently
@@ -3474,7 +3658,8 @@ export function installBridge(
    * @returns the toast to show the clicker.
    */
   const handlePanelAction = async (evt: CardActionEvent, action: PanelActionValue): Promise<CardActionResponse> => {
-    const sessionId = bySession.get([...bySession.keys()].find(id => bySession.get(id)?.chatId === evt.chatId) ?? '')?.session.id ?? ''
+    // Resolved fresh after every effect: a branch may create a session
+    // (`new-session`), and the redraw must describe the one that exists now.
     const defaults = ctx.get('agentDefaultModel') as HostDefaultModel | undefined
     // Routing lives in `resolvePanelAction` so it can be tested without a host;
     // this function only performs what was decided.
@@ -3513,10 +3698,14 @@ export function installBridge(
         return { toast: { type: 'error', content: `新建失败：${detail}` } }
       }
       // 新会话换了 id，卡片必须跟着换——否则下一次点会打到已经结束的旧会话。
-      const fresh = [...bySession.values()].find(binding => binding.chatId === evt.chatId)?.session.id
+      const fresh = chatSessionId(evt.chatId)
       if (fresh !== undefined) await openConsole(evt.chatId, fresh).catch(reportSendFailure)
       return { toast: { type: 'success', content: '已新建会话' } }
     }
+
+    // 每次现取：`new-session` 那一支会换掉会话，上面已经自己收尾并返回了；
+    // 走到这里的分支操作的都是当前这个会话。
+    const sessionId = chatSessionId(evt.chatId) ?? ''
 
     if (effect.kind === 'set-model') {
       // Switch the running session FIRST, through the request-side override.
@@ -3550,24 +3739,31 @@ export function installBridge(
         }
       }
     } else if (effect.kind === 'set-workspace') {
+      // 面板的「切换工作区」与 `bind_workspace` 工具做同一件事：只写聊天级绑定，
+      // 下一次 `/new` 才落在那个目录。这里不轮换会话——会话的 cwd 在创建时定死，
+      // 替用户把当前对话切掉属于越权，由用户自己发 `/new` 决定何时换挡。
+      const target = resolve(effect.path)
+      let isDirectory = false
+      try { isDirectory = statSync(target).isDirectory() } catch { /* missing or denied */ }
+      if (!isDirectory) {
+        return { toast: { type: 'error', content: `目录不存在或不是目录：${target}` } }
+      }
       try {
-        await writeChatWorkspace(evt.chatId, effect.path)
+        await bindChatCwd(evt.chatId, target)
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error)
         return { toast: { type: 'error', content: `写入工作区绑定失败：${detail}` } }
       }
+      notify(`dsh-lark-bridge: workspace bound to ${target} for ${evt.chatId} (takes effect on next /new)`)
+      // 不在这里 return：上一版就是直接 return 一个 toast，于是「点了绑定，卡片一动不动」，
+      // 只能靠人手点刷新——用户看到的正是这个。和其他分支一样走下去，重绘完再给 toast。
     }
 
-    try {
-      // A new card, not an in-place rewrite: see `openConsole` for why the
-      // latter silently does nothing on this platform.
-      await openConsole(evt.chatId, sessionId)
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error)
-      notify(`dsh-lark-bridge: console redraw failed: ${detail}`)
-    }
-    // The card itself shows the new state; the toast only has to say it landed.
-    return { toast: { type: 'success', content: '已更新' } }
+    await redrawConsole(evt.chatId)
+    // 「先绑定、再发 /new」这个顺序必须说出口：重绘出来的卡片描述的是**当前会话**，
+    // 它还在旧目录里跑（`currentWorkspace` 显示的是绑定后的新目录，两者不同步是有意的）。
+    const confirmed = effect.kind === 'set-workspace' ? '已绑定，发 /new 生效' : '已更新'
+    return { toast: { type: 'success', content: confirmed } }
   }
 
   const handleCardAction = (evt: CardActionEvent): CardActionResponse | undefined => {

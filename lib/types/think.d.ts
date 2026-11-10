@@ -81,6 +81,19 @@ export interface RequestEnvelope {
  */
 export declare function parseThinkLine(line: string): ThinkIntent;
 /**
+ * The printable name of an effort value, wherever it came from.
+ *
+ * Not every source hands back a string. A selection the user saved is one, but
+ * the effort the host records in `requestHeader().config` is a `ReasoningEffortId`
+ * — a branded **object** around the id — so interpolating it straight into a
+ * template string printed `[object Object]` as the session's current level
+ * (2026-11-11, operator report). Unwrap it; anything genuinely unrecognisable
+ * reads as "not set" rather than as a broken line.
+ * @param value - an effort id, a branded effort id, or nothing.
+ * @returns the id as text, or undefined.
+ */
+export declare function effortName(value: unknown): string | undefined;
+/**
  * Read the last model selection one session recorded.
  *
  * The scan is a plain array walk — the host serves `eventAt` straight out of

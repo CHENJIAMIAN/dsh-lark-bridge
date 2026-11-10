@@ -56,6 +56,11 @@ export interface PanelView {
     readonly contextUsed?: number;
     /** Context window, when the host reports one. */
     readonly contextWindow?: number;
+    /**
+     * Failure lines for the diagnostics section, when this card is reporting a
+     * failed operation rather than showing the console. Absent on a normal card.
+     */
+    readonly diagnostics?: readonly string[];
 }
 /** A group of card elements contributed by one section. */
 export interface PanelSectionRender {
@@ -112,8 +117,22 @@ declare function workspaceSection(view: PanelView): PanelSectionRender;
  * @returns the section's elements.
  */
 declare function actionsSection(_view: PanelView): PanelSectionRender;
+/**
+ * The diagnostics section: what the last card operation actually returned.
+ *
+ * Exists because "the card never appeared" is the one failure a card cannot
+ * report about itself — there is nothing on screen to press. When `/console`
+ * fails, the bridge sends a plain-text message that carries this section's data
+ * as a card, so the platform's own error code and log id are readable in the
+ * chat instead of being swallowed by the caller's `catch`.
+ * @param view - the state being rendered.
+ * @returns the section's elements.
+ */
+declare function diagnosticsSection(view: PanelView): PanelSectionRender;
 /** The sections this card is made of, in display order. */
 export declare const PANEL_SECTIONS: readonly [typeof modelSection, typeof workspaceSection, typeof actionsSection];
+/** The sections a failure report shows: the error, then what was being done. */
+export declare const PANEL_FAILURE_SECTIONS: readonly [typeof diagnosticsSection, typeof modelSection, typeof workspaceSection];
 /**
  * Build the console card for one view of the state.
  *
