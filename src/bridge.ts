@@ -3395,6 +3395,7 @@ export function installBridge(
     const used = breakdown === undefined
       ? undefined
       : breakdown.messageTokens + breakdown.systemTokens + breakdown.toolsTokens
+    const window = session === undefined ? undefined : readContextWindow(ctx, session)
     return {
       sessionId,
       currentModel,
@@ -3402,6 +3403,7 @@ export function installBridge(
       currentWorkspace: config.cwd ?? process.cwd(),
       workspaces,
       ...used === undefined ? {} : { contextUsed: used },
+      ...window === undefined ? {} : { contextWindow: window },
     }
   }
 
@@ -3436,6 +3438,10 @@ export function installBridge(
     const defaults = ctx.get('agentDefaultModel') as HostDefaultModel | undefined
     // Routing lives in `resolvePanelAction` so it can be tested without a host;
     // this function only performs what was decided.
+    // 诊断一行：这一次点击到底带了什么。卡片回调的字段名在 1.0 / 2.0 之间不同，
+    // 「点了没反应」既可能是没拿到值、也可能存了但读回旧值，只有把三个都打出来
+    // 才能一次分清。跑通后可以降级成 debug。
+    notify(`dsh-lark-bridge: panel ${action.section}/${action.op} option=${evt.action.option ?? '∅'} formValue=${JSON.stringify(evt.action.formValue ?? null)} picked=${panelSubmitted(evt.action) ?? '∅'}`)
     const effect = resolvePanelAction(action, panelSubmitted(evt.action))
     if (effect.kind === 'invalid') {
       return { toast: { type: 'warning', content: effect.reason } }
@@ -3478,11 +3484,14 @@ export function installBridge(
         // saveSelection replaces the whole selection: carrying the current
         // effort across is what keeps a model switch from also disabling
         // reasoning.
+        const before = defaults.currentSelection()
         await defaults.saveSelection({
-          ...defaults.currentSelection(),
+          ...before,
           provider: effect.provider,
           model: effect.model,
         })
+        const after = defaults.currentSelection()
+        notify(`dsh-lark-bridge: model ${before.provider}/${before.model} -> saved ${effect.provider}/${effect.model} -> reads back ${after.provider}/${after.model}`)
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error)
         return { toast: { type: 'error', content: `切换失败：${detail}` } }
