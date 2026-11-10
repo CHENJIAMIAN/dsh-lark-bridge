@@ -122,6 +122,26 @@ export declare function panelCard(view: PanelView): object;
  */
 export declare function panelFormValue(formValue: Record<string, unknown> | undefined): string | undefined;
 /**
+ * Everything one card interaction reported, reduced to the value it carries.
+ *
+ * Two places to look, because the platform has two:
+ *
+ * - `formValue` — the whole set of interactive values, which is what a JSON 2.0
+ *   `form` submit produces.
+ * - `option` — the chosen option of ONE component, which is what a bare
+ *   `select_static` reports when no form wraps it (and JSON 1.0 has no form).
+ *
+ * Reading only `formValue` would leave every dropdown submission empty on a 1.0
+ * card, and the failure would look like "the switch does nothing" rather than
+ * like a field name being wrong.
+ * @param action - the card action's payload fields.
+ * @returns the chosen value, or undefined when the click carried none.
+ */
+export declare function panelSubmitted(action: {
+    readonly formValue?: Record<string, unknown> | undefined;
+    readonly option?: string | undefined;
+}): string | undefined;
+/**
  * What one console interaction asks the bridge to do.
  *
  * Kept as data rather than as side effects so the routing decision is testable
