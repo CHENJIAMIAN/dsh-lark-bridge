@@ -32,12 +32,12 @@ describe('console card', () => {
     expect(card).not.toHaveProperty('schema')
   })
 
-  it('puts the model and workspace dropdowns in their own forms', () => {
-    const forms = walk(panelCard(VIEW)).filter(node => node.tag === 'form')
-    // A form may only sit at the card root and cannot nest, so each control
-    // group needs its own — one form holding both would be invalid.
-    expect(forms).toHaveLength(2)
-    expect(forms.map(form => form.name)).toEqual(['panel-model', 'panel-workspace'])
+  it('keeps the dropdowns out of a form: JSON 1.0 has no such component', () => {
+    // A orm element made the card render as 「请升级至最新版本客户端」 on a real
+    // client — 1.0 accepts interactive components as plain elements instead.
+    const nodes = walk(panelCard(VIEW))
+    expect(nodes.filter(node => node.tag === 'form')).toHaveLength(0)
+    expect(nodes.filter(node => node.tag === 'select_static')).toHaveLength(2)
   })
 
   it('preselects the active model and workspace', () => {
