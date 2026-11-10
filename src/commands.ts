@@ -28,6 +28,7 @@ import { readContextBreakdown } from './context-breakdown.ts'
 import { readToolCosts } from './tool-costs.ts'
 import { runThinkCommand } from './think.ts'
 import type { EffortOverrides } from './think.ts'
+import { cachedModels, discoverModels, formatModelCatalog, modelByNumber } from './model-catalog.ts'
 
 /** Cancel the running turn. Not a host command: cancellation is an agent method. */
 export const STOP_COMMAND = 'stop'
@@ -498,7 +499,7 @@ export async function runCommandLine(
     }
   }
   if (name === MODEL_COMMAND) {
-    return runModelCommand(trimmed, defaultModel, configModel, config?.modelCatalog)
+    return runModelCommand(trimmed, defaultModel, configModel, config?.modelCatalog, extras?.llm)
   }
   if (name === THINK_COMMAND) {
     return runThinkCommand(trimmed, agent, extras?.efforts, extras?.llm, defaultModel)
@@ -1081,6 +1082,7 @@ async function runModelCommand(
   defaultModel: HostDefaultModel | undefined,
   configModel: { readonly provider?: string; readonly model?: string } | undefined,
   catalog: ReadonlyArray<string> | undefined,
+  llm: HostLlm | undefined,
 ): Promise<CommandOutcome> {
   if (configModel?.provider !== undefined || configModel?.model !== undefined) {
     // Config values are initial defaults, not locks — /model can override them.
@@ -1101,18 +1103,39 @@ async function runModelCommand(
       }).join('\n')
       return { reply: `**可选模型**（当前：${current}${effort}）\n${rows}\n\n切换：\`/${MODEL_COMMAND} <编号>\`（例如 \`/${MODEL_COMMAND} 1\`）`, resolved: true }
     }
+    // No hand-written list: ask the host what it can actually route to. This is
+    // the difference between "the deployment did not fill in a preference list"
+    // and "there are no models", and only the host can tell them apart.
+    const discovered = await discoverModels(llm)
+    if (discovered.length > 0) {
+      return { reply: `${formatModelCatalog(discovered, current)}${effort === '' ? '' : `\n\n当前推理强度 ${cur.reasoningEffort}`}`, resolved: true }
+    }
     return {
       reply: `**当前默认模型**：\`${current}\`${effort}\n\n切换：\`/${MODEL_COMMAND} <provider>/<model>\``,
       resolved: true,
     }
   }
-  // Catalog numeric selection
-  if (catalog && catalog.length > 0 && /^\d+$/.test(arg)) {
+  // Catalog numeric selection. A hand-written `modelCatalog` wins when it is
+  // configured; otherwise the number resolves against the live catalogue the
+  // last `/model` printed. Either way the reader picks against what they saw.
+  if (/^\d+$/.test(arg)) {
     const idx = parseInt(arg, 10) - 1
-    if (idx < 0 || idx >= catalog.length) {
-      return { reply: `⚠️ 编号超范围（1-${catalog.length}）。`, resolved: false }
+    let sel: string | undefined
+    let bound = 0
+    if (catalog !== undefined && catalog.length > 0) {
+      bound = catalog.length
+      if (idx >= 0 && idx < bound) sel = catalog[idx]
+    } else {
+      bound = cachedModels()?.length ?? 0
+      const entry = modelByNumber(idx + 1)
+      if (entry !== undefined) sel = `${entry.provider}/${entry.id}`
     }
-    const sel: string = catalog[idx] ?? ""
+    if (bound === 0) {
+      return { reply: `⚠️ 还没有模型清单。先发 \`/${MODEL_COMMAND}\` 列一次，再按编号切换。`, resolved: false }
+    }
+    if (sel === undefined) {
+      return { reply: `⚠️ 编号超范围（1-${bound}）。`, resolved: false }
+    }
     const sl = sel.indexOf('/')
     const sp = sl > 0 ? sel.slice(0, sl).trim() : configModel?.provider ?? ''
     const sm = sl > 0 ? sel.slice(sl + 1).trim() : sel

@@ -424,6 +424,43 @@ export interface HostLlm {
      * @returns the route's identity plus any reasoning metadata it declares.
      */
     resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<HostLlmModelInfo>;
+    /**
+     * Every provider route this host has registered.
+     *
+     * The `/model` catalogue walks this and then asks each adapter for its own
+     * models: the host is the only one that knows which providers exist, and an
+     * adapter is the only one that knows what it serves.
+     * @returns the registered routes, adapter-preferred order.
+     */
+    listProviders?(): readonly HostLlmProviderInfo[];
+    /**
+     * Discover the models one provider serves.
+     *
+     * Discovery may hit the provider's API, so it can be slow, fail, or return
+     * nothing; a caller must treat all three as "this provider has no list"
+     * rather than as an error worth failing a command over.
+     * @param provider - one registered provider route.
+     * @returns the models it advertises, adapter-preferred order.
+     */
+    listModels?(provider: string): Promise<readonly HostLlmDiscoveredModel[]>;
+}
+/** One registered provider route, as `ctx.llm.listProviders()` reports it. */
+export interface HostLlmProviderInfo {
+    /** Route key used as `provider` in a selection. */
+    readonly id: string;
+    /** Human-readable name for a menu. */
+    readonly name: string;
+}
+/** One model an adapter advertises through `listModels`. */
+export interface HostLlmDiscoveredModel {
+    /** Route that owns this entry. */
+    readonly provider: string;
+    /** Exact model id passed to the adapter. */
+    readonly id: string;
+    /** Human-readable name for a menu. */
+    readonly name: string;
+    /** Optional distinction between otherwise similar models. */
+    readonly description?: string;
 }
 /** The reasoning facts one adapter publishes for one route. */
 export interface HostLlmModelInfo {
