@@ -17,9 +17,6 @@
 | `select_static` 带 `required` | `10002: required is not allowed` |
 | 把带 `schema: "2.0"` 的 JSON 直接塞进 `content` 发 | 消息体只剩兜底文本；2.0 必须走 `cardkit.v1.card.create` + `card_id` 引用 |
 
-**但注意**：前两条是平台明确报错，可信；第三条当时被我误读成「客户端不支持 2.0」，
-后来用正确发法重发、运营方在客户端确认看到了完整内容。见下面「判据无效」。
-
 ### 验证办法
 
 把卡片的真实 JSON 直接打给飞书，再**取回消息体**看服务端有没有降级：
@@ -32,9 +29,8 @@
 # 4. body 里出现「请升级」= 有标签被降级（仅对 1.0 卡片成立）
 ```
 
-对 **1.0 卡片**有效：内容本来就存在消息体里，取回的是完整 elements。
-对 **2.0 card entity 无效**——见下面「判据无效」。它能告诉你「哪个字段被拒」，
-但判断不了「用户看到什么」；后者只能靠人看或截图。
+对 **1.0 卡片**有效：内容本来就存在消息体里，取回的是完整 elements；
+能告诉你「哪个字段被拒」，但判断不了「用户看到什么」。
 
 token：`POST /open-apis/auth/v3/tenant_access_token/internal`，appId/appSecret 从
 `~/.dsh/profiles/lark/cordis.patch.yml` 读。
@@ -50,13 +46,8 @@ token：`POST /open-apis/auth/v3/tenant_access_token/internal`，appId/appSecret
   `msg_type=interactive`、`content` 为 `{type:'card', data:{card_id}}`。
   用 `updateCardById(cardId, json, sequence)`（sequence 严格递增）可做**真正的原地更新**。
   桥目前用 1.0 直发，所以刷新只能发新卡；若切到 2.0 entity，`port.send` 路径和
-  回调字段（`formValue`）都得跟着改，且必须靠人看截图验收。
-- ⚠️ **「取回 `body.content` 里有没有『请升级』」不是有效判据。** 2.0 卡片走
-  `cardkit.v1.card.create` + `card_id` 引用时，消息体里存的是给旧客户端的**兜底文本**
-  （含「请升级至最新版本客户端」），而新客户端通过 `card_id` 拉真正的卡片实体渲染。
-  运营方 2026-11-10 明确确认：那条 API 显示「请升级」的 2.0 卡片，他在客户端上
-  看到了完整内容。**API 读回的 ≠ 用户看到的。** 要判断渲染是否正常，只能问人、
-  或截图，不能靠 GET 消息体。
+  回调字段（`formValue`）都得跟着改。
+- **判断卡片渲染是否正常只能让人看截图，别拿 `GET /im/v1/messages` 取回的 `body.content` 当依据——2.0 卡片那里存的只是给旧客户端的兜底文本。**
 - **`port.updateCard(messageId, card)` 对 1.0 interactive 消息无效**：它 resolves 不报错，
   但客户端不重绘。它面向的是 `createCard` 建出来的 CardKit 2.0 card entity。表现是「第一张卡
   正常，之后每次 `/console` 和每次切换都石沉大海」，以及「选完又闪回旧值」。
