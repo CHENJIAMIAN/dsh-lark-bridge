@@ -50,8 +50,15 @@ describe('console card', () => {
 
   it('preselects the active model and workspace', () => {
     const selects = walk(panelCard(VIEW)).filter(node => node.tag === 'select_static')
-    expect(selects[0]!.initial_option).toBe('deepseek/v4')
-    expect(selects[1]!.initial_option).toBe('D:\\Proj')
+    expect(selects[0]!.initial_index).toBe(1)
+    expect(selects[1]!.initial_index).toBe(1)
+  })
+
+  it('uses a 1-based index whose 0 means no selection', () => {
+    // initial_index is 1-based per the CardKit spec: 0 = show no option.
+    // A model outside the list must not silently pre-select the first one.
+    const selects = walk(panelCard({ ...VIEW, currentModel: 'other/x' })).filter(node => node.tag === 'select_static')
+    expect(selects[0]!.initial_index).toBe(0)
   })
 
   it('offers refresh and new-session as pressable actions', () => {

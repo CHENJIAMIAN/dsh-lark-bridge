@@ -37,7 +37,7 @@ token：`POST /open-apis/auth/v3/tenant_access_token/internal`，appId/appSecret
 
 ### 1.0 与 2.0 的已知差异
 
-- **1.0 没有 `form`**。输入组件直接放 `elements`，用 `column_set` 并排。
+- **`select_static` 的 `initial_option` 要传选项的显示文本，不是 `value`**；用 `initial_index`（1-based，0=不选）更稳，别靠字符串匹配。
 - 1.0 的 `select_static` **不接受 `required`**。
 - 取值字段也不同：2.0 的 form 提交报 `formValue`，1.0 的裸 select 报 `option`。
   桥用 `panelSubmitted()` 两个都认——只读一个，症状会是"点了没反应"。
@@ -45,8 +45,8 @@ token：`POST /open-apis/auth/v3/tenant_access_token/internal`，appId/appSecret
   （body `{type:'card_json', data:'<2.0 JSON 字符串>'}`）拿 `card_id`，再发
   `msg_type=interactive`、`content` 为 `{type:'card', data:{card_id}}`。
   用 `updateCardById(cardId, json, sequence)`（sequence 严格递增）可做**真正的原地更新**。
-  桥目前用 1.0 直发，所以刷新只能发新卡；若切到 2.0 entity，`port.send` 路径和
-  回调字段（`formValue`）都得跟着改。
+  桥的控制台已走这条路；发卡用 `port.createCard` + `send({cardId})`，刷新用
+  `port.updateCardById`，回调字段是 `formValue`。
 - **判断卡片渲染是否正常只能让人看截图，别拿 `GET /im/v1/messages` 取回的 `body.content` 当依据——2.0 卡片那里存的只是给旧客户端的兜底文本。**
 - **`port.updateCard(messageId, card)` 对 1.0 interactive 消息无效**：它 resolves 不报错，
   但客户端不重绘。它面向的是 `createCard` 建出来的 CardKit 2.0 card entity。表现是「第一张卡
