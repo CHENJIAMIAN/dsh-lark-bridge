@@ -76,6 +76,9 @@ export function createFakePort() {
   const byName = new Map<string, PortHandler[]>()
   const sent: SentMessage[] = []
   const updated: { messageId: string; card: object }[] = []
+  /** Managed card entities created and the in-place updates they received. */
+  const createdCards: object[] = []
+  const updatedEntities: { cardId: string; cardJson: object; sequence: number }[] = []
   const streams: StreamedCard[] = []
   /** Commands already on the app's panel, and the ones this run registered. */
   const panelCommands: string[] = []
@@ -171,6 +174,14 @@ export function createFakePort() {
     async updateCard(messageId, card) {
       updated.push({ messageId, card })
     },
+    async createCard(cardJson) {
+      createdCards.push(cardJson)
+      counter += 1
+      return { cardId: `card_${counter}` }
+    },
+    async updateCardById(cardId, cardJson, sequence) {
+      updatedEntities.push({ cardId, cardJson, sequence })
+    },
     async createCot(chatId, options) {
       if (state.failCotCreate) throw new Error('cot unavailable (fake)')
       counter += 1
@@ -256,6 +267,8 @@ export function createFakePort() {
     port,
     sent,
     updated,
+    createdCards,
+    updatedEntities,
     streams,
     panelCommands,
     panelCreated,
