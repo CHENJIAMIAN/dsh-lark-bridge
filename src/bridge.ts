@@ -3367,12 +3367,26 @@ export function installBridge(
   }
 
   /**
-   * The console card's message per chat.
+   * Put a console card in front of a chat.
    *
-   * One card per chat, rewritten in place: `/console` twice should refresh the
-   * one you are looking at, not stack a second console above it.
+   * Always a NEW card, not an in-place update. `port.updateCard` resolves
+   * without error on a JSON 1.0 interactive message but never re-renders it on
+   * this client: it is aimed at CardKit 2.0 card entities created through
+   * `createCard`, which this deployment's client cannot display at all.
+   *
+   * The failure mode was subtle and cost a whole round of debugging: the first
+   * card worked, then every later `/console` and every switch silently went
+   * into an update that did nothing — so the chat looked like the bot stopped
+   * answering, and a switch looked like it "snapped back". A fresh card is the
+   * only refresh this platform reliably shows.
+   * @param chatId - the chat it belongs to.
+   * @param sessionId - the session its controls act on.
    */
-  const consoleCards = new Map<string, string>()
+  async function openConsole(chatId: string, sessionId: string): Promise<void> {
+    const card = panelCard(await consoleView(sessionId))
+    const sent = await port.send(chatId, { card })
+    notify(`dsh-lark-bridge: console card sent to ${chatId}${sent.messageId === undefined ? ' (no message id)' : ''}`)
+  }
 
   /**
    * Read the state one console rendering needs.
@@ -3412,22 +3426,6 @@ export function installBridge(
       ...used === undefined ? {} : { contextUsed: used },
       ...window === undefined ? {} : { contextWindow: window },
     }
-  }
-
-  /**
-   * Put the console in front of a chat, or rewrite the one already there.
-   * @param chatId - the chat it belongs to.
-   * @param sessionId - the session its controls act on.
-   */
-  async function openConsole(chatId: string, sessionId: string): Promise<void> {
-    const card = panelCard(await consoleView(sessionId))
-    const existing = consoleCards.get(chatId)
-    if (existing !== undefined && port.updateCard !== undefined) {
-      await port.updateCard(existing, card)
-      return
-    }
-    const sent = await port.send(chatId, { card })
-    if (sent.messageId !== undefined) consoleCards.set(chatId, sent.messageId)
   }
 
   /**
@@ -3526,15 +3524,9 @@ export function installBridge(
     }
 
     try {
+      // A new card, not an in-place rewrite: see `openConsole` for why the
+      // latter silently does nothing on this platform.
       await openConsole(evt.chatId, sessionId)
-      // Some clients keep the dropdown's previously rendered value when a card
-      // is rewritten in place, so the switch looks like it "snapped back" even
-      // though the new card carries the new value. One delayed rewrite forces a
-      // fresh render; it is cheap and invisible when the first one already won.
-      const settle = setTimeout(() => {
-        void openConsole(evt.chatId, sessionId).catch(() => {})
-      }, 900)
-      ;(settle as unknown as { unref?: () => void }).unref?.()
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       notify(`dsh-lark-bridge: console redraw failed: ${detail}`)

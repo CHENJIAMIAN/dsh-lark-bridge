@@ -43,6 +43,10 @@ token：`POST /open-apis/auth/v3/tenant_access_token/internal`，appId/appSecret
 - 取值字段也不同：2.0 的 form 提交报 `formValue`，1.0 的裸 select 报 `option`。
   桥用 `panelSubmitted()` 两个都认——只读一个，症状会是"点了没反应"。
 - 客户端不支持 2.0 时会整卡降级，所以新卡片**默认用 1.0**，除非确实需要 2.0 特性。
+- **`port.updateCard(messageId, card)` 对 1.0 interactive 消息无效**：它 resolves 不报错，
+  但客户端不重绘。它面向的是 `createCard` 建出来的 CardKit 2.0 card entity。表现是「第一张卡
+  正常，之后每次 `/console` 和每次切换都石沉大海」，以及「选完又闪回旧值」。
+  要刷新就**发一张新卡**，别指望原地更新。
 
 ## 重启宿主
 
