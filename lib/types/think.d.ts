@@ -107,6 +107,14 @@ export declare function effortCatalog(llm: HostLlm | undefined, provider: string
  * that chat's agent and to no other.
  */
 export declare class EffortOverrides {
+    /**
+     * What each session asked to run as: the route it wants, its effort, or both.
+     *
+     * Storing the whole selection rather than just the effort is what lets a
+     * switch reach the CURRENT session: the deployment's default is written into
+     * the agent at creation, and a home-patch overlay refuses to be rewritten at
+     * runtime, so saveSelection alone only ever reaches the next session.
+     */
     private readonly bySession;
     /** Advertised levels per route, so the capability lookup runs once per model. */
     private readonly accepted;
@@ -119,9 +127,9 @@ export declare class EffortOverrides {
     /**
      * The override in force for one session.
      * @param sessionId - the session to look up.
-     * @returns the chosen effort, or undefined when the session follows the default.
+     * @returns the chosen selection, or undefined when the session follows the default.
      */
-    get(sessionId: string): string | undefined;
+    get(sessionId: string): ModelSelection | undefined;
     /**
      * Re-read one session's choice from its own log.
      *
@@ -130,6 +138,15 @@ export declare class EffortOverrides {
      * @param session - the session being opened.
      */
     restore(session: HostSession): void;
+    /**
+     * Drop one session's override entirely, returning it to the deployment default.
+     *
+     * Distinct from recording a selection with no effort: that keeps a route
+     * override in place, while a reset means 'nothing of mine applies here' —
+     * both the route and the effort go back to the deployment's choice.
+     * @param session - the session being reset.
+     */
+    clear(session: HostSession): void;
     /**
      * Record one session's choice, durably when the host can append.
      * @param session - the session the choice belongs to.
