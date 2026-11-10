@@ -3481,6 +3481,7 @@ export function installBridge(
 
     if (effect.kind === 'set-model') {
       if (defaults?.saveSelection === undefined) {
+        notify('dsh-lark-bridge: model switch refused - no saveSelection on agentDefaultModel')
         return { toast: { type: 'error', content: '本部署没有设置持久化层，切换保存不下来' } }
       }
       try {
@@ -3497,6 +3498,9 @@ export function installBridge(
         notify(`dsh-lark-bridge: model ${before.provider}/${before.model} -> saved ${effect.provider}/${effect.model} -> reads back ${after.provider}/${after.model}`)
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error)
+        // A toast alone is invisible here: the click already returned its own
+        // acknowledgment, so a thrown save would vanish without a trace.
+        notify(`dsh-lark-bridge: model switch failed - ${detail}`)
         return { toast: { type: 'error', content: `切换失败：${detail}` } }
       }
     } else if (effect.kind === 'set-workspace') {
