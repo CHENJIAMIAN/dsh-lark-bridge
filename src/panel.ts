@@ -69,8 +69,15 @@ export interface PanelView {
   readonly currentModel: string
   /** Models the host can route to, in menu order. */
   readonly models: readonly ModelEntry[]
-  /** Directory the next session would land in. */
+  /** Directory this session actually runs in, when known. */
   readonly currentWorkspace: string
+  /**
+   * The chat's workspace binding — where the NEXT session starts.
+   *
+   * Shown separately from {@link currentWorkspace} only when the two differ:
+   * after a pick the running session stays where it was until `/new`.
+   */
+  readonly boundWorkspace?: string
   /** Registered workspaces, as display paths. */
   readonly workspaces: readonly string[]
   /** Context usage, when the meter can read it. */
@@ -203,9 +210,18 @@ function modelSection(view: PanelView): PanelSectionRender {
  * @returns the section's elements.
  */
 function workspaceSection(view: PanelView): PanelSectionRender {
+  // The headline names the directory the CURRENT session runs in — a fact.
+  // The binding is a different fact (`/new` lands there) and gets its own line,
+  // so the card never claims this conversation has already moved.
   const elements: object[] = [
     { tag: 'div', text: { tag: 'lark_md', content: `**工作区**　\`${view.currentWorkspace}\`` } },
   ]
+  const pending = view.boundWorkspace !== undefined && view.boundWorkspace !== view.currentWorkspace
+    ? view.boundWorkspace
+    : undefined
+  if (pending !== undefined) {
+    elements.push(hint(`已绑定 ${pending}，发 /new 后新会话在此目录`))
+  }
   if (view.workspaces.length === 0) {
     elements.push(hint('还没有注册过其他工作区。用 /ws 注册一个。'))
     return { id: 'workspace', elements }

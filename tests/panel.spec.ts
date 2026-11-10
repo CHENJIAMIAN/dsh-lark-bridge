@@ -159,6 +159,18 @@ describe('console action dispatch', () => {
     expect(text).toContain('绑定后发 /new')
   })
 
+  it('names the session’s own directory, and the binding only when it differs', () => {
+    // 2026-11-11：绑完工作区后，卡片那一行显示的是新目录，而当前会话还在旧
+    // 目录里跑——两个事实被合成了一行。现在标题是「本会话在哪」，绑定另起一行。
+    const same = JSON.stringify(panelCard({ ...VIEW, boundWorkspace: VIEW.currentWorkspace }))
+    expect(same).toContain('D:\\\\Proj')
+    expect(same).not.toContain('已绑定')
+
+    const differs = JSON.stringify(panelCard({ ...VIEW, currentWorkspace: 'D:\\Old', boundWorkspace: 'D:\\Proj' }))
+    expect(differs).toContain('D:\\\\Old')
+    expect(differs).toContain('已绑定 D:\\\\Proj，发 /new 后新会话在此目录')
+  })
+
   it('refuses unknown sections and operations instead of doing nothing', () => {
     // A silent no-op is indistinguishable from a broken bridge, so every
     // unrecognised combination has to come back as an explicit refusal.

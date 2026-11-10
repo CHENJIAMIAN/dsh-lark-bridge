@@ -21,6 +21,18 @@ import type { Context } from '@deepseek-ai/cordis';
  * `session.seq` and calls `session.eventAt(seq)`.
  */
 export interface HostSession {
+    /**
+     * The directory this session was CREATED in.
+     *
+     * Fixed at creation — the host has no way to move a running session — which
+     * is exactly why the console shows it: after a workspace pick the chat is
+     * bound to the new directory while this session still runs in the old one,
+     * and the card has to say so instead of implying the move already happened.
+     */
+    readonly meta?: {
+        readonly cwd?: string;
+        readonly agentPreset?: string;
+    };
     /** The session id shared by the agent registry and session log. */
     readonly id: string;
     /** The number of committed events in the session log (the next `eventAt` index). */

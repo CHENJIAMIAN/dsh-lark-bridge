@@ -48,8 +48,15 @@ export interface PanelView {
     readonly currentModel: string;
     /** Models the host can route to, in menu order. */
     readonly models: readonly ModelEntry[];
-    /** Directory the next session would land in. */
+    /** Directory this session actually runs in, when known. */
     readonly currentWorkspace: string;
+    /**
+     * The chat's workspace binding — where the NEXT session starts.
+     *
+     * Shown separately from {@link currentWorkspace} only when the two differ:
+     * after a pick the running session stays where it was until `/new`.
+     */
+    readonly boundWorkspace?: string;
     /** Registered workspaces, as display paths. */
     readonly workspaces: readonly string[];
     /** Context usage, when the meter can read it. */
