@@ -155,8 +155,13 @@ export declare function createConsoleCardStore(): {
 /**
  * The value one submitted form carries.
  *
- * A section's form holds exactly one control, so the sole submitted value is
- * that control's answer whatever its name turned out to be.
+ * A section's form holds exactly one input control, so the sole value is that
+ * control's answer whatever its name turned out to be. But the VALUE SHAPE is
+ * not guaranteed: this package's proven 2.0 question card sees a multi-select
+ * report an array while a text input reports a string. Accept both — reading
+ * only strings here would leave a dropdown submission empty with no error at
+ * all, which is exactly the "the switch does nothing" failure this bridge has
+ * already paid for once.
  * @param formValue - `action.formValue` as the channel SDK hands it over.
  * @returns the value, or undefined when nothing was submitted.
  */
