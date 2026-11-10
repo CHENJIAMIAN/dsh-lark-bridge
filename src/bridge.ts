@@ -80,6 +80,7 @@ import {
   MANUAL_COMMAND,
   MODEL_COMMAND,
   NEW_COMMAND,
+  CONSOLE_COMMAND,
   PANEL_COMMAND,
   PLUGINS_COMMAND,
   PRESET_COMMAND,
@@ -111,7 +112,10 @@ import { baseSessionIdOf, createRotationStore } from './session-rotation.ts'
 import { readPreviews, describeScale, describeSpan } from './session-preview.ts'
 import { createReactionTracker } from './reaction.ts'
 import type { ReactionTracker } from './reaction.ts'
+import { discoverModels } from './model-catalog.ts'
 import { createGoalWatch } from './goal-watch.ts'
+import { panelActionValue, panelCard, panelFormValue } from './panel.ts'
+import type { PanelView } from './panel.ts'
 import { chatOfSession, overdueActionValue, overdueCard, overdueTasks } from './schedule-watchdog.ts'
 import type { StoredScheduleTask } from './schedule-watchdog.ts'
 import { createQuestionProvider } from './questions.ts'
@@ -2452,6 +2456,7 @@ export function installBridge(
 
   /** The channel-owned commands, independent of any agent's scope — the boot-time panel floor. */
   const channelCommands = (locale: Locale): Array<{ name: string; description: string }> => [
+    { name: CONSOLE_COMMAND, description: describeCommand(CONSOLE_COMMAND, locale, 'Open the console card') },
     { name: PRESET_COMMAND, description: describeCommand(PRESET_COMMAND, locale, 'View or switch mode') },
     { name: SESSIONS_COMMAND, description: describeCommand(SESSIONS_COMMAND, locale, 'View session history') },
     { name: SESSION_COMMAND, description: describeCommand(SESSION_COMMAND, locale, 'Inspect the current session') },
@@ -2890,6 +2895,13 @@ export function installBridge(
         // The command path therefore owns its own error surface.
         let outcome: Awaited<ReturnType<typeof runCommandLine>>
         try {
+          // `/console` is the bridge's own card, not a host command: there is no
+          // command runtime seam that returns "send this card", so it is handled
+          // before the dispatcher rather than through it.
+          if (/^\/(?:console|控制台)\s*$/iu.test(msg.content.trim())) {
+            await openConsole(msg.chatId, opened.handle.agent.session.id)
+            return
+          }
           // A slash command may ask what is scheduled. Rebuild the registry
           // first: a reminder created by an earlier process never announced
           // itself to this one, and /schedules would report "none" for
@@ -3353,6 +3365,114 @@ export function installBridge(
     }
   }
 
+  /**
+   * The console card's message per chat.
+   *
+   * One card per chat, rewritten in place: `/console` twice should refresh the
+   * one you are looking at, not stack a second console above it.
+   */
+  const consoleCards = new Map<string, string>()
+
+  /**
+   * Read the state one console rendering needs.
+   *
+   * Every field is read fresh rather than cached, because the whole point of
+   * pressing a control is to see the world after the change.
+   * @param sessionId - the session the card acts on.
+   * @returns the view to render.
+   */
+  const consoleView = async (sessionId: string): Promise<PanelView> => {
+    const defaults = ctx.get('agentDefaultModel') as HostDefaultModel | undefined
+    const selection = defaults?.currentSelection()
+    const currentModel = selection === undefined
+      ? '未配置'
+      : `${selection.provider}/${selection.model}`
+    const models = await discoverModels(ctx.get('llm') as HostLlm | undefined)
+    const registry = ctx.get('workspaceRegistry') as HostWorkspaceRegistry | undefined
+    const workspaces = (registry?.list?.() ?? []).map(entry => entry.path)
+    const session = agents.get(sessionId)?.session
+    const breakdown = session === undefined ? undefined : readContextBreakdown(ctx, session)
+    const used = breakdown === undefined
+      ? undefined
+      : breakdown.messageTokens + breakdown.systemTokens + breakdown.toolsTokens
+    return {
+      sessionId,
+      currentModel,
+      models,
+      currentWorkspace: config.cwd ?? process.cwd(),
+      workspaces,
+      ...used === undefined ? {} : { contextUsed: used },
+    }
+  }
+
+  /**
+   * Put the console in front of a chat, or rewrite the one already there.
+   * @param chatId - the chat it belongs to.
+   * @param sessionId - the session its controls act on.
+   */
+  async function openConsole(chatId: string, sessionId: string): Promise<void> {
+    const card = panelCard(await consoleView(sessionId))
+    const existing = consoleCards.get(chatId)
+    if (existing !== undefined && port.updateCard !== undefined) {
+      await port.updateCard(existing, card)
+      return
+    }
+    const sent = await port.send(chatId, { card })
+    if (sent.messageId !== undefined) consoleCards.set(chatId, sent.messageId)
+  }
+
+  /**
+   * Apply one console interaction, then redraw the card.
+   *
+   * The redraw is unconditional: a switch that succeeded and one that silently
+   * did nothing must not look identical, and the only way to tell them apart is
+   * to show the state the bridge now believes.
+   * @param evt - the card action.
+   * @param action - what the control asked for.
+   * @returns the toast to show the clicker.
+   */
+  const handlePanelAction = async (evt: CardActionEvent, action: { readonly section: string; readonly op: string }): Promise<CardActionResponse> => {
+    const sessionId = bySession.get([...bySession.keys()].find(id => bySession.get(id)?.chatId === evt.chatId) ?? '')?.session.id ?? ''
+    const defaults = ctx.get('agentDefaultModel') as HostDefaultModel | undefined
+    const submitted = panelFormValue(evt.action.formValue)
+
+    if (action.section === 'model' && action.op === 'set') {
+      if (submitted === undefined) return { toast: { type: 'warning', content: '没有拿到选择的模型' } }
+      const slash = submitted.indexOf('/')
+      if (slash <= 0) return { toast: { type: 'error', content: '这个模型标识看不懂' } }
+      if (defaults?.saveSelection === undefined) {
+        return { toast: { type: 'error', content: '本部署没有设置持久化层，切换保存不下来' } }
+      }
+      try {
+        await defaults.saveSelection({
+          ...defaults.currentSelection(),
+          provider: submitted.slice(0, slash),
+          model: submitted.slice(slash + 1),
+        })
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        return { toast: { type: 'error', content: `切换失败：${detail}` } }
+      }
+    } else if (action.section === 'workspace' && action.op === 'set') {
+      if (submitted === undefined) return { toast: { type: 'warning', content: '没有拿到选择的工作区' } }
+      try {
+        await writeChatWorkspace(evt.chatId, submitted)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        return { toast: { type: 'error', content: `写入工作区绑定失败：${detail}` } }
+      }
+    }
+
+    try {
+      await openConsole(evt.chatId, sessionId)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      notify(`dsh-lark-bridge: console redraw failed: ${detail}`)
+    }
+    // The card itself shows the new state; the toast only has to say it landed.
+    return { toast: { type: 'success', content: '已更新' } }
+  }
+
   const handleCardAction = (evt: CardActionEvent): CardActionResponse | undefined => {
     const questionResponse = questions.handleCardAction(evt)
     if (questionResponse !== undefined) return questionResponse
@@ -3360,6 +3480,11 @@ export function installBridge(
     if (overdue !== undefined) {
       void dispatchOverdue(overdue.key, overdue.sessionId, evt.chatId, evt.operator.openId)
       return { toast: { type: 'info', content: '正在执行…' } }
+    }
+    const panelAction = panelActionValue(evt.action.value)
+    if (panelAction !== undefined) {
+      void handlePanelAction(evt, panelAction)
+      return undefined
     }
     const acct = accountCardValue(evt.action.value)
     if (acct !== undefined) {

@@ -88,6 +88,8 @@ export declare const RESUME_COMMAND = "resume";
  * 名字取 panel 而不是 agents，因为读者要的是「那个面板」，不是「代理列表」。
  */
 export declare const PANEL_COMMAND = "panel";
+/** 可操作的控制台卡片。 */
+export declare const CONSOLE_COMMAND = "console";
 /** Bridge dual-end status, settings, and plugin sync. */
 export declare const BOT_COMMAND = "bot";
 /** Query the DeepSeek platform balance the deployment bills through. */
