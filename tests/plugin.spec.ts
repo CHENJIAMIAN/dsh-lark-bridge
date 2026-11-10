@@ -26,6 +26,7 @@ import {
 function clickAction(
   value: unknown,
   by: { openId?: string; chatId?: string; name?: string } = {},
+  formValue?: Record<string, unknown>,
 ): CardActionEvent {
   return {
     messageId: 'om_card_1',
@@ -34,7 +35,9 @@ function clickAction(
       openId: by.openId ?? SENDER_ID,
       ...by.name === undefined ? {} : { name: by.name },
     },
-    action: { value, tag: 'button' },
+    // A form submit carries its fields under `formValue`; a plain button does
+    // not, which is why this stays optional.
+    action: { value, tag: 'button', ...formValue === undefined ? {} : { formValue } },
   }
 }
 
