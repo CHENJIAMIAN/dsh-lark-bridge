@@ -32,17 +32,27 @@ describe('console card', () => {
     expect(card).not.toHaveProperty('schema')
   })
 
-  it('keeps the dropdowns out of a form: JSON 1.0 has no such component', () => {
-    // A orm element made the card render as 「请升级至最新版本客户端」 on a real
-    // client — 1.0 accepts interactive components as plain elements instead.
+  it('wraps each dropdown in an action container with a callback behavior', () => {
+    // Platform rules, both required: a root-level select must sit inside an
+    // ction container, and ehaviors is what makes a pick report back.
+    // Missing either renders a dropdown that silently never submits.
     const nodes = walk(panelCard(VIEW))
-    expect(nodes.filter(node => node.tag === 'form')).toHaveLength(0)
-    expect(nodes.filter(node => node.tag === 'select_static')).toHaveLength(2)
+    const actions = nodes.filter(node => node.tag === 'action')
+    expect(actions).toHaveLength(2)
+    for (const container of actions) {
+      const inner = (container.actions ?? []) as Record<string, unknown>[]
+      expect(inner.some(item => item.tag === 'select_static')).toBe(true)
+    }
+    const selects = nodes.filter(node => node.tag === 'select_static')
+    expect(selects).toHaveLength(2)
+    for (const select of selects) {
+      const behaviors = (select.behaviors ?? []) as Record<string, unknown>[]
+      expect(behaviors[0]?.type).toBe('callback')
+    }
   })
 
   it('preselects the active model and workspace', () => {
     const selects = walk(panelCard(VIEW)).filter(node => node.tag === 'select_static')
-    expect(selects).toHaveLength(2)
     expect(selects[0]!.initial_option).toBe('deepseek/v4')
     expect(selects[1]!.initial_option).toBe('D:\\Proj')
   })
