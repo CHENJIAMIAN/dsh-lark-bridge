@@ -110,29 +110,16 @@ function describeUsage(used: number | undefined, window: number | undefined): st
 export const PANEL_CHOICES_MAX = 40
 
 /**
- * The model section: a dropdown that reports the pick by itself.
+ * The model section: a form holding one dropdown and its submit button.
  *
- * Two things the platform requires and that a naive card misses, both from the
- * `select_static` reference:
- *
- * - **A root-level select must live inside an `action` container's `actions`.**
- *   Outside one it renders but never reports anything.
- * - **`behaviors` is required.** It carries the callback payload, and it is what
- *   makes picking a value fire a card action instead of waiting for a submit
- *   button that JSON 1.0 does not have.
- *
- * Without `behaviors` the click still reaches the bridge — as an action with no
- * value — which reads as "the switch did nothing" rather than as a missing
- * field. That is exactly how this was diagnosed: a live click logged
- * `option=∅ formValue=null`.
+ * CardKit 2.0 gives us a `form` container, which JSON 1.0 did not have. That is
+ * what makes a dropdown submit its value through `formValue` instead of needing
+ * the 1.0 `behaviors` callback workaround. Every interactive child needs a
+ * unique `name` across the whole card, hence the `panel-…` prefixes.
  * @param view - the state being rendered.
  * @returns the section's elements.
  */
 function modelSection(view: PanelView): PanelSectionRender {
-  // Label the current model the same way its options label themselves. Showing
-  // a raw `provider/id` here and `Provider · Name` there reads as two different
-  // models, which is how "I switched but it still says the old one" gets
-  // reported when nothing is actually wrong.
   const activeEntry = view.models.find(entry => `${entry.provider}/${entry.id}` === view.currentModel)
   const label = activeEntry === undefined ? view.currentModel : `${activeEntry.providerName} · ${activeEntry.name}`
   const elements: object[] = [
@@ -142,20 +129,37 @@ function modelSection(view: PanelView): PanelSectionRender {
     elements.push({ tag: 'note', elements: [plainText('宿主没有报出可用的模型目录。')] })
     return { id: 'model', elements }
   }
+  const options = view.models.slice(0, PANEL_CHOICES_MAX).map(entry => ({
+    text: plainText(`${entry.providerName} · ${entry.name}`),
+    value: `${entry.provider}/${entry.id}`,
+  }))
   elements.push({
-    tag: 'action',
-    actions: [{
-      tag: 'select_static',
-      type: 'default',
-      width: 'fill',
-      ...activeEntry === undefined ? {} : { initial_option: view.currentModel },
-      placeholder: plainText('选择模型'),
-      options: view.models.slice(0, PANEL_CHOICES_MAX).map(entry => ({
-        text: plainText(`${entry.providerName} · ${entry.name}`),
-        value: `${entry.provider}/${entry.id}`,
-      })),
-      behaviors: [{ type: 'callback', value: actionValue('model', 'set') }],
-    }],
+    tag: 'form',
+    name: 'panel-model-form',
+    direction: 'horizontal',
+    vertical_spacing: 'small',
+    elements: [
+      {
+        tag: 'select_static',
+        name: 'panel-model',
+        type: 'default',
+        width: 'fill',
+        // Must stay false: a required control makes the client swallow the
+        // submission instead of reporting it.
+        required: false,
+        ...activeEntry === undefined ? {} : { initial_option: view.currentModel },
+        placeholder: plainText('选择模型'),
+        options,
+      },
+      {
+        tag: 'button',
+        name: 'panel-model-submit',
+        form_action_type: 'submit',
+        type: 'primary',
+        text: plainText('切换'),
+        value: actionValue('model', 'set'),
+      },
+    ],
   })
   return { id: 'model', elements }
 }
@@ -178,20 +182,35 @@ function workspaceSection(view: PanelView): PanelSectionRender {
     return { id: 'workspace', elements }
   }
   const current = view.workspaces.includes(view.currentWorkspace)
+  const options = view.workspaces.slice(0, PANEL_CHOICES_MAX).map(path => ({
+    text: plainText(path),
+    value: path,
+  }))
   elements.push({
-    tag: 'action',
-    actions: [{
-      tag: 'select_static',
-      type: 'default',
-      width: 'fill',
-      ...current ? { initial_option: view.currentWorkspace } : {},
-      placeholder: plainText('选择工作区'),
-      options: view.workspaces.slice(0, PANEL_CHOICES_MAX).map(path => ({
-        text: plainText(path),
-        value: path,
-      })),
-      behaviors: [{ type: 'callback', value: actionValue('workspace', 'set') }],
-    }],
+    tag: 'form',
+    name: 'panel-workspace-form',
+    direction: 'horizontal',
+    vertical_spacing: 'small',
+    elements: [
+      {
+        tag: 'select_static',
+        name: 'panel-workspace',
+        type: 'default',
+        width: 'fill',
+        required: false,
+        ...current ? { initial_option: view.currentWorkspace } : {},
+        placeholder: plainText('选择工作区'),
+        options,
+      },
+      {
+        tag: 'button',
+        name: 'panel-workspace-submit',
+        form_action_type: 'submit',
+        type: 'primary',
+        text: plainText('切换'),
+        value: actionValue('workspace', 'set'),
+      },
+    ],
   })
   return { id: 'workspace', elements }
 }
@@ -213,8 +232,9 @@ function workspaceSection(view: PanelView): PanelSectionRender {
  * @returns the section's elements.
  */
 function actionsSection(_view: PanelView): PanelSectionRender {
-  const button = (op: string, text: string): object => ({
+  const button = (name: string, op: string, text: string): object => ({
     tag: 'button',
+    name,
     text: plainText(text),
     type: 'default',
     value: actionValue('actions', op),
@@ -225,8 +245,8 @@ function actionsSection(_view: PanelView): PanelSectionRender {
       tag: 'column_set',
       horizontal_spacing: 'small',
       columns: [
-        { tag: 'column', width: 'auto', elements: [button('refresh', '🔄 刷新')] },
-        { tag: 'column', width: 'auto', elements: [button('new-session', '✨ 新建会话')] },
+        { tag: 'column', width: 'auto', elements: [button('panel-refresh', 'refresh', '🔄 刷新')] },
+        { tag: 'column', width: 'auto', elements: [button('panel-new-session', 'new-session', '✨ 新建会话')] },
       ],
     }],
   }
@@ -238,11 +258,10 @@ export const PANEL_SECTIONS = [modelSection, workspaceSection, actionsSection] a
 /**
  * Build the console card for one view of the state.
  *
- * JSON 1.0, not CardKit 2.0 — and that is not timidity. A 2.0 card renders as
- * 「请升级至最新版本客户端，以查看内容」 on clients that predate it, which is
- * worse than a plain card: the reader believes the bot is broken. `form`,
- * `select_static` and `column_set` all exist in 1.0, so there is nothing here
- * that needs 2.0 in the first place.
+ * CardKit 2.0, sent as a managed card entity (`port.createCard` + `cardId`),
+ * which is the only way to get real in-place updates via `updateCardById`.
+ * This same package's question cards already ship 2.0 forms, so the structure
+ * here mirrors theirs rather than guessing at it.
  * @param view - the state as last read.
  * @returns a Feishu card object.
  */
@@ -250,10 +269,7 @@ export function panelCard(view: PanelView): object {
   const elements: object[] = [
     {
       tag: 'div',
-      text: {
-        tag: 'lark_md',
-        content: `会话 \`${view.sessionId}\`\n${describeUsage(view.contextUsed, view.contextWindow)}`,
-      },
+      text: { tag: 'lark_md', content: `会话 \`${view.sessionId}\`\n${describeUsage(view.contextUsed, view.contextWindow)}` },
     },
   ]
   PANEL_SECTIONS.forEach((section, index) => {
@@ -261,9 +277,58 @@ export function panelCard(view: PanelView): object {
     elements.push(...section(view).elements)
   })
   return {
-    config: { wide_screen_mode: true },
+    schema: '2.0',
+    config: { width_mode: 'fill' },
     header: { template: 'blue', title: plainText('🎛 DSH 控制台') },
-    elements,
+    body: { elements },
+  }
+}
+
+/** One chat's managed card entity and the sequence its next update must carry. */
+export interface ConsoleEntityState {
+  readonly cardId: string
+  readonly sequence: number
+}
+
+/**
+ * The card entity each chat owns, with strictly increasing update sequences.
+ *
+ * `cardkit.v1.card.update` rejects a sequence that is not greater than the last
+ * one accepted, so the counter has to live exactly as long as the entity.
+ * Keeping it in one place also makes the two decisions — "no entity yet, create
+ * one" and "entity exists, update it" — impossible to get out of sync.
+ */
+export function createConsoleCardStore(): {
+  /** The next action for a chat, given its current state. */
+  planFor(chatId: string): { readonly kind: 'create' } | { readonly kind: 'update'; readonly cardId: string; readonly sequence: number }
+  /** Record a newly created entity. */
+  created(chatId: string, cardId: string): void
+  /** Record a successful update (only then may the sequence advance). */
+  updated(chatId: string, sequence: number): void
+  /** Drop a stale entity so the next call creates a fresh one. */
+  forget(chatId: string): void
+} {
+  const byChat = new Map<string, ConsoleEntityState>()
+  return {
+    planFor(chatId) {
+      const entity = byChat.get(chatId)
+      if (entity === undefined) return { kind: 'create' }
+      // Sequence 0 is the creation itself; the first update must be 1.
+      return { kind: 'update', cardId: entity.cardId, sequence: entity.sequence + 1 }
+    },
+    created(chatId, cardId) {
+      byChat.set(chatId, { cardId, sequence: 0 })
+    },
+    updated(chatId, sequence) {
+      const entity = byChat.get(chatId)
+      if (entity === undefined) return
+      // A failed update must not advance the counter: the next attempt has to
+      // reuse this sequence or Feishu will reject it forever.
+      byChat.set(chatId, { cardId: entity.cardId, sequence })
+    },
+    forget(chatId) {
+      byChat.delete(chatId)
+    },
   }
 }
 

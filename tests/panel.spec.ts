@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PANEL_ACTION, panelActionValue, panelCard, panelFormValue, panelSubmitted, resolvePanelAction } from '../src/panel.ts'
+import { createConsoleCardStore, PANEL_ACTION, panelActionValue, panelCard, panelFormValue, panelSubmitted, resolvePanelAction } from '../src/panel.ts'
 import type { PanelView } from '../src/panel.ts'
 
 const VIEW: PanelView = {
@@ -27,28 +27,25 @@ function walk(node: unknown, out: Record<string, unknown>[] = []): Record<string
 }
 
 describe('console card', () => {
-  it('stays on JSON 1.0 so older clients can render it', () => {
+  it('is a CardKit 2.0 card, which managed entities require', () => {
     const card = panelCard(VIEW) as Record<string, unknown>
-    expect(card).not.toHaveProperty('schema')
+    expect(card.schema).toBe('2.0')
+    expect(card.body).toHaveProperty('elements')
   })
 
-  it('wraps each dropdown in an action container with a callback behavior', () => {
-    // Platform rules, both required: a root-level select must sit inside an
-    // ction container, and ehaviors is what makes a pick report back.
-    // Missing either renders a dropdown that silently never submits.
+  it('puts each dropdown in its own form with a submit button', () => {
+    // 2.0 has a form container, so a dropdown reports through formValue`r
+    // instead of the 1.0 ehaviors callback workaround.
     const nodes = walk(panelCard(VIEW))
-    const actions = nodes.filter(node => node.tag === 'action')
-    expect(actions).toHaveLength(2)
-    for (const container of actions) {
-      const inner = (container.actions ?? []) as Record<string, unknown>[]
-      expect(inner.some(item => item.tag === 'select_static')).toBe(true)
+    const forms = nodes.filter(node => node.tag === 'form')
+    expect(forms).toHaveLength(2)
+    for (const form of forms) {
+      const children = (form.elements ?? []) as Record<string, unknown>[]
+      expect(children.some(item => item.tag === 'select_static')).toBe(true)
+      expect(children.some(item => item.tag === 'button' && item.form_action_type === 'submit')).toBe(true)
     }
-    const selects = nodes.filter(node => node.tag === 'select_static')
-    expect(selects).toHaveLength(2)
-    for (const select of selects) {
-      const behaviors = (select.behaviors ?? []) as Record<string, unknown>[]
-      expect(behaviors[0]?.type).toBe('callback')
-    }
+    const names = nodes.filter(node => typeof node.name === 'string').map(node => node.name)
+    expect(new Set(names).size).toBe(names.length)
   })
 
   it('preselects the active model and workspace', () => {
@@ -166,10 +163,64 @@ describe('console action values', () => {
 
   it('reads a bare select from option, which is how 1.0 reports it', () => {
     // JSON 1.0 has no form, so a dropdown submits as option rather than as a
-    // field of ormValue. Reading only the latter left every switch empty.
+    // field of formValue. Reading only the latter left every switch empty.
     expect(panelSubmitted({ option: 'p/m' })).toBe('p/m')
     expect(panelSubmitted({ formValue: { model: 'p/m2' } })).toBe('p/m2')
     expect(panelSubmitted({ option: '' })).toBeUndefined()
     expect(panelSubmitted({})).toBeUndefined()
+  })
+})
+
+describe('console card entity lifecycle', () => {
+  it('creates first, then always updates in place', () => {
+    const store = createConsoleCardStore()
+    expect(store.planFor('chat')).toEqual({ kind: 'create' })
+    store.created('chat', 'card-1')
+    expect(store.planFor('chat')).toEqual({ kind: 'update', cardId: 'card-1', sequence: 1 })
+    store.updated('chat', 1)
+    expect(store.planFor('chat')).toEqual({ kind: 'update', cardId: 'card-1', sequence: 2 })
+  })
+
+  it('keeps sequences strictly increasing', () => {
+    const store = createConsoleCardStore()
+    store.created('chat', 'card-1')
+    const seen: number[] = []
+    for (let i = 0; i < 5; i++) {
+      const plan = store.planFor('chat')
+      if (plan.kind !== 'update') throw new Error('expected an update')
+      seen.push(plan.sequence)
+      store.updated('chat', plan.sequence)
+    }
+    expect(seen).toEqual([1, 2, 3, 4, 5])
+    for (let i = 1; i < seen.length; i++) {
+      expect(seen[i]!).toBeGreaterThan(seen[i - 1]!)
+    }
+  })
+
+  it('does not advance the sequence when an update was never confirmed', () => {
+    // A failed update must be retried with the SAME sequence, or Feishu keeps
+    // rejecting it as stale forever.
+    const store = createConsoleCardStore()
+    store.created('chat', 'card-1')
+    expect(store.planFor('chat')).toEqual({ kind: 'update', cardId: 'card-1', sequence: 1 })
+    expect(store.planFor('chat')).toEqual({ kind: 'update', cardId: 'card-1', sequence: 1 })
+  })
+
+  it('recreates after a stale entity is forgotten', () => {
+    const store = createConsoleCardStore()
+    store.created('chat', 'card-1')
+    store.updated('chat', 1)
+    store.forget('chat')
+    expect(store.planFor('chat')).toEqual({ kind: 'create' })
+    store.created('chat', 'card-2')
+    expect(store.planFor('chat')).toEqual({ kind: 'update', cardId: 'card-2', sequence: 1 })
+  })
+
+  it('keeps chats independent', () => {
+    const store = createConsoleCardStore()
+    store.created('a', 'card-a')
+    store.updated('a', 1)
+    expect(store.planFor('b')).toEqual({ kind: 'create' })
+    expect(store.planFor('a')).toEqual({ kind: 'update', cardId: 'card-a', sequence: 2 })
   })
 })

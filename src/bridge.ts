@@ -114,7 +114,7 @@ import { createReactionTracker } from './reaction.ts'
 import type { ReactionTracker } from './reaction.ts'
 import { discoverModels } from './model-catalog.ts'
 import { createGoalWatch } from './goal-watch.ts'
-import { panelActionValue, panelCard, panelSubmitted, resolvePanelAction } from './panel.ts'
+import { createConsoleCardStore, panelActionValue, panelCard, panelSubmitted, resolvePanelAction } from './panel.ts'
 import type { PanelActionValue } from './panel.ts'
 import type { PanelView } from './panel.ts'
 import { chatOfSession, overdueActionValue, overdueCard, overdueTasks } from './schedule-watchdog.ts'
@@ -211,6 +211,10 @@ export interface ChannelPort extends OutboundPort, SlashPanelPort, ImagePort, Co
   connect(): Promise<void>
   /** Close the transport and release its resources. */
   disconnect(): Promise<void>
+  /** Managed CardKit 2.0 entity lifecycle (present on `LarkChannel`). */
+  createCard(cardJson: object): Promise<{ cardId: string }>
+  updateCardById(cardId: string, cardJson: object, sequence: number): Promise<void>
+  updateCard(messageId: string, card: object): Promise<void>
   /** Subscribe one normalized inbound event; returns the unsubscriber. */
   on(name: 'message', handler: (msg: NormalizedMessage) => void | Promise<void>): () => void
   on(
@@ -3367,25 +3371,45 @@ export function installBridge(
   }
 
   /**
-   * Put a console card in front of a chat.
+   * One managed card entity per chat, with strictly increasing sequences.
+   * Kept in `panel.ts` so the create-vs-update decision is unit-testable.
+   */
+  const consoleCards = createConsoleCardStore()
+
+  /**
+   * Put the console in front of a chat, or update the one already there.
    *
-   * Always a NEW card, not an in-place update. `port.updateCard` resolves
-   * without error on a JSON 1.0 interactive message but never re-renders it on
-   * this client: it is aimed at CardKit 2.0 card entities created through
-   * `createCard`, which this deployment's client cannot display at all.
-   *
-   * The failure mode was subtle and cost a whole round of debugging: the first
-   * card worked, then every later `/console` and every switch silently went
-   * into an update that did nothing — so the chat looked like the bot stopped
-   * answering, and a switch looked like it "snapped back". A fresh card is the
-   * only refresh this platform reliably shows.
+   * CardKit 2.0 managed-entity lifecycle: `createCard` makes the entity,
+   * `send({cardId})` attaches it to a message, and every later refresh calls
+   * `updateCardById` on the SAME entity. Every message referencing that card
+   * re-renders in place — no new messages, no stale duplicate cards, and no
+   * dependency on `updateCard(messageId)` which silently does nothing for a
+   * JSON 1.0 interactive message.
    * @param chatId - the chat it belongs to.
    * @param sessionId - the session its controls act on.
    */
   async function openConsole(chatId: string, sessionId: string): Promise<void> {
     const card = panelCard(await consoleView(sessionId))
-    const sent = await port.send(chatId, { card })
-    notify(`dsh-lark-bridge: console card sent to ${chatId}${sent.messageId === undefined ? ' (no message id)' : ''}`)
+    const plan = consoleCards.planFor(chatId)
+    if (plan.kind === 'update') {
+      try {
+        await replay.updateCardById(plan.cardId, card, plan.sequence)
+        consoleCards.updated(chatId, plan.sequence)
+        notify(`dsh-lark-bridge: console card updated in place (seq ${plan.sequence}) for ${chatId}`)
+      } catch (error) {
+        // A stale or deleted entity can no longer be updated. Drop it so the
+        // next `/console` creates a fresh one instead of failing forever.
+        const detail = error instanceof Error ? error.message : String(error)
+        consoleCards.forget(chatId)
+        notify(`dsh-lark-bridge: console card update failed, will recreate: ${detail}`)
+        await openConsole(chatId, sessionId)
+      }
+      return
+    }
+    const { cardId } = await replay.createCard(card)
+    const sent = await replay.send(chatId, { cardId })
+    consoleCards.created(chatId, cardId)
+    notify(`dsh-lark-bridge: console card created for ${chatId} (${sent.messageId ?? 'no id'})`)
   }
 
   /**

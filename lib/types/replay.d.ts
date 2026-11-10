@@ -24,6 +24,11 @@ import type { OutboundPort } from './outbound.ts';
  */
 export interface ReplayPort extends OutboundPort {
     updateCard(messageId: string, card: object): Promise<void>;
+    /** Managed CardKit 2.0 entity lifecycle, forwarded by bindPortMethods. */
+    createCard(cardJson: object): Promise<{
+        cardId: string;
+    }>;
+    updateCardById(cardId: string, cardJson: object, sequence: number): Promise<void>;
     connect(): Promise<void>;
     disconnect(): Promise<void>;
     on(name: string, handler: (...args: never[]) => unknown): () => void;
@@ -52,6 +57,11 @@ export declare function isUndeliveredId(messageId: string | undefined): boolean;
 /** The transport surface {@link createReplayPort} wraps. */
 export interface ReplayPort extends OutboundPort {
     updateCard(messageId: string, card: object): Promise<void>;
+    /** Managed CardKit 2.0 entity lifecycle, forwarded by bindPortMethods. */
+    createCard(cardJson: object): Promise<{
+        cardId: string;
+    }>;
+    updateCardById(cardId: string, cardJson: object, sequence: number): Promise<void>;
 }
 /**
  * Whether a send failed for a reason that repeating it cannot fix.

@@ -73,21 +73,12 @@ export interface PanelSectionRender {
 /** How many options a dropdown will offer before it is truncated. */
 export declare const PANEL_CHOICES_MAX = 40;
 /**
- * The model section: a dropdown that reports the pick by itself.
+ * The model section: a form holding one dropdown and its submit button.
  *
- * Two things the platform requires and that a naive card misses, both from the
- * `select_static` reference:
- *
- * - **A root-level select must live inside an `action` container's `actions`.**
- *   Outside one it renders but never reports anything.
- * - **`behaviors` is required.** It carries the callback payload, and it is what
- *   makes picking a value fire a card action instead of waiting for a submit
- *   button that JSON 1.0 does not have.
- *
- * Without `behaviors` the click still reaches the bridge — as an action with no
- * value — which reads as "the switch did nothing" rather than as a missing
- * field. That is exactly how this was diagnosed: a live click logged
- * `option=∅ formValue=null`.
+ * CardKit 2.0 gives us a `form` container, which JSON 1.0 did not have. That is
+ * what makes a dropdown submit its value through `formValue` instead of needing
+ * the 1.0 `behaviors` callback workaround. Every interactive child needs a
+ * unique `name` across the whole card, hence the `panel-…` prefixes.
  * @param view - the state being rendered.
  * @returns the section's elements.
  */
@@ -124,15 +115,43 @@ export declare const PANEL_SECTIONS: readonly [typeof modelSection, typeof works
 /**
  * Build the console card for one view of the state.
  *
- * JSON 1.0, not CardKit 2.0 — and that is not timidity. A 2.0 card renders as
- * 「请升级至最新版本客户端，以查看内容」 on clients that predate it, which is
- * worse than a plain card: the reader believes the bot is broken. `form`,
- * `select_static` and `column_set` all exist in 1.0, so there is nothing here
- * that needs 2.0 in the first place.
+ * CardKit 2.0, sent as a managed card entity (`port.createCard` + `cardId`),
+ * which is the only way to get real in-place updates via `updateCardById`.
+ * This same package's question cards already ship 2.0 forms, so the structure
+ * here mirrors theirs rather than guessing at it.
  * @param view - the state as last read.
  * @returns a Feishu card object.
  */
 export declare function panelCard(view: PanelView): object;
+/** One chat's managed card entity and the sequence its next update must carry. */
+export interface ConsoleEntityState {
+    readonly cardId: string;
+    readonly sequence: number;
+}
+/**
+ * The card entity each chat owns, with strictly increasing update sequences.
+ *
+ * `cardkit.v1.card.update` rejects a sequence that is not greater than the last
+ * one accepted, so the counter has to live exactly as long as the entity.
+ * Keeping it in one place also makes the two decisions — "no entity yet, create
+ * one" and "entity exists, update it" — impossible to get out of sync.
+ */
+export declare function createConsoleCardStore(): {
+    /** The next action for a chat, given its current state. */
+    planFor(chatId: string): {
+        readonly kind: 'create';
+    } | {
+        readonly kind: 'update';
+        readonly cardId: string;
+        readonly sequence: number;
+    };
+    /** Record a newly created entity. */
+    created(chatId: string, cardId: string): void;
+    /** Record a successful update (only then may the sequence advance). */
+    updated(chatId: string, sequence: number): void;
+    /** Drop a stale entity so the next call creates a fresh one. */
+    forget(chatId: string): void;
+};
 /**
  * The value one submitted form carries.
  *

@@ -27,6 +27,9 @@ import type { MarkdownStreamController, SendInput, SendOptions, SendResult } fro
  */
 export interface ReplayPort extends OutboundPort {
   updateCard(messageId: string, card: object): Promise<void>
+  /** Managed CardKit 2.0 entity lifecycle, forwarded by bindPortMethods. */
+  createCard(cardJson: object): Promise<{ cardId: string }>
+  updateCardById(cardId: string, cardJson: object, sequence: number): Promise<void>
   connect(): Promise<void>
   disconnect(): Promise<void>
   on(name: string, handler: (...args: never[]) => unknown): () => void
@@ -77,6 +80,9 @@ export function isUndeliveredId(messageId: string | undefined): boolean {
 /** The transport surface {@link createReplayPort} wraps. */
 export interface ReplayPort extends OutboundPort {
   updateCard(messageId: string, card: object): Promise<void>
+  /** Managed CardKit 2.0 entity lifecycle, forwarded by bindPortMethods. */
+  createCard(cardJson: object): Promise<{ cardId: string }>
+  updateCardById(cardId: string, cardJson: object, sequence: number): Promise<void>
 }
 
 /**
@@ -412,7 +418,7 @@ export function createReplayPort(
   }
 
   const wrapped: ReplayAwarePort = {
-    ...bindPortMethods(port) as unknown as Pick<ReplayAwarePort, 'connect' | 'disconnect' | 'on'>,
+    ...bindPortMethods(port) as unknown as Pick<ReplayAwarePort, 'connect' | 'disconnect' | 'on' | 'createCard' | 'updateCard' | 'updateCardById'>,
     async send(to, input, opts) {
       if (!live) return enqueueDelivery('send', to, input, opts)
       try {

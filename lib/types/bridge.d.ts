@@ -86,6 +86,12 @@ export interface ChannelPort extends OutboundPort, SlashPanelPort, ImagePort, Co
     connect(): Promise<void>;
     /** Close the transport and release its resources. */
     disconnect(): Promise<void>;
+    /** Managed CardKit 2.0 entity lifecycle (present on `LarkChannel`). */
+    createCard(cardJson: object): Promise<{
+        cardId: string;
+    }>;
+    updateCardById(cardId: string, cardJson: object, sequence: number): Promise<void>;
+    updateCard(messageId: string, card: object): Promise<void>;
     /** Subscribe one normalized inbound event; returns the unsubscriber. */
     on(name: 'message', handler: (msg: NormalizedMessage) => void | Promise<void>): () => void;
     on(name: 'cardAction', handler: (evt: CardActionEvent) => void | CardActionResponse | Promise<void | CardActionResponse>): () => void;
