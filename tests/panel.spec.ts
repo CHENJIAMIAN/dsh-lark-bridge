@@ -161,6 +161,15 @@ describe('console action values', () => {
     expect(panelFormValue(undefined)).toBeUndefined()
   })
 
+  it('accepts an array value, the shape a select control may report', () => {
+    // The proven 2.0 question card in this package sees multi-selects report
+    // arrays. Reading only strings would silently drop the submission.
+    expect(panelFormValue({ model: ['deepseek/v4'] })).toBe('deepseek/v4')
+    expect(panelFormValue({ model: ['', 'deepseek/v4'] })).toBe('deepseek/v4')
+    expect(panelFormValue({ model: [] })).toBeUndefined()
+    expect(panelFormValue({ model: [42] })).toBeUndefined()
+  })
+
   it('reads a bare select from option, which is how 1.0 reports it', () => {
     // JSON 1.0 has no form, so a dropdown submits as option rather than as a
     // field of formValue. Reading only the latter left every switch empty.
