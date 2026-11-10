@@ -247,6 +247,16 @@ describe('EffortOverrides', () => {
       await expect(run({ provider: 'p', model: 'other' })).resolves.toEqual({ provider: 'p', model: 'm' })
     })
 
+    it('drops the effort when the adapter declares no levels', async () => {
+      // Declaring nothing means having nothing. Treating silence as "accepts
+      // anything" shipped `max` to a route that answered
+      // UNSUPPORTED_REASONING_EFFORT and killed the whole turn.
+      const overrides = new EffortOverrides(fakeCtx({ llm: { resolveModelInfo: async () => ({}) } }))
+      overrides.set(fakeSession(), { provider: 'p', model: 'm', reasoningEffort: 'max' })
+      const run = hook(overrides, 'ses_1')
+      await expect(run({ provider: 'p', model: 'm' })).resolves.toEqual({ provider: 'p', model: 'm' })
+    })
+
     it('applies the choice when the adapter cannot describe the route', async () => {
       const overrides = new EffortOverrides(fakeCtx({
         llm: { resolveModelInfo: async () => { throw new Error('no capability') } },
