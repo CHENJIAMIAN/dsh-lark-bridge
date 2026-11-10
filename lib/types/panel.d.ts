@@ -118,5 +118,38 @@ export declare function panelCard(view: PanelView): object;
  * @returns the value, or undefined when nothing was submitted.
  */
 export declare function panelFormValue(formValue: Record<string, unknown> | undefined): string | undefined;
+/**
+ * What one console interaction asks the bridge to do.
+ *
+ * Kept as data rather than as side effects so the routing decision is testable
+ * without a live host: the question "does a submitted model actually become a
+ * set-model effect, and does a malformed one become an error" is a pure question,
+ * and it is the half that tends to be wrong.
+ */
+export type PanelEffect = {
+    readonly kind: 'set-model';
+    readonly provider: string;
+    readonly model: string;
+} | {
+    readonly kind: 'set-workspace';
+    readonly path: string;
+} | {
+    readonly kind: 'new-session';
+} | {
+    readonly kind: 'refresh';
+} | {
+    readonly kind: 'invalid';
+    readonly reason: string;
+};
+/**
+ * Turn one card interaction into the effect it means.
+ *
+ * Every refusal names what was wrong, because a button that silently does
+ * nothing is indistinguishable from a bridge that is broken.
+ * @param action - the parsed button/form payload.
+ * @param submitted - the value its form carried, when it was a form submit.
+ * @returns the effect the bridge should perform.
+ */
+export declare function resolvePanelAction(action: PanelActionValue, submitted: string | undefined): PanelEffect;
 export {};
 //# sourceMappingURL=panel.d.ts.map

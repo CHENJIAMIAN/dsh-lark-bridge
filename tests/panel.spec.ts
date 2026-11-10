@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PANEL_ACTION, panelActionValue, panelCard, panelFormValue } from '../src/panel.ts'
+import { PANEL_ACTION, panelActionValue, panelCard, panelFormValue, resolvePanelAction } from '../src/panel.ts'
 import type { PanelView } from '../src/panel.ts'
 
 const VIEW: PanelView = {
@@ -83,6 +83,52 @@ describe('console card', () => {
   it('says the context is unreadable instead of showing zero', () => {
     const text = JSON.stringify(panelCard({ ...VIEW, contextUsed: undefined }))
     expect(text).toContain('上下文不可读')
+  })
+})
+
+describe('console action dispatch', () => {
+  const action = (section: string, op: string) => ({ section, op })
+
+  it('turns the refresh button into a refresh', () => {
+    expect(resolvePanelAction(action('actions', 'refresh'), undefined)).toEqual({ kind: 'refresh' })
+  })
+
+  it('turns the new-session button into a new session', () => {
+    expect(resolvePanelAction(action('actions', 'new-session'), undefined)).toEqual({ kind: 'new-session' })
+  })
+
+  it('splits a model route at the first slash only', () => {
+    // Model ids may contain slashes (`openrouter/anthropic/claude-…`), provider
+    // routes may not — splitting anywhere else would truncate the model.
+    expect(resolvePanelAction(action('model', 'set'), 'openrouter/anthropic/claude')).toEqual({
+      kind: 'set-model',
+      provider: 'openrouter',
+      model: 'anthropic/claude',
+    })
+  })
+
+  it('refuses a model switch with no selection', () => {
+    const effect = resolvePanelAction(action('model', 'set'), undefined)
+    expect(effect.kind).toBe('invalid')
+  })
+
+  it('refuses a model value it cannot split', () => {
+    expect(resolvePanelAction(action('model', 'set'), 'no-slash').kind).toBe('invalid')
+    expect(resolvePanelAction(action('model', 'set'), 'trailing/').kind).toBe('invalid')
+  })
+
+  it('turns a workspace selection into a binding write', () => {
+    expect(resolvePanelAction(action('workspace', 'set'), 'D:\\Proj')).toEqual({
+      kind: 'set-workspace',
+      path: 'D:\\Proj',
+    })
+  })
+
+  it('refuses unknown sections and operations instead of doing nothing', () => {
+    // A silent no-op is indistinguishable from a broken bridge, so every
+    // unrecognised combination has to come back as an explicit refusal.
+    expect(resolvePanelAction(action('nope', 'set'), 'x').kind).toBe('invalid')
+    expect(resolvePanelAction(action('actions', 'nope'), undefined).kind).toBe('invalid')
   })
 })
 

@@ -114,7 +114,7 @@ import { createReactionTracker } from './reaction.ts'
 import type { ReactionTracker } from './reaction.ts'
 import { discoverModels } from './model-catalog.ts'
 import { createGoalWatch } from './goal-watch.ts'
-import { panelActionValue, panelCard, panelFormValue } from './panel.ts'
+import { panelActionValue, panelCard, panelFormValue, resolvePanelAction } from './panel.ts'
 import type { PanelView } from './panel.ts'
 import { chatOfSession, overdueActionValue, overdueCard, overdueTasks } from './schedule-watchdog.ts'
 import type { StoredScheduleTask } from './schedule-watchdog.ts'
@@ -3434,11 +3434,16 @@ export function installBridge(
   const handlePanelAction = async (evt: CardActionEvent, action: { readonly section: string; readonly op: string }): Promise<CardActionResponse> => {
     const sessionId = bySession.get([...bySession.keys()].find(id => bySession.get(id)?.chatId === evt.chatId) ?? '')?.session.id ?? ''
     const defaults = ctx.get('agentDefaultModel') as HostDefaultModel | undefined
-    const submitted = panelFormValue(evt.action.formValue)
+    // Routing lives in `resolvePanelAction` so it can be tested without a host;
+    // this function only performs what was decided.
+    const effect = resolvePanelAction(action, panelFormValue(evt.action.formValue))
+    if (effect.kind === 'invalid') {
+      return { toast: { type: 'warning', content: effect.reason } }
+    }
 
     // 新建会话：`/new` 是宿主命令，桥进入命令执行的唯一入口是一条入站消息，
     // 所以这里重放一条——参数装配、授权、设备检查全部照旧。
-    if (action.section === 'actions' && action.op === 'new-session') {
+    if (effect.kind === 'new-session') {
       try {
         await handleMessage({
           messageId: `panel-new-${Date.now()}`,
@@ -3465,27 +3470,26 @@ export function installBridge(
       return { toast: { type: 'success', content: '已新建会话' } }
     }
 
-    if (action.section === 'model' && action.op === 'set') {
-      if (submitted === undefined) return { toast: { type: 'warning', content: '没有拿到选择的模型' } }
-      const slash = submitted.indexOf('/')
-      if (slash <= 0) return { toast: { type: 'error', content: '这个模型标识看不懂' } }
+    if (effect.kind === 'set-model') {
       if (defaults?.saveSelection === undefined) {
         return { toast: { type: 'error', content: '本部署没有设置持久化层，切换保存不下来' } }
       }
       try {
+        // saveSelection replaces the whole selection: carrying the current
+        // effort across is what keeps a model switch from also disabling
+        // reasoning.
         await defaults.saveSelection({
           ...defaults.currentSelection(),
-          provider: submitted.slice(0, slash),
-          model: submitted.slice(slash + 1),
+          provider: effect.provider,
+          model: effect.model,
         })
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error)
         return { toast: { type: 'error', content: `切换失败：${detail}` } }
       }
-    } else if (action.section === 'workspace' && action.op === 'set') {
-      if (submitted === undefined) return { toast: { type: 'warning', content: '没有拿到选择的工作区' } }
+    } else if (effect.kind === 'set-workspace') {
       try {
-        await writeChatWorkspace(evt.chatId, submitted)
+        await writeChatWorkspace(evt.chatId, effect.path)
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error)
         return { toast: { type: 'error', content: `写入工作区绑定失败：${detail}` } }
