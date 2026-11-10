@@ -238,13 +238,16 @@ export const PANEL_SECTIONS = [modelSection, workspaceSection, actionsSection] a
 /**
  * Build the console card for one view of the state.
  *
- * CardKit 2.0 because the form controls need it; JSON 1.0 has no dropdown that
- * reports its value back through a submit.
+ * JSON 1.0, not CardKit 2.0 — and that is not timidity. A 2.0 card renders as
+ * 「请升级至最新版本客户端，以查看内容」 on clients that predate it, which is
+ * worse than a plain card: the reader believes the bot is broken. `form`,
+ * `select_static` and `column_set` all exist in 1.0, so there is nothing here
+ * that needs 2.0 in the first place.
  * @param view - the state as last read.
  * @returns a Feishu card object.
  */
 export function panelCard(view: PanelView): object {
-  const body: object[] = [
+  const elements: object[] = [
     {
       tag: 'div',
       text: {
@@ -254,14 +257,13 @@ export function panelCard(view: PanelView): object {
     },
   ]
   PANEL_SECTIONS.forEach((section, index) => {
-    if (index > 0) body.push({ tag: 'hr' })
-    body.push(...section(view).elements)
+    if (index > 0) elements.push({ tag: 'hr' })
+    elements.push(...section(view).elements)
   })
   return {
-    schema: '2.0',
-    config: { width_mode: 'fill' },
+    config: { wide_screen_mode: true },
     header: { template: 'blue', title: plainText('🎛 DSH 控制台') },
-    body: { elements: body },
+    elements,
   }
 }
 

@@ -568,6 +568,8 @@ export async function mountChannel(
      * `get`/`resume` record what the bridge does.
      */
     goals?: object
+    /** The `llm` runtime the console card discovers models through. */
+    llm?: object
     /** HTTP seam for the post-gap history read-back; a fake keeps tests offline. */
     fetchImpl?: FetchImpl
   } = {},
@@ -601,6 +603,9 @@ export async function mountChannel(
   // tree load passes the inject check and autoResume reads the test's view.
   ctx.provide('goals', services.goals ?? { get: () => undefined, resume: async () => {} })
   if (services.defaultModel !== undefined) ctx.provide('agentDefaultModel', services.defaultModel)
+  // The llm runtime is how the console discovers models; without it the card can
+  // only print "no catalogue", which would leave the dropdown path untested.
+  if (services.llm !== undefined) ctx.provide('llm', services.llm)
   if (services.settings !== undefined) ctx.provide('settings', services.settings)
   if (services.presets !== undefined) ctx.provide('agentPresets', services.presets)
   if (services.tools !== undefined) ctx.provide('tools', services.tools)

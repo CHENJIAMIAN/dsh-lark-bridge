@@ -27,9 +27,9 @@ function walk(node: unknown, out: Record<string, unknown>[] = []): Record<string
 }
 
 describe('console card', () => {
-  it('uses CardKit 2.0, which the form controls require', () => {
+  it('stays on JSON 1.0 so older clients can render it', () => {
     const card = panelCard(VIEW) as Record<string, unknown>
-    expect(card.schema).toBe('2.0')
+    expect(card).not.toHaveProperty('schema')
   })
 
   it('puts the model and workspace dropdowns in their own forms', () => {
