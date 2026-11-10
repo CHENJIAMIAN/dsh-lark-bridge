@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { StoredScheduleTask } from '../src/schedule-watchdog.ts'
-import { chatOfSession, DEFAULT_OVERDUE_WINDOW_MS, overdueTasks } from '../src/schedule-watchdog.ts'
+import { chatOfSession, DEFAULT_OVERDUE_WINDOW_MS, localDue, overdueTasks } from '../src/schedule-watchdog.ts'
 
 const NOW = Date.parse('2026-11-09T12:00:00Z')
 
@@ -81,5 +81,18 @@ describe('overdue schedule detection', () => {
     expect(chatOfSession('feishu-oc_abc')).toBe('oc_abc')
     expect(chatOfSession(undefined)).toBeUndefined()
     expect(chatOfSession('')).toBeUndefined()
+  })
+
+  it('renders a UTC instant in local time, not as raw ISO', () => {
+    // The card used to print `2026-11-10T04:00:00.000Z` while saying "44 分钟",
+    // which reads as a contradiction to anyone on +08:00.
+    const stamp = localDue('2026-11-10T04:00:00.000Z')
+    expect(stamp).not.toContain('T')
+    expect(stamp).not.toContain('Z')
+    expect(stamp).toContain('+08:00')
+  })
+
+  it('falls back to the raw string for an unparseable instant', () => {
+    expect(localDue('not a date')).toBe('not a date')
   })
 })

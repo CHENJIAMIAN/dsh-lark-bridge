@@ -23,6 +23,8 @@
 import type { ModelEntry } from './model-catalog.ts';
 /** The card-button / form-submit payload the console uses. */
 export declare const PANEL_ACTION = "dsh-lark-bridge/panel";
+/** Prefix of a form submit button's `name`, carrying which section it submits. */
+export declare const PANEL_SUBMIT_PREFIX = "panel-submit-";
 /** One console interaction, as the card reports it. */
 export interface PanelActionValue {
     /** Section that owns the control. */
@@ -152,6 +154,19 @@ export declare function createConsoleCardStore(): {
     /** Drop a stale entity so the next call creates a fresh one. */
     forget(chatId: string): void;
 };
+/**
+ * Identify a 2.0 form submit from its button `name`.
+ *
+ * A `form_action_type: 'submit'` button does NOT echo its `value` back — the
+ * callback carries `action.name` (the button's unique name) and the form's
+ * fields under `action.formValue`. This package's question cards are built on
+ * exactly that contract. Reading only `action.value` here is why both dropdowns
+ * looked like they could not switch at all: the callback arrived but nothing
+ * recognised it.
+ * @param name - `action.name` as the channel SDK hands it over.
+ * @returns the section/op the submit means, or undefined for other buttons.
+ */
+export declare function panelSubmitAction(name: string | undefined): PanelActionValue | undefined;
 /**
  * The value one submitted form carries.
  *

@@ -114,10 +114,11 @@ import { createReactionTracker } from './reaction.ts'
 import type { ReactionTracker } from './reaction.ts'
 import { discoverModels } from './model-catalog.ts'
 import { createGoalWatch } from './goal-watch.ts'
-import { createConsoleCardStore, panelActionValue, panelCard, panelSubmitted, resolvePanelAction } from './panel.ts'
+import { createConsoleCardStore, panelActionValue, panelCard, panelSubmitted, panelSubmitAction, resolvePanelAction } from './panel.ts'
 import type { PanelActionValue } from './panel.ts'
 import type { PanelView } from './panel.ts'
-import { chatOfSession, overdueActionValue, overdueCard, overdueTasks } from './schedule-watchdog.ts'
+import { chatOfSession, localDue, overdueActionValue, overdueCard, overdueTasks } from './schedule-watchdog.ts'
+import { markSeen, readSeen } from './overdue-seen.ts'
 import type { StoredScheduleTask } from './schedule-watchdog.ts'
 import { createQuestionProvider } from './questions.ts'
 import type { HostUserQuestionRequest, HostQuestionAnswer } from './questions.ts'
@@ -1841,12 +1842,14 @@ export function installBridge(
     : setInterval(pollTokenPressure, config.tokenPressure.intervalMs)
 
   /**
-   * Occurrences already surfaced, so a minute-by-minute check does not nag.
+   * Occurrences already surfaced, persisted across restarts.
    *
-   * Keyed by task id plus the exact scheduled instant: a daily task must get one
-   * card per missed day, not one card total.
+   * A plain in-memory Set re-announced the whole backlog on every boot, which
+   * read as "the bridge keeps telling me about the same missed task". One
+   * notice per occurrence is the contract, so it has to outlive the process.
    */
-  const overdueNotified = new Set<string>()
+  const overdueWindowMs = Math.max(1, config.overdueScheduleWindowHours) * 3_600_000
+  const overdueSeen = readSeen(Date.now(), overdueWindowMs)
 
   /** The host's schedule table, in the same harness home the store uses. */
   const scheduleTableFile = (): string =>
@@ -1869,6 +1872,7 @@ export function installBridge(
       // No table, unreadable file, or corrupt JSON: all mean "nothing to say".
       return
     }
+    const now = Date.now()
     const window = Math.max(1, config.overdueScheduleWindowHours) * 3_600_000
     // Who an unattended dispatch is attributed to. Without an allowlisted
     // sender there is no one to attribute the turn to, so the watchdog falls
@@ -1876,17 +1880,19 @@ export function installBridge(
     const autoSender = config.autoDispatchOverdueSchedules === true && config.senderAllowlist.length > 0
       ? config.senderAllowlist[0]
       : undefined
-    for (const task of overdueTasks(table.tables?.tasks ?? {}, Date.now(), window)) {
+    for (const task of overdueTasks(table.tables?.tasks ?? {}, now, window)) {
       const key = `${task.id}@${task.scheduledAt}`
-      if (overdueNotified.has(key)) continue
+      if (overdueSeen[key] !== undefined) continue
       const chatId = chatOfSession(task.sessionId)
       if (chatId === undefined) continue
-      overdueNotified.add(key)
+      // Record BEFORE sending. If the send fails, retrying on the next minute
+      // is right; if it succeeds, a restart must not announce it again.
+      markSeen(overdueSeen, key, now)
       if (autoSender !== undefined && task.sessionId !== undefined) {
         const started = await dispatchOverdue(key, task.sessionId, chatId, autoSender)
         await replay.send(chatId, {
           markdown: started
-            ? `⏰ 定时任务「${task.title}」漏发了，已经自动补跑（本应 ${task.scheduledAt} 执行）。`
+            ? `⏰ 定时任务「${task.title}」漏发了，已经自动补跑（本应 ${localDue(task.scheduledAt)} 执行）。`
             : `⏰ 定时任务「${task.title}」漏发了，自动补跑没起来，请手动处理。`,
         }).catch(reportSendFailure)
         continue
@@ -3389,7 +3395,7 @@ export function installBridge(
    * @param sessionId - the session its controls act on.
    */
   async function openConsole(chatId: string, sessionId: string): Promise<void> {
-    const card = panelCard(await consoleView(sessionId))
+    const card = panelCard(await consoleView(sessionId, chatId))
     const plan = consoleCards.planFor(chatId)
     if (plan.kind === 'update') {
       try {
@@ -3418,9 +3424,10 @@ export function installBridge(
    * Every field is read fresh rather than cached, because the whole point of
    * pressing a control is to see the world after the change.
    * @param sessionId - the session the card acts on.
+   * @param chatId - the chat, whose `/ws use` binding decides the working dir.
    * @returns the view to render.
    */
-  const consoleView = async (sessionId: string): Promise<PanelView> => {
+  const consoleView = async (sessionId: string, chatId: string): Promise<PanelView> => {
     const defaults = ctx.get('agentDefaultModel') as HostDefaultModel | undefined
     const selection = defaults?.currentSelection()
     // A per-session override wins: it is what the next request will actually
@@ -3445,7 +3452,11 @@ export function installBridge(
       sessionId,
       currentModel,
       models,
-      currentWorkspace: config.cwd ?? process.cwd(),
+      // `config.cwd` is only the deployment default. The chat's own `/ws use`
+      // binding is what a new session actually lands in — the same value `/ws`
+      // reports. Showing the default here made the card claim `D:\Desktop`
+      // while the session ran in the repo directory.
+      currentWorkspace: await chatCwd(chatId),
       workspaces,
       ...used === undefined ? {} : { contextUsed: used },
       ...window === undefined ? {} : { contextWindow: window },
@@ -3567,7 +3578,10 @@ export function installBridge(
       void dispatchOverdue(overdue.key, overdue.sessionId, evt.chatId, evt.operator.openId)
       return { toast: { type: 'info', content: '正在执行…' } }
     }
-    const panelAction = panelActionValue(evt.action.value)
+    // A 2.0 form submit reports the button's `name` and its fields under
+    // `formValue`; it does NOT echo the button's `value`. Plain buttons still
+    // carry theirs in `action.value`, so both paths are tried.
+    const panelAction = panelActionValue(evt.action.value) ?? panelSubmitAction(evt.action.name)
     if (panelAction !== undefined) {
       // The effect runs asynchronously (it may write settings or replay a
       // `/new`), but the click must still get an immediate answer: a card that
