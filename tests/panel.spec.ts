@@ -43,8 +43,8 @@ describe('console card', () => {
   it('preselects the active model and workspace', () => {
     const selects = walk(panelCard(VIEW)).filter(node => node.tag === 'select_static')
     expect(selects).toHaveLength(2)
-    expect(selects[0]!.selected).toBe('deepseek/v4')
-    expect(selects[1]!.selected).toBe('D:\\Proj')
+    expect(selects[0]!.initial_option).toBe('deepseek/v4')
+    expect(selects[1]!.initial_option).toBe('D:\\Proj')
   })
 
   it('offers refresh and new-session as pressable actions', () => {
