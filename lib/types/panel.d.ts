@@ -84,14 +84,16 @@ declare function workspaceSection(view: PanelView): PanelSectionRender;
 /**
  * The action row: things that are pressed rather than chosen.
  *
- * Only 「刷新」 lives here. The card is a snapshot — a reader who watched a turn
- * finish has no other way to make it re-read the state — and a refresh is
- * always safe to press.
+ * 「新建会话」 replays a `/new` through the ordinary inbound path rather than
+ * calling anything directly — `/new` is a HOST command, and the bridge's only
+ * entry point into command execution is a message. Replaying keeps the argument
+ * plumbing, authorization and device checks that a direct call would have to
+ * reconstruct. The synthetic message carries no `om_` id, so the bridge does not
+ * try to reply into a thread that does not exist.
  *
- * 「新建会话」 was here first and was dropped: the bridge has no internal entry
- * point for starting one (that lives in the inbound path, tied to a message), so
- * a button would have had to either fake an inbound message or do nothing. A
- * button that does nothing is worse than no button.
+ * 「刷新」 exists because the card is a snapshot: a reader who watched a turn
+ * finish has no other way to make it re-read the state. Both are safe to press —
+ * neither destroys anything.
  * @param _view - the state being rendered (unused; kept for section symmetry).
  * @returns the section's elements.
  */
