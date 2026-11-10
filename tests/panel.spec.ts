@@ -47,6 +47,14 @@ describe('console card', () => {
     expect(selects[1]!.selected).toBe('D:\\Proj')
   })
 
+  it('offers refresh and new-session as pressable actions', () => {
+    const ops = walk(panelCard(VIEW))
+      .filter(node => node.tag === 'button')
+      .map(node => ((node.value ?? {}) as Record<string, unknown>).op)
+    expect(ops).toContain('refresh')
+    expect(ops).toContain('new-session')
+  })
+
   it('marks every submit button with this plugin\'s action kind', () => {
     const buttons = walk(panelCard(VIEW)).filter(node => node.tag === 'button')
     expect(buttons.length).toBeGreaterThan(0)
