@@ -114,7 +114,7 @@ import { createReactionTracker } from './reaction.ts'
 import type { ReactionTracker } from './reaction.ts'
 import { discoverModels } from './model-catalog.ts'
 import { createGoalWatch } from './goal-watch.ts'
-import { panelActionValue, panelCard, panelFormValue, resolvePanelAction } from './panel.ts'
+import { panelActionValue, panelCard, panelSubmitted, resolvePanelAction } from './panel.ts'
 import type { PanelView } from './panel.ts'
 import { chatOfSession, overdueActionValue, overdueCard, overdueTasks } from './schedule-watchdog.ts'
 import type { StoredScheduleTask } from './schedule-watchdog.ts'
@@ -3436,7 +3436,7 @@ export function installBridge(
     const defaults = ctx.get('agentDefaultModel') as HostDefaultModel | undefined
     // Routing lives in `resolvePanelAction` so it can be tested without a host;
     // this function only performs what was decided.
-    const effect = resolvePanelAction(action, panelFormValue(evt.action.formValue))
+    const effect = resolvePanelAction(action, panelSubmitted(evt.action))
     if (effect.kind === 'invalid') {
       return { toast: { type: 'warning', content: effect.reason } }
     }

@@ -120,28 +120,33 @@ function modelSection(view: PanelView): PanelSectionRender {
     return { id: 'model', elements }
   }
   elements.push({
-    tag: 'form',
-    name: 'panel-model',
-    direction: 'horizontal',
-    vertical_spacing: 'small',
-    elements: [
+    tag: 'column_set',
+    horizontal_spacing: 'small',
+    columns: [
       {
-        tag: 'select_static',
-        name: 'model',
-        type: 'default',
-        width: 'fill',
-        required: false,
-        ...active === undefined ? {} : { initial_option: active.value },
-        placeholder: plainText('选择模型'),
-        options,
+        tag: 'column',
+        width: 'weighted',
+        weight: 3,
+        elements: [{
+          tag: 'select_static',
+          name: 'model',
+          type: 'default',
+          width: 'fill',
+          ...active === undefined ? {} : { initial_option: active.value },
+          placeholder: plainText('选择模型'),
+          options,
+        }],
       },
       {
-        tag: 'button',
-        name: 'panel:model',
-        form_action_type: 'submit',
-        type: 'primary',
-        text: plainText('切换'),
-        value: actionValue('model', 'set'),
+        tag: 'column',
+        width: 'auto',
+        elements: [{
+          tag: 'button',
+          name: 'panel:model',
+          type: 'primary',
+          text: plainText('切换'),
+          value: actionValue('model', 'set'),
+        }],
       },
     ],
   })
@@ -168,28 +173,33 @@ function workspaceSection(view: PanelView): PanelSectionRender {
   const options = view.workspaces.map(path => ({ text: plainText(path), value: path }))
   const active = options.find(option => option.value === view.currentWorkspace)
   elements.push({
-    tag: 'form',
-    name: 'panel-workspace',
-    direction: 'horizontal',
-    vertical_spacing: 'small',
-    elements: [
+    tag: 'column_set',
+    horizontal_spacing: 'small',
+    columns: [
       {
-        tag: 'select_static',
-        name: 'workspace',
-        type: 'default',
-        width: 'fill',
-        required: false,
-        ...active === undefined ? {} : { initial_option: active.value },
-        placeholder: plainText('选择工作区'),
-        options,
+        tag: 'column',
+        width: 'weighted',
+        weight: 3,
+        elements: [{
+          tag: 'select_static',
+          name: 'workspace',
+          type: 'default',
+          width: 'fill',
+          ...active === undefined ? {} : { initial_option: active.value },
+          placeholder: plainText('选择工作区'),
+          options,
+        }],
       },
       {
-        tag: 'button',
-        name: 'panel:workspace',
-        form_action_type: 'submit',
-        type: 'primary',
-        text: plainText('切换'),
-        value: actionValue('workspace', 'set'),
+        tag: 'column',
+        width: 'auto',
+        elements: [{
+          tag: 'button',
+          name: 'panel:workspace',
+          type: 'primary',
+          text: plainText('切换'),
+          value: actionValue('workspace', 'set'),
+        }],
       },
     ],
   })
@@ -281,6 +291,29 @@ export function panelFormValue(formValue: Record<string, unknown> | undefined): 
     if (typeof value === 'string' && value !== '') return value
   }
   return undefined
+}
+
+/**
+ * Everything one card interaction reported, reduced to the value it carries.
+ *
+ * Two places to look, because the platform has two:
+ *
+ * - `formValue` — the whole set of interactive values, which is what a JSON 2.0
+ *   `form` submit produces.
+ * - `option` — the chosen option of ONE component, which is what a bare
+ *   `select_static` reports when no form wraps it (and JSON 1.0 has no form).
+ *
+ * Reading only `formValue` would leave every dropdown submission empty on a 1.0
+ * card, and the failure would look like "the switch does nothing" rather than
+ * like a field name being wrong.
+ * @param action - the card action's payload fields.
+ * @returns the chosen value, or undefined when the click carried none.
+ */
+export function panelSubmitted(action: {
+  readonly formValue?: Record<string, unknown> | undefined
+  readonly option?: string | undefined
+}): string | undefined {
+  return panelFormValue(action.formValue) ?? (typeof action.option === 'string' && action.option !== '' ? action.option : undefined)
 }
 
 /**
