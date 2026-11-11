@@ -97,7 +97,7 @@ import {
   WS_COMMAND,
 } from './commands.ts'
 import type { ScheduleControl } from './commands.ts'
-import { EffortOverrides } from './think.ts'
+import { EffortOverrides, effortCatalog } from './think.ts'
 import { getSyncContext } from './sync/bot-command.ts'
 import { collectImages } from './images.ts'
 import { saveInboundFiles } from './files.ts'
@@ -1050,6 +1050,40 @@ export function installBridge(
     // helpers below are initialised, and the tools only call them at use time.
     bindChatCwd: (chatId, dir) => bindChatCwd(chatId, dir),
     chatCwd: (chatId) => chatCwd(chatId),
+    // 本会话的模型切换，和 `/think` 走同一条路：写 EffortOverrides（它落的
+    // 就是 `model/selection` 事件），由 `agent/request` 重写信封生效。
+    // **不碰** `agentDefaultModel.saveSelection()`——那是 `/model` 的语义，
+    // 只影响新会话，混进来会让用户以为切了、实际再开新会话才变。
+    //
+    // 这里的每个箭头都是在**调用时**才去读 effortOverrides / agents：它们在
+    // 本文件里声明得更晚，工厂执行时还不存在，直接引用会撞上 TDZ。
+    modelSwitch: {
+      list: () => discoverModels(ctx.get('llm') as HostLlm | undefined),
+      current: (sessionId) => {
+        const wanted = effortOverrides.get(sessionId)
+        const header = agents.get(sessionId)?.session.requestHeader?.()?.config
+        const provider = wanted?.provider ?? header?.provider
+        const model = wanted?.model ?? header?.model
+        return {
+          ...provider === undefined ? {} : { provider },
+          ...model === undefined ? {} : { model },
+        }
+      },
+      levels: async (provider, model) => {
+        const catalog = await effortCatalog(ctx.get('llm') as HostLlm | undefined, provider, model)
+        return catalog.levels.map(level => level.id)
+      },
+      apply: (sessionId, selection) => {
+        const session = agents.get(sessionId)?.session
+        if (session === undefined) return
+        effortOverrides.set(session, selection)
+      },
+      reset: (sessionId) => {
+        const session = agents.get(sessionId)?.session
+        if (session === undefined) return
+        effortOverrides.clear(session)
+      },
+    },
     credentials: config.appId !== undefined && config.appSecret !== undefined
       ? { appId: config.appId, appSecret: config.appSecret, ...(config.domain !== undefined ? { domain: config.domain } : {}) }
       : undefined,

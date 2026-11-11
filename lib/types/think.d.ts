@@ -168,6 +168,16 @@ export declare class EffortOverrides {
      */
     set(session: HostSession, selection: ModelSelection): void;
     /**
+     * Change only the effort of the route a session already runs.
+     *
+     * 给「换模型但不动档位」「只调档位不换模型」这类操作共用：路由保持不变，
+     * 只替换 `reasoningEffort`，落的仍是同一条 `model/selection` 事件——历史和
+     * `/think` 完全一致，resume 时一条扫描就读回来了。
+     * @param session - the session being changed.
+     * @param selection - the route it runs, and the effort to send with it.
+     */
+    setEffort(session: HostSession, selection: ModelSelection): void;
+    /**
      * Install the request-side override on one agent's scope.
      * @param agentCtx - the agent's scoped context.
      * @param sessionId - the session this agent drives.

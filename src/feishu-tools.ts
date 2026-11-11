@@ -14,6 +14,8 @@
 
 import { statSync } from 'node:fs'
 import { resolve } from 'node:path'
+import type { ModelEntry } from './model-catalog.ts'
+import { listing, resolveEffort, resolveModelRequest } from './model-switch.ts'
 import type { OutboundPort } from './outbound.ts'
 import { FeishuCloud } from './sync/feishu-cloud.ts'
 import type { FeishuCredentials, FetchImpl } from './sync/feishu-cloud.ts'
@@ -24,6 +26,7 @@ export const FEISHU_DRIVE_WRITE_TOOL = 'feishu_drive_write'
 export const FEISHU_DRIVE_READ_TOOL = 'feishu_drive_read'
 export const FEISHU_DRIVE_LIST_TOOL = 'feishu_drive_list'
 export const BIND_WORKSPACE_TOOL = 'bind_workspace'
+export const SWITCH_MODEL_TOOL = 'switch_model'
 
 /** Capabilities the bridge injects at registration time. */
 export interface FeishuToolDeps {
@@ -42,6 +45,28 @@ export interface FeishuToolDeps {
   readonly bindChatCwd?: (chatId: string, dir: string | null) => Promise<void>
   /** The directory this chat's next session starts in. */
   readonly chatCwd?: (chatId: string) => Promise<string>
+  /**
+   * 本会话的模型切换（`switch_model`）。
+   *
+   * 只动**本会话**的 route，写法和 `/think` 一致（`model/selection` 事件），
+   * 对下一步请求就生效；不碰部署默认——那是 `/model` 的语义，会影响新会话。
+   * 宿主没组合 llm 运行时就没有这份能力，工具会说明原因。
+   */
+  readonly modelSwitch?: ModelSwitchDeps
+}
+
+/** `switch_model` 需要的那一小块能力。 */
+export interface ModelSwitchDeps {
+  /** 当前可路由的模型清单。 */
+  readonly list: () => Promise<readonly ModelEntry[]>
+  /** 本会话此刻真正会发出去的 route（已含 override）。 */
+  readonly current: (sessionId: string) => { readonly provider?: string; readonly model?: string }
+  /** 该 route 声明的思考强度档位；空数组表示模型没声明。 */
+  readonly levels: (provider: string | undefined, model: string | undefined) => Promise<readonly string[]>
+  /** 写入本会话的选择（与 `/think` 同一条路径）。 */
+  readonly apply: (sessionId: string, selection: { provider?: string; model?: string; reasoningEffort?: string }) => void
+  /** 回到部署默认：丢掉本会话的 override。 */
+  readonly reset: (sessionId: string) => void
 }
 
 interface NotifyArgs {
@@ -76,6 +101,20 @@ interface BindResult {
   readonly ok: boolean
   readonly dir?: string
   readonly unbind?: boolean
+  readonly note?: string
+  readonly error?: string
+}
+
+/** `switch_model` 的返回值。 */
+interface SwitchResult {
+  readonly ok: boolean
+  /** 切换后（或查询时）本会话会发出去的 route。 */
+  readonly current?: string
+  /** 生效的思考强度；未设置时不出现。 */
+  readonly effort?: string
+  /** 可选模型，`provider/id（名字）` 形式，`list` 动作或解析失败时给出。 */
+  readonly models?: readonly string[]
+  /** 这次做了什么（中文，直接拿去回用户）。 */
   readonly note?: string
   readonly error?: string
 }
@@ -201,6 +240,126 @@ export function createFeishuTools(deps: FeishuToolDeps): object[] {
           return { ok: true, chat_id: chatId }
         } catch (error) {
           return { ok: false, error: error instanceof Error ? error.message : String(error) }
+        }
+      },
+    },
+    {
+      name: SWITCH_MODEL_TOOL,
+      description:
+        'Switch the model (and optionally the reasoning effort) of THIS conversation, in place. '
+        + 'It takes effect on the very next request — no /new needed — and is recorded in the '
+        + 'session so it survives a restart. Speak naturally: "deepseek v4", "the free one", '
+        + '"下一个", "default" to go back to the deployment default. It NEVER changes the '
+        + 'deployment default (that is what /model does, and it only affects NEW sessions). '
+        + 'Call it with action="list" first when you do not know which models exist, so you can '
+        + 'map what the human said onto a real id instead of guessing.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            description: '"list" to just report the current model and the choices; "switch" (default) to change it',
+          },
+          model: {
+            type: 'string',
+            description: 'What to switch to, in the human\'s own words: an id, "provider/model", a name, "下一个", or "default"',
+          },
+          effort: {
+            type: 'string',
+            description: 'Optional reasoning effort for the new model (e.g. off / low / high / max); omit to keep the adapter default',
+          },
+        },
+        required: [],
+      },
+      output: {
+        schema: {
+          type: 'object',
+          properties: {
+            ok: { type: 'boolean' },
+            current: { type: 'string' },
+            effort: { type: 'string' },
+            models: { type: 'array', items: { type: 'string' } },
+            note: { type: 'string' },
+            error: { type: 'string' },
+          },
+          additionalProperties: false,
+        },
+        render: (_args: unknown, value: SwitchResult): object[] => [
+          {
+            type: 'text',
+            text: value.ok
+              ? (value.note ?? `当前模型：${value.current ?? '?'}`)
+              : `切换失败：${value.error ?? '未知错误'}`,
+          },
+        ],
+      },
+      async execute(args: unknown, exec: unknown): Promise<SwitchResult> {
+        const deps2 = deps.modelSwitch
+        const sessionId = (exec as { agent?: { session?: { id?: string } } }).agent?.session?.id
+        if (deps2 === undefined) return { ok: false, error: '本部署没有组合 llm 运行时，无法查询或切换模型' }
+        if (sessionId === undefined || sessionId === '') return { ok: false, error: '拿不到当前会话' }
+        const parsed = args as { action?: unknown; model?: unknown; effort?: unknown }
+        const action = asText(parsed.action).trim().toLowerCase()
+        const said = asText(parsed.model).trim()
+
+        const entries = await deps2.list()
+        const route = deps2.current(sessionId)
+        const current = route.provider === undefined || route.model === undefined ? undefined : `${route.provider}/${route.model}`
+        const models = entries.map(entry => listing(entry))
+
+        if (action === 'list' || (said === '' && asText(parsed.effort).trim() === '')) {
+          return {
+            ok: true,
+            ...current === undefined ? {} : { current },
+            models,
+            note: `当前模型 ${current ?? '未知'}。可选：${models.join(' · ') || '清单为空'}`,
+          }
+        }
+
+        const resolved = resolveModelRequest(said, entries, current)
+        if (resolved.kind === 'unknown') {
+          return {
+            ok: false,
+            error: `${resolved.reason}${resolved.candidates.length > 0 ? `\n可选：${resolved.candidates.join(' · ')}` : ''}`,
+            ...current === undefined ? {} : { current },
+            models,
+          }
+        }
+
+        if (resolved.kind === 'reset') {
+          deps2.reset(sessionId)
+          return { ok: true, note: '已回到部署默认模型（下一次请求生效，不用 /new）', models }
+        }
+
+        const target = `${resolved.provider}/${resolved.model}`
+        // 档位只在新 route 真的声明时才带；声明了却写成别的档，宁可拒绝也不要
+        // 让宿主在下一步请求里抛 UNSUPPORTED_REASONING_EFFORT 把整轮打死。
+        const levels = await deps2.levels(resolved.provider, resolved.model)
+        const askedEffort = asText(parsed.effort)
+        let effort: string | undefined
+        if (askedEffort.trim() !== '') {
+          const picked = resolveEffort(askedEffort, levels)
+          if (picked === null) {
+            return {
+              ok: false,
+              error: `\`${target}\` 没有「${askedEffort}」这一档。可选：${levels.length > 0 ? levels.map(level => `\`${level}\``).join(' · ') : '该模型没声明档位'}`,
+              models,
+            }
+          }
+          effort = picked
+        }
+        // 不带 effort 时**不要**沿用旧 route 的档位：新模型未必有那一档，
+        // 而宿主会因此整轮报 UNSUPPORTED_REASONING_EFFORT。交给适配器默认即可。
+        deps2.apply(sessionId, {
+          provider: resolved.provider,
+          model: resolved.model,
+          ...effort === undefined ? {} : { reasoningEffort: effort },
+        })
+        return {
+          ok: true,
+          current: target,
+          ...effort === undefined ? {} : { effort },
+          note: `已切换为 ${target}（${resolved.why}），下一步请求即生效，不用 /new。`,
         }
       },
     },
@@ -337,5 +496,10 @@ export function feishuToolsPromptSection(): string {
     + '`bind_workspace` binds THIS chat to a project directory durably: the next `/new` starts '
     + 'there and loads that directory\'s AGENTS.md, which is how a chat switches project '
     + 'memory. Call it when the human asks to move this conversation to another project; then '
-    + 'tell them to send `/new`, because the running conversation keeps its directory.'
+    + 'tell them to send `/new`, because the running conversation keeps its directory. '
+    + '`switch_model` changes the model of THIS conversation in place — the very next request '
+    + 'uses it, no `/new` — and accepts the human\'s own words ("deepseek v4", "the free one", '
+    + '"下一个", "default"). Use `action="list"` when you do not know which models exist, '
+    + 'instead of guessing an id. It deliberately does NOT touch the deployment default; that '
+    + 'is `/model`, which only affects new sessions.'
 }

@@ -11,6 +11,7 @@
  * tool boundary.
  * @module dsh-lark-bridge/feishu-tools
  */
+import type { ModelEntry } from './model-catalog.ts';
 import type { OutboundPort } from './outbound.ts';
 import type { FeishuCredentials, FetchImpl } from './sync/feishu-cloud.ts';
 /** Tool names, exported for tests and deny-list references. */
@@ -19,6 +20,7 @@ export declare const FEISHU_DRIVE_WRITE_TOOL = "feishu_drive_write";
 export declare const FEISHU_DRIVE_READ_TOOL = "feishu_drive_read";
 export declare const FEISHU_DRIVE_LIST_TOOL = "feishu_drive_list";
 export declare const BIND_WORKSPACE_TOOL = "bind_workspace";
+export declare const SWITCH_MODEL_TOOL = "switch_model";
 /** Capabilities the bridge injects at registration time. */
 export interface FeishuToolDeps {
     /** Replay-wrapped outbound transport (queued across connection gaps). */
@@ -36,6 +38,34 @@ export interface FeishuToolDeps {
     readonly bindChatCwd?: (chatId: string, dir: string | null) => Promise<void>;
     /** The directory this chat's next session starts in. */
     readonly chatCwd?: (chatId: string) => Promise<string>;
+    /**
+     * 本会话的模型切换（`switch_model`）。
+     *
+     * 只动**本会话**的 route，写法和 `/think` 一致（`model/selection` 事件），
+     * 对下一步请求就生效；不碰部署默认——那是 `/model` 的语义，会影响新会话。
+     * 宿主没组合 llm 运行时就没有这份能力，工具会说明原因。
+     */
+    readonly modelSwitch?: ModelSwitchDeps;
+}
+/** `switch_model` 需要的那一小块能力。 */
+export interface ModelSwitchDeps {
+    /** 当前可路由的模型清单。 */
+    readonly list: () => Promise<readonly ModelEntry[]>;
+    /** 本会话此刻真正会发出去的 route（已含 override）。 */
+    readonly current: (sessionId: string) => {
+        readonly provider?: string;
+        readonly model?: string;
+    };
+    /** 该 route 声明的思考强度档位；空数组表示模型没声明。 */
+    readonly levels: (provider: string | undefined, model: string | undefined) => Promise<readonly string[]>;
+    /** 写入本会话的选择（与 `/think` 同一条路径）。 */
+    readonly apply: (sessionId: string, selection: {
+        provider?: string;
+        model?: string;
+        reasoningEffort?: string;
+    }) => void;
+    /** 回到部署默认：丢掉本会话的 override。 */
+    readonly reset: (sessionId: string) => void;
 }
 /**
  * The four definitions. `exec.agent.session.id` names the chat for
