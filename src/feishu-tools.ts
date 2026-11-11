@@ -15,7 +15,7 @@
 import { statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { ModelEntry } from './model-catalog.ts'
-import { listing, resolveEffort, resolveModelRequest } from './model-switch.ts'
+import { effortIntent, listing, pickEffort, resolveEffort, resolveModelRequest } from './model-switch.ts'
 import type { OutboundPort } from './outbound.ts'
 import { FeishuCloud } from './sync/feishu-cloud.ts'
 import type { FeishuCredentials, FetchImpl } from './sync/feishu-cloud.ts'
@@ -65,6 +65,13 @@ export interface ModelSwitchDeps {
   readonly levels: (provider: string | undefined, model: string | undefined) => Promise<readonly string[]>
   /** 写入本会话的选择（与 `/think` 同一条路径）。 */
   readonly apply: (sessionId: string, selection: { provider?: string; model?: string; reasoningEffort?: string }) => void
+  /**
+   * 只改思考强度、不动 route。
+   *
+   * 和 `apply` 分开是因为「多想想」这种话里根本没提模型：把它当换模型处理会
+   * 误伤 route，而 route 一旦被误写，下一步就跑在错的模型上。
+   */
+  readonly applyEffort: (sessionId: string, provider: string, model: string, effort: string | undefined) => void
   /** 回到部署默认：丢掉本会话的 override。 */
   readonly reset: (sessionId: string) => void
 }
@@ -266,7 +273,9 @@ export function createFeishuTools(deps: FeishuToolDeps): object[] {
           },
           effort: {
             type: 'string',
-            description: 'Optional reasoning effort for the new model (e.g. off / low / high / max); omit to keep the adapter default',
+            description: 'Reasoning effort, in the human\'s own words too: a level (off / low / medium / high / max), '
+              + '"关掉思考" / "多想想" / "最高" / "省点钱" / "恢复默认". Give it WITHOUT `model` to change the effort and '
+              + 'keep the current model. Omit it when switching models to use the new adapter\'s default.',
           },
         },
         required: [],
@@ -306,6 +315,31 @@ export function createFeishuTools(deps: FeishuToolDeps): object[] {
         const route = deps2.current(sessionId)
         const current = route.provider === undefined || route.model === undefined ? undefined : `${route.provider}/${route.model}`
         const models = entries.map(entry => listing(entry))
+
+        // 只给 effort、不给 model：这是「只调思考强度」，route 不动。
+        const routeLevels = await deps2.levels(route.provider, route.model)
+        if (said === '' && asText(parsed.effort).trim() !== '') {
+          if (route.provider === undefined || route.model === undefined) {
+            return { ok: false, error: '还不知道本会话用哪个模型，等这轮请求跑完再试' }
+          }
+          const want = effortIntent(asText(parsed.effort))
+          if (want === null && !routeLevels.some(level => level.toLowerCase() === asText(parsed.effort).trim().toLowerCase())) {
+            return {
+              ok: false,
+              error: `\`${current}\` 没有「${asText(parsed.effort)}」这一档。可选：${routeLevels.length > 0 ? routeLevels.map(level => `\`${level}\``).join(' · ') : '该模型没声明档位'}`,
+            }
+          }
+          const picked = pickEffort(want === null ? undefined : want, routeLevels)
+          deps2.applyEffort(sessionId, route.provider, route.model, picked.level)
+          return {
+            ok: true,
+            ...current === undefined ? {} : { current },
+            ...picked.level === undefined ? {} : { effort: picked.level },
+            note: picked.level === undefined
+              ? `已恢复思考强度默认，下一步请求生效${picked.downgraded === undefined ? '' : `（${picked.downgraded}）`}`
+              : `思考强度已设为 \`${picked.level}\`，下一步请求生效${picked.downgraded === undefined ? '' : `（${picked.downgraded}）`}`,
+          }
+        }
 
         if (action === 'list' || (said === '' && asText(parsed.effort).trim() === '')) {
           return {

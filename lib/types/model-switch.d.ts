@@ -46,6 +46,26 @@ export declare function resolveModelRequest(input: string, entries: readonly Mod
 /** 清单里一行怎么显示：`provider/id（名字）`。 */
 export declare function listing(entry: ModelEntry): string;
 /**
+ * 把一句人话解析成档位意图。
+ * @param input - 原始说法。
+ * @returns 档位意图；`undefined` 表示「恢复默认」，`null` 表示没听懂。
+ */
+export declare function effortIntent(input: string): 'off' | 'min' | 'max' | 'more' | 'less' | undefined | null;
+/**
+ * 在一条 route 声明的档位里挑出意图对应的那一档。
+ *
+ * 「没有这一档」时不是直接失败，而是往意图方向找最近的一档：模型只声明了
+ * `off/low/high/max` 时说「最高」，`max` 就是它；只说 `low/high` 时说「关掉」，
+ * 那只能给 `low` 并如实说明——拒绝会让「关掉思考」在这种模型上永远做不到。
+ * @param want - 档位意图（`undefined` = 恢复默认）。
+ * @param levels - 该 route 声明的档位。
+ * @returns 选中的档位，和是否做了降级说明；档位表为空时返回 undefined。
+ */
+export declare function pickEffort(want: 'off' | 'min' | 'max' | 'more' | 'less' | undefined, levels: readonly string[]): {
+    readonly level: string | undefined;
+    readonly downgraded?: string;
+};
+/**
  * 解析思考强度：接受档位名，也接受「不设/自动」。
  * @param input - 原始说法。
  * @param levels - 该 route 声明的档位。

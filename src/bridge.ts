@@ -1078,6 +1078,16 @@ export function installBridge(
         if (session === undefined) return
         effortOverrides.set(session, selection)
       },
+      applyEffort: (sessionId, provider, model, effort) => {
+        const session = agents.get(sessionId)?.session
+        if (session === undefined) return
+        // `setEffort` 保留 route、只换档位，落的仍是同一条 `model/selection` 事件。
+        effortOverrides.setEffort(session, {
+          provider,
+          model,
+          ...effort === undefined ? {} : { reasoningEffort: effort },
+        })
+      },
       reset: (sessionId) => {
         const session = agents.get(sessionId)?.session
         if (session === undefined) return

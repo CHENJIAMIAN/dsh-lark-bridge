@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { createFeishuTools, SWITCH_MODEL_TOOL } from '../src/feishu-tools.ts'
 import type { ModelSwitchDeps } from '../src/feishu-tools.ts'
-import { resolveEffort, resolveModelRequest } from '../src/model-switch.ts'
+import { effortIntent, pickEffort, resolveEffort, resolveModelRequest } from '../src/model-switch.ts'
 import type { ModelEntry } from '../src/model-catalog.ts'
 import { EffortOverrides } from '../src/think.ts'
 import type { HostSession } from '../src/host.ts'
@@ -84,6 +84,37 @@ describe('resolveEffort', () => {
     expect(resolveEffort('high', ['off', 'high'])).toBe('high')
     expect(resolveEffort('turbo', ['off', 'high'])).toBeNull()
   })
+
+  it('认人话：关掉 / 多想想 / 最高 / 省点', () => {
+    const levels = ['off', 'low', 'high', 'max']
+    expect(resolveEffort('关掉思考', levels)).toBe('off')
+    expect(resolveEffort('别想太多', levels)).toBe('off')
+    expect(resolveEffort('多想想', levels)).toBe('high')
+    expect(resolveEffort('拉满', levels)).toBe('max')
+    expect(resolveEffort('省点钱', levels)).toBe('off')
+  })
+
+  it('「不要想太多」是关，不是加强', () => {
+    // 两句话都含「想」，意思相反；判定顺序错了就会把省钱说成使劲想。
+    expect(effortIntent('不要想太多')).toBe('off')
+    expect(effortIntent('多想想')).toBe('more')
+  })
+})
+
+describe('pickEffort', () => {
+  it('没有「关闭」这一档时给最低的，并说明', () => {
+    const picked = pickEffort('off', ['low', 'high'])
+    expect(picked.level).toBe('low')
+    expect(picked.downgraded).toContain('最低')
+  })
+
+  it('没有「最高」时给最高的，不硬塞一个不存在的档', () => {
+    expect(pickEffort('max', ['low', 'high']).level).toBe('high')
+  })
+
+  it('档位表为空时不写死值', () => {
+    expect(pickEffort('max', []).level).toBeUndefined()
+  })
 })
 
 describe('EffortOverrides.setEffort', () => {
@@ -120,16 +151,20 @@ describe('switch_model 工具', () => {
   function fakeSwitch(overrides: Partial<ModelSwitchDeps> = {}): ModelSwitchDeps & {
     applied: unknown[]
     resets: string[]
+    efforts: unknown[]
   } {
     const applied: unknown[] = []
     const resets: string[] = []
+    const efforts: unknown[] = []
     return {
       applied,
       resets,
+      efforts,
       list: async () => ENTRIES,
       current: () => ({ provider: 'deepseek-official', model: 'deepseek-v4' }),
       levels: async () => ['off', 'low', 'high', 'max'],
       apply: (_sessionId, selection) => { applied.push(selection) },
+      applyEffort: (_sessionId, provider, model, effort) => { efforts.push({ provider, model, effort }) },
       reset: (sessionId) => { resets.push(sessionId) },
       ...overrides,
     }
@@ -182,6 +217,25 @@ describe('switch_model 工具', () => {
     const result = await run(deps, { action: 'switch', model: 'default' })
     expect(result.ok).toBe(true)
     expect(deps.resets).toEqual(['ses_1'])
+  })
+
+  it('只给 effort 时改强度、不动模型', async () => {
+    // 「多想想」这句话里没有模型名；把它当换模型处理会误伤 route。
+    const deps = fakeSwitch()
+    const result = await run(deps, { action: 'switch', effort: '多想想' })
+    expect(result.ok).toBe(true)
+    expect(result.effort).toBe('high')
+    expect(deps.efforts).toEqual([{ provider: 'deepseek-official', model: 'deepseek-v4', effort: 'high' }])
+    expect(deps.applied).toEqual([])
+  })
+
+  it('只给 effort 时说「关掉」「省点」也认', async () => {
+    const deps = fakeSwitch()
+    for (const said of ['关掉思考', '省点钱', '别想太多']) {
+      const result = await run(deps, { action: 'switch', effort: said })
+      expect(result.ok).toBe(true)
+      expect(result.effort).toBe('off')
+    }
   })
 
   it('对不上的说法不猜', async () => {

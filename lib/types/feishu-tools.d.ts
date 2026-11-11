@@ -64,6 +64,13 @@ export interface ModelSwitchDeps {
         model?: string;
         reasoningEffort?: string;
     }) => void;
+    /**
+     * 只改思考强度、不动 route。
+     *
+     * 和 `apply` 分开是因为「多想想」这种话里根本没提模型：把它当换模型处理会
+     * 误伤 route，而 route 一旦被误写，下一步就跑在错的模型上。
+     */
+    readonly applyEffort: (sessionId: string, provider: string, model: string, effort: string | undefined) => void;
     /** 回到部署默认：丢掉本会话的 override。 */
     readonly reset: (sessionId: string) => void;
 }

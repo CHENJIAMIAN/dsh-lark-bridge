@@ -158,6 +158,132 @@ export function listing(entry: ModelEntry): string {
 }
 
 /**
+ * 说人话的档位：一句话对到档位意图，再由意图落到该 route 真有的档位上。
+ *
+ * 顺序有讲究——**强的说法放前面**：「不要想太多」里含「想」，但意思是关掉；
+ * 「多想想」里也含「想」，意思是加。所以先判否定与关闭，再判加强，再判减弱。
+ * 每条都是一组同义说法，命中即止，不做模糊打分：档位只有三四个，猜错一次就是
+ * 一整轮跑错力度，宁可不认。
+ */
+const EFFORT_PHRASES: readonly { readonly want: 'off' | 'min' | 'max' | 'more' | 'less'; readonly words: readonly string[] }[] = [
+  {
+    want: 'off',
+    words: [
+      'off', '关掉', '关闭', '不用思考', '别思考', '别想', '不要想', '不想思考', '别推理', '不要推理',
+      '关闭思考', '关掉思考', '不思考', '省点', '省钱', '最省', '省钱模式', '快一点', '快点',
+      '最快', '立即', '别磨叽', '不用想',
+    ],
+  },
+  {
+    want: 'min',
+    words: ['low', '最低', '最小', '轻一点', '随便', '简单点', '粗略'],
+  },
+  {
+    want: 'max',
+    words: ['max', '最高', '最大', '拉满', '全开', '全力', '使劲', '死磕', '狠狠想', '最大化'],
+  },
+  {
+    want: 'more',
+    words: ['high', '多想想', '多想', '认真想', '好好想', '想清楚', '深入', '增强', '加一点', '提高', '厉害一点'],
+  },
+  {
+    want: 'less',
+    words: ['少想', '简单想', '别想太多', '不要想太多', '降低', '减轻', '弱一点'],
+  },
+]
+
+/** 档位低到高的大致顺序，用于「没有这一档时找最近的」。 */
+const LEVEL_ORDER = ['off', 'minimal', 'low', 'medium', 'high', 'max'] as const
+
+/**
+ * 把一句人话解析成档位意图。
+ * @param input - 原始说法。
+ * @returns 档位意图；`undefined` 表示「恢复默认」，`null` 表示没听懂。
+ */
+export function effortIntent(input: string): 'off' | 'min' | 'max' | 'more' | 'less' | undefined | null {
+  const wanted = normalize(input)
+  if (wanted === '') return undefined
+  if (['default', 'reset', 'auto', '不设', '默认', '自动', '恢复默认', '回到默认'].includes(wanted)) return undefined
+  for (const phrase of EFFORT_PHRASES) {
+    if (phrase.words.some(word => wanted.includes(word))) return phrase.want
+  }
+  return null
+}
+
+/**
+ * 在一条 route 声明的档位里挑出意图对应的那一档。
+ *
+ * 「没有这一档」时不是直接失败，而是往意图方向找最近的一档：模型只声明了
+ * `off/low/high/max` 时说「最高」，`max` 就是它；只说 `low/high` 时说「关掉」，
+ * 那只能给 `low` 并如实说明——拒绝会让「关掉思考」在这种模型上永远做不到。
+ * @param want - 档位意图（`undefined` = 恢复默认）。
+ * @param levels - 该 route 声明的档位。
+ * @returns 选中的档位，和是否做了降级说明；档位表为空时返回 undefined。
+ */
+export function pickEffort(
+  want: 'off' | 'min' | 'max' | 'more' | 'less' | undefined,
+  levels: readonly string[],
+): { readonly level: string | undefined; readonly downgraded?: string } {
+  if (want === undefined) return { level: undefined }
+  if (levels.length === 0) return { level: undefined }
+  const byName = (name: string) => levels.find(level => normalize(level) === name)
+  if (want === 'off') {
+    const exact = byName('off') ?? byName('none')
+    // 没有关闭档：给最低的那一档，并说清楚这不是真正的关闭。
+    if (exact !== undefined) return { level: exact }
+    const lowest = lowestLevel(levels)
+    return { level: lowest, downgraded: `这个模型没有「关闭思考」这一档，已取最低的「${lowest}」` }
+  }
+  if (want === 'max') {
+    const exact = byName('max') ?? byName('high')
+    if (exact !== undefined) return { level: exact }
+    const highest = highestLevel(levels)
+    return { level: highest, downgraded: `这个模型没有「最高」这一档，已取最高的「${highest}」` }
+  }
+  if (want === 'min' || want === 'less') {
+    const exact = want === 'min' ? byName('low') ?? byName('minimal') : byName('medium') ?? byName('low')
+    return exact === undefined ? { level: lowestLevel(levels) } : { level: exact }
+  }
+  // 「加强一点」：在 medium/high 之间找，没有就给最高的。
+  const exact = byName('high') ?? byName('medium')
+  return exact === undefined ? { level: highestLevel(levels) } : { level: exact }
+}
+
+/** 按 LEVEL_ORDER 找最低的一档；不在顺序表里的取第一个。 */
+function lowestLevel(levels: readonly string[]): string {
+  let best: string = levels[0]!
+  let bestRank = rankOf(best)
+  for (const level of levels) {
+    const rank = rankOf(level)
+    if (rank < bestRank) {
+      best = level
+      bestRank = rank
+    }
+  }
+  return best
+}
+
+/** 按 LEVEL_ORDER 找最高的一档。 */
+function highestLevel(levels: readonly string[]): string {
+  let best: string = levels[0]!
+  let bestRank = rankOf(best)
+  for (const level of levels) {
+    const rank = rankOf(level)
+    if (rank > bestRank) {
+      best = level
+      bestRank = rank
+    }
+  }
+  return best
+}
+
+/** 一档在标准顺序里的位置；不认识的排中间。 */
+function rankOf(level: string): number {
+  const index = (LEVEL_ORDER as readonly string[]).indexOf(normalize(level))
+  return index < 0 ? 2 : index
+}
+
+/**
  * 解析思考强度：接受档位名，也接受「不设/自动」。
  * @param input - 原始说法。
  * @param levels - 该 route 声明的档位。
@@ -167,6 +293,10 @@ export function resolveEffort(input: string, levels: readonly string[]): string 
   const wanted = normalize(input)
   if (wanted === '') return undefined
   if (['default', 'reset', 'auto', '不设', '默认', '自动'].includes(wanted)) return undefined
+  // 先认精确档位名，再认人话；两者都认才叫「自然语言切换」。
   const hit = levels.find(level => normalize(level) === wanted)
-  return hit ?? null
+  if (hit !== undefined) return hit
+  const want = effortIntent(input)
+  if (want === null) return null
+  return pickEffort(want, levels).level
 }
