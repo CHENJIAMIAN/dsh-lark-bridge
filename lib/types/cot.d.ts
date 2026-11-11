@@ -56,7 +56,36 @@ export interface CotRendererOptions {
     readonly answer: OutboundRenderer;
     /** Elision budgets for reasoning, arguments and results; defaults when absent. */
     readonly limits?: Limits;
+    /**
+     * What this run is actually running as, read at the moment the run opens.
+     *
+     * A reader watching a process scroll past cannot tell which model produced it
+     * or which directory it is working in — and after a mid-conversation switch
+     * those are exactly the two facts worth confirming. It is a callback, not a
+     * value: the renderer is built once per chat and outlives many model or
+     * workspace changes.
+     */
+    readonly banner?: () => CotBanner | undefined;
 }
+/** One run's opening summary: what produced it, and where. */
+export interface CotBanner {
+    /** `provider/model` as the next request will send it. */
+    readonly model?: string;
+    /** The reasoning effort in force, when one is set. */
+    readonly effort?: string;
+    /** The directory this session runs in. */
+    readonly workspace?: string;
+}
+/** The id prefix the banner's text message carries, so consumers can tell it apart. */
+export declare const COT_BANNER_PREFIX = "banner-";
+/**
+ * The banner line: `模型 · 工作区`, as much of it as is known. *
+ * Deliberately terse — it sits at the head of every process, and a sentence
+ * there would push the actual thinking down for no added information.
+ * @param banner - what the run is running as.
+ * @returns the line, or '' when nothing is known.
+ */
+export declare function cotBannerText(banner: CotBanner): string;
 /**
  * Renderer that shows the process as a native CoT message and leaves the answer
  * to `answer`. Falling back is the caller's job: when {@link CotPort.createCot}

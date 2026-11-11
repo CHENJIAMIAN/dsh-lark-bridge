@@ -237,6 +237,45 @@ export interface CotRendererOptions {
   readonly answer: OutboundRenderer
   /** Elision budgets for reasoning, arguments and results; defaults when absent. */
   readonly limits?: Limits
+  /**
+   * What this run is actually running as, read at the moment the run opens.
+   *
+   * A reader watching a process scroll past cannot tell which model produced it
+   * or which directory it is working in — and after a mid-conversation switch
+   * those are exactly the two facts worth confirming. It is a callback, not a
+   * value: the renderer is built once per chat and outlives many model or
+   * workspace changes.
+   */
+  readonly banner?: () => CotBanner | undefined
+}
+
+/** One run's opening summary: what produced it, and where. */
+export interface CotBanner {
+  /** `provider/model` as the next request will send it. */
+  readonly model?: string
+  /** The reasoning effort in force, when one is set. */
+  readonly effort?: string
+  /** The directory this session runs in. */
+  readonly workspace?: string
+}
+
+/** The id prefix the banner's text message carries, so consumers can tell it apart. */
+export const COT_BANNER_PREFIX = 'banner-'
+
+/**
+ * The banner line: `模型 · 工作区`, as much of it as is known. *
+ * Deliberately terse — it sits at the head of every process, and a sentence
+ * there would push the actual thinking down for no added information.
+ * @param banner - what the run is running as.
+ * @returns the line, or '' when nothing is known.
+ */
+export function cotBannerText(banner: CotBanner): string {
+  const parts: string[] = []
+  if (banner.model !== undefined && banner.model !== '') {
+    parts.push(banner.effort === undefined ? banner.model : `${banner.model}（${banner.effort}）`)
+  }
+  if (banner.workspace !== undefined && banner.workspace !== '') parts.push(banner.workspace)
+  return parts.join(' · ')
 }
 
 /** The thinking process of one turn, and the queue feeding it. */
@@ -353,7 +392,7 @@ export function createCotRenderer(
   chatId: string,
   options: CotRendererOptions,
 ): OutboundRenderer {
-  const { showProcess, hidden, presentCall, onFailure, answer, limits = DEFAULT_LIMITS } = options
+  const { showProcess, hidden, presentCall, onFailure, answer, limits = DEFAULT_LIMITS, banner } = options
   let live: LiveRun | undefined
   let aimed: ReplyTarget | undefined
   /** A target that arrived mid-run; it owns the NEXT turn, never the live one. */
@@ -406,6 +445,8 @@ export function createCotRenderer(
     // reasoning message carries no title, only text. So the time rides at the
     // head of the block's first line — the one position the reader cannot
     // miss, unlike a tool title's tail, which the client truncates away.
+    //
+    // 第一段推理块之前还要放本轮的身份摘要（模型 · 工作区），见 `bannerText`。
     const at = clockTime(Date.now())
     run.reasoningPrefix = at === undefined ? '' : `〔${at}〕 `
     enqueue(run, cotEvent('REASONING_MESSAGE_START', { messageId: run.reasoningId, role: 'reasoning' }))
@@ -461,6 +502,24 @@ export function createCotRenderer(
       slowest: undefined,
     }
     enqueue(live, cotEvent('RUN_STARTED', { threadId: chatId, runId: `turn-${turn}` }))
+    // 本轮用的是哪个模型、在哪个目录干活，写在这条过程的**开头**：切过模型或
+    // 刚绑过工作区之后，这是操作者唯一能一眼确认「刚才那轮到底跑在哪」的地方。
+    //
+    // 载体是一条独立的 assistant 文本（TEXT_MESSAGE_*），不是假工具调用、也不
+    // 拼进第一段推理：工具调用在协议里是有语义的位置，塞一条进去会让「第一条
+    // 工具调用是哪个」整体错位；而推理块的 `〔时钟〕` 前缀是既有格式，前面插一行
+    // 会让所有以时间为锚的推断失效。
+    const said = banner === undefined ? undefined : banner()
+    const text = said === undefined ? '' : cotBannerText(said)
+    if (text !== '') {
+      const messageId = `${COT_BANNER_PREFIX}${turn}`
+      enqueue(
+        live,
+        cotEvent('TEXT_MESSAGE_START', { messageId, role: 'assistant' }),
+        cotEvent('TEXT_MESSAGE_CONTENT', { messageId, delta: text }),
+        cotEvent('TEXT_MESSAGE_END', { messageId }),
+      )
+    }
     return live
   }
 

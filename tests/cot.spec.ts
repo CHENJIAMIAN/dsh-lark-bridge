@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { COT_BANNER_PREFIX, cotBannerText } from '../src/cot.ts'
 import { fakeMessage, mountChannel } from './harness.ts'
 
 /** Every event written to the first thinking process, in order. */
@@ -413,8 +414,10 @@ describe('thinking process (CoT)', () => {
     // The narration it replaced is in the process instead; writes are queued,
     // so this is where the queue has drained.
     await vi.waitFor(() => {
+      // 按 messageId 排除每轮开头那行「模型 · 工作区」：它也是一条 TEXT_MESSAGE，
+      // 但它是过程的开场白，不是 agent 的叙述。
       const narration = events(harness)
-        .filter((e) => e.type === 'TEXT_MESSAGE_CONTENT')
+        .filter((e) => e.type === 'TEXT_MESSAGE_CONTENT' && !String(e.content.messageId).startsWith(COT_BANNER_PREFIX))
         .map((e) => e.content.delta)
       expect(narration).toEqual(['先做整体探索。', '继续看核心文档。'])
     })
@@ -562,7 +565,9 @@ describe('mid-turn messages (steering)', () => {
       expect(harness.fake.cots[0]!.events.map(e => e.type)).toContain('TEXT_MESSAGE_CONTENT')
     })
     const list = harness.fake.cots[0]!.events
-    const start = list.findIndex(e => e.type === 'TEXT_MESSAGE_START')
+    // 按 role 找插话那条：每轮开头还有一行 banner（role 也是 assistant）。
+    const start = list.findIndex(e => e.type === 'TEXT_MESSAGE_START' && (e.content as { role?: string }).role === 'user')
+    expect(start).toBeGreaterThanOrEqual(0)
     expect(list[start]!.content).toMatchObject({ role: 'user' })
     expect(list[start + 1]!.content).toMatchObject({ delta: '改成先看测试' })
     expect(list[start + 2]!.type).toBe('TEXT_MESSAGE_END')
@@ -609,7 +614,43 @@ describe('mid-turn messages (steering)', () => {
       source: { kind: 'agent-instructions' },
     })
     await new Promise(resolve => setTimeout(resolve, 100))
-    expect(harness.fake.cots[0]!.events.map(e => e.type)).not.toContain('TEXT_MESSAGE_START')
+    // 只看 role=user 的：每轮开头那行 banner 是 assistant，不算「宿主写的话」。
+    const userStarts = harness.fake.cots[0]!.events
+      .filter(e => e.type === 'TEXT_MESSAGE_START' && (e.content as { role?: string }).role === 'user')
+    expect(userStarts).toEqual([])
     await harness.dispose()
+  })
+
+  it('opens every turn with the model and workspace it is running as', async () => {
+    // 2026-11-11 操作者要求：思考那一刻用的模型和工作区要出现在每条 CoT 的开头，
+    // 否则换过模型 / 刚绑过工作区之后，没法一眼确认刚才那轮跑在哪。
+    //
+    // 载体是一条独立的 assistant 文本，排在推理块前面；不塞假工具调用（那会
+    // 让「第一条工具调用是哪个」整体错位），也不拼进推理块（时钟前缀是既有格式）。
+    const harness = await mountChannel()
+    const emit = await chat(harness)
+    emit('assistant/chunk', { turn: 1, chunk: { type: 'reasoning-delta', text: '先看目录' } })
+
+    await vi.waitFor(() => {
+      expect(events(harness).map(e => e.type)).toContain('REASONING_MESSAGE_CONTENT')
+    })
+    const order = events(harness).map(e => e.type)
+    // 按 messageId 认出 banner：它排在每轮最前，不靠「第几条 TEXT_MESSAGE」。
+    const banner = events(harness).find(e => e.type === 'TEXT_MESSAGE_CONTENT'
+      && String(e.content.messageId).startsWith(COT_BANNER_PREFIX))!
+    // 测试部署配的是 test-provider/test-model，工作区取配置的 cwd。
+    expect(String(banner.content.delta)).toContain('test-provider/test-model')
+    expect(order.indexOf('TEXT_MESSAGE_CONTENT')).toBeLessThan(order.indexOf('REASONING_MESSAGE_CONTENT'))
+    // 推理块自己的时钟前缀没被改动。
+    const thought = events(harness).find(e => e.type === 'REASONING_MESSAGE_CONTENT')!
+    expect(String(thought.content.delta)).toMatch(/^〔\d{2}:\d{2}:\d{2}〕 /)
+    await harness.dispose()
+  })
+
+  it('renders the banner as 模型（档位）· 工作区, and says only what it knows', () => {
+    expect(cotBannerText({ model: 'p/m', effort: 'high', workspace: 'D:\\Proj' })).toBe('p/m（high） · D:\\Proj')
+    expect(cotBannerText({ model: 'p/m' })).toBe('p/m')
+    // 什么都不知道时不写：空行比一行「未知」更扰乱阅读。
+    expect(cotBannerText({})).toBe('')
   })
 })

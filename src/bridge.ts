@@ -97,7 +97,7 @@ import {
   WS_COMMAND,
 } from './commands.ts'
 import type { ScheduleControl } from './commands.ts'
-import { EffortOverrides, effortCatalog } from './think.ts'
+import { EffortOverrides, effortCatalog, effortName } from './think.ts'
 import { getSyncContext } from './sync/bot-command.ts'
 import { collectImages } from './images.ts'
 import { saveInboundFiles } from './files.ts'
@@ -2443,7 +2443,7 @@ export function installBridge(
     const binding: ChatBinding = {
       chatId: msg.chatId,
       chatType: msg.chatType,
-      renderer: renderFor(msg.chatId, presentCall),
+      renderer: renderFor(msg.chatId, presentCall, session),
       currentMessageId: undefined,
       session,
     }
@@ -2492,7 +2492,7 @@ export function installBridge(
    * @param presentCall - the session's tool presenter.
    * @returns the renderer for the configured output.
    */
-  const renderFor = (chatId: string, presentCall: ToolPresentation): OutboundRenderer => {
+  const renderFor = (chatId: string, presentCall: ToolPresentation, session?: HostSession): OutboundRenderer => {
     if (config.output === 'stream') {
       return createStreamRenderer(port, chatId, {
         showProcess: config.showProcess,
@@ -2507,6 +2507,31 @@ export function installBridge(
       onFailure: reportSendFailure,
       answer: createMessageRenderer(port, chatId, reportSendFailure),
       limits: config.limits,
+      // 每一轮开头写一行「模型 · 工作区」。是**回调**不是取值：渲染器每个聊天
+      // 只建一次，会跨过好多次换模型、换工作区，取一次值就永远是第一次那个。
+      banner: () => {
+        // `session` 是建这个渲染器时绑定的会话（渲染器本来就一个会话一个），
+        // 查不到登记时用它兜底：第一轮 CoT 打开时 bySession 还没写上。
+        const bound = [...bySession.values()].find(binding => binding.chatId === chatId)
+        const sessionId = bound?.session.id ?? session?.id
+        const live = session ?? agents.get(sessionId ?? '')?.session ?? bound?.session
+        const wanted = sessionId === undefined ? undefined : effortOverrides.get(sessionId)
+        const header = live?.requestHeader?.()?.config
+        // 回退到部署默认：一轮都还没发过请求时，header 还是空的，而这时读者
+        // 最想知道「这一轮会用哪个模型」。
+        const configured = (ctx.get('agentDefaultModel') as HostDefaultModel | undefined)?.currentSelection()
+        // 最后回退到桥配置本身：宿主没组合 model 服务、会话又还没发过请求时，
+        // 这两处是仅有的真相——空着一行就等于这条提示没写。
+        const provider = wanted?.provider ?? header?.provider ?? configured?.provider ?? config.provider
+        const model = wanted?.model ?? header?.model ?? configured?.model ?? config.model
+        const effort = effortName(wanted?.reasoningEffort ?? header?.reasoningEffort ?? configured?.reasoningEffort)
+        const runIn = live?.meta?.cwd ?? config.cwd
+        return {
+          ...provider === undefined || model === undefined ? {} : { model: `${provider}/${model}` },
+          ...effort === undefined ? {} : { effort },
+          ...runIn === undefined ? {} : { workspace: runIn },
+        }
+      },
     })
   }
 
