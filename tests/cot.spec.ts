@@ -648,7 +648,9 @@ describe('mid-turn messages (steering)', () => {
   })
 
   it('renders the banner as 模型（档位）· 工作区, and says only what it knows', () => {
-    expect(cotBannerText({ model: 'p/m', effort: 'high', workspace: 'D:\\Proj' })).toBe('p/m（high） · D:\\Proj')
+    // 路径包反引号不是装饰：这条文本按 Markdown 渲染，裸 `D:\Desktop` 的反斜杠
+    // 会被当成转义吃掉，读者看到 `D:Desktop`（2026-11-11 现场）。
+    expect(cotBannerText({ model: 'p/m', effort: 'high', workspace: 'D:\\Proj' })).toBe('p/m（high） · `D:\\Proj`')
     expect(cotBannerText({ model: 'p/m' })).toBe('p/m')
     // 什么都不知道时不写：空行比一行「未知」更扰乱阅读。
     expect(cotBannerText({})).toBe('')

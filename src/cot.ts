@@ -263,9 +263,12 @@ export interface CotBanner {
 export const COT_BANNER_PREFIX = 'banner-'
 
 /**
- * The banner line: `模型 · 工作区`, as much of it as is known. *
- * Deliberately terse — it sits at the head of every process, and a sentence
- * there would push the actual thinking down for no added information.
+ * The banner line: `模型（档位） \`工作区\``, as much of it as is known.
+ *
+ * **Windows 路径必须包在反引号里。** 这条文本走的是 TEXT_MESSAGE 的 delta，
+ * 客户端按 Markdown 渲染：裸写 `D:\Desktop` 时反斜杠会被当成转义符吃掉，读者
+ * 看到的是 `D:Desktop`（2026-11-11 操作者现场报的就是这个）。行内代码不做转义，
+ * 路径原样显示，也顺便和模型名区分开。
  * @param banner - what the run is running as.
  * @returns the line, or '' when nothing is known.
  */
@@ -274,7 +277,7 @@ export function cotBannerText(banner: CotBanner): string {
   if (banner.model !== undefined && banner.model !== '') {
     parts.push(banner.effort === undefined ? banner.model : `${banner.model}（${banner.effort}）`)
   }
-  if (banner.workspace !== undefined && banner.workspace !== '') parts.push(banner.workspace)
+  if (banner.workspace !== undefined && banner.workspace !== '') parts.push(`\`${banner.workspace}\``)
   return parts.join(' · ')
 }
 
