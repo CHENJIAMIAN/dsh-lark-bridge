@@ -193,6 +193,33 @@ describe('user-questions provider', () => {
     await promise
   })
 
+  it('turns a click on a pre-restart card into a new message in the same session', async () => {
+    const port = fakePort()
+    // 重启后内存里没有这张卡，只有磁盘上那份记录：点它应该把答案送回会话，
+    // 而不是回一句「该问题已失效」。
+    const answered: { entry: unknown; text: string; operator: string }[] = []
+    const { handleCardAction } = createQuestionProvider(port, () => ({ chatId: 'oc_chat_1' }), {
+      remember: () => {},
+      forget: () => {},
+      find: token => token === 'aaaaaaaa'
+        ? {
+          token,
+          chatId: 'oc_chat_1',
+          sessionId: 'ses_1',
+          questions: [{ id: 'q1', question: '重启前问的那个问题？', options: [{ label: 'B 方案' }] }],
+          askedAt: new Date().toISOString(),
+        }
+        : undefined,
+      answer: (entry, text, operator) => { answered.push({ entry, text, operator }) },
+    })
+
+    const response = handleCardAction(submit('qaaaaaaaao0_0') as never) as { toast?: { content?: string } }
+    expect(answered).toHaveLength(1)
+    expect(answered[0]?.text).toContain('重启前问的那个问题？')
+    expect(answered[0]?.text).toContain('B 方案')
+    expect(response.toast?.content).toContain('已提交')
+  })
+
   it('answers a question when its option button is clicked', async () => {
     const port = fakePort()
     const { provider, handleCardAction } = createQuestionProvider(port, () => ({ chatId: 'oc_chat_1' }))

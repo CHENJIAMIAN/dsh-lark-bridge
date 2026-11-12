@@ -22,6 +22,7 @@
  */
 import type { CardActionEvent, CardActionResponse } from '@larksuite/channel';
 import type { OutboundPort } from './outbound.ts';
+import type { RestartQuestion } from './restart-state.ts';
 /** One question, as the host's seam carries it (subset the bridge needs). */
 export interface HostQuestion {
     readonly id: string;
@@ -82,10 +83,25 @@ export interface QuestionPort extends OutboundPort {
  *   live root before it reaches us).
  * @returns the provider and its card-action handler.
  */
+/**
+ * 重启对账：一个待回答的提问在磁盘上留一份，下次开机还能接回来。
+ *
+ * 不给这套钩子时行为不变（纯内存），测试与「没有持久化的部署」都还能用。
+ */
+export interface QuestionRestartHooks {
+    /** 问题发出去后落盘。 */
+    remember(question: RestartQuestion): void;
+    /** 问题答完/取消后销账。 */
+    forget(token: string): void;
+    /** 重启后按 token 找回它。 */
+    find?(token: string): RestartQuestion | undefined;
+    /** 重启后有人点了这张旧卡：把答案当成一条新消息送回那个会话。 */
+    answer?(entry: RestartQuestion, text: string, operatorId: string): void;
+}
 export declare function createQuestionProvider(port: QuestionPort, chatFor: (sessionId: string) => {
     chatId: string;
     threadId?: string;
-} | undefined): {
+} | undefined, restart?: QuestionRestartHooks): {
     provider: {
         ask(request: HostUserQuestionRequest): Promise<HostQuestionAnswer>;
     };

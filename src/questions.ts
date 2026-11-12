@@ -28,6 +28,7 @@ import type {
   SendResult,
 } from '@larksuite/channel'
 import type { OutboundPort } from './outbound.ts'
+import type { RestartQuestion } from './restart-state.ts'
 
 /** One question, as the host's seam carries it (subset the bridge needs). */
 export interface HostQuestion {
@@ -574,14 +575,47 @@ type QuestionToastResponse = CardActionResponse & {
  *   live root before it reaches us).
  * @returns the provider and its card-action handler.
  */
+/**
+ * 重启对账：一个待回答的提问在磁盘上留一份，下次开机还能接回来。
+ *
+ * 不给这套钩子时行为不变（纯内存），测试与「没有持久化的部署」都还能用。
+ */
+export interface QuestionRestartHooks {
+  /** 问题发出去后落盘。 */
+  remember(question: RestartQuestion): void
+  /** 问题答完/取消后销账。 */
+  forget(token: string): void
+  /** 重启后按 token 找回它。 */
+  find?(token: string): RestartQuestion | undefined
+  /** 重启后有人点了这张旧卡：把答案当成一条新消息送回那个会话。 */
+  answer?(entry: RestartQuestion, text: string, operatorId: string): void
+}
+
 export function createQuestionProvider(
   port: QuestionPort,
   chatFor: (sessionId: string) => { chatId: string; threadId?: string } | undefined,
+  restart?: QuestionRestartHooks,
 ): {
   provider: { ask(request: HostUserQuestionRequest): Promise<HostQuestionAnswer> }
   handleCardAction(evt: CardActionEvent): CardActionResponse | undefined
 } {
   const pending = new Map<string, PendingQuestion>()
+
+  /** 落盘一份待回答，重启后还能接回来；没有钩子就只是纯内存。 */
+  const remember = (token: string, chatId: string, sessionId: string, messageId: string | undefined, questions: HostUserQuestionRequest['questions']): void => {
+    restart?.remember({
+      token,
+      chatId,
+      sessionId,
+      ...messageId === undefined ? {} : { messageId },
+      questions: questions.map(question => ({
+        id: question.id,
+        question: question.question,
+        ...question.options === undefined ? {} : { options: question.options.map(option => ({ label: option.label })) },
+      })),
+      askedAt: new Date().toISOString(),
+    })
+  }
 
   /**
    * Replace a question's card with its current state.
@@ -611,7 +645,7 @@ export function createQuestionProvider(
       // id is the key the bridge keeps for chat routing.
       const sessionId = request.agent?.session.id
       const chat = sessionId === undefined ? undefined : chatFor(sessionId)
-      if (chat === undefined) {
+      if (chat === undefined || sessionId === undefined) {
         return { answers: request.questions.map(q => ({ id: q.id, selected: [], custom: '[会话不可用]' })) }
       }
       let sent: SendResult
@@ -632,10 +666,12 @@ export function createQuestionProvider(
           resolve,
           settled: new Map(),
         })
+        remember(token, chat.chatId, sessionId, sent.messageId, request.questions)
         request.signal?.addEventListener('abort', () => {
           const item = pending.get(token)
           if (item === undefined) return
           pending.delete(token)
+          restart?.forget(token)
           item.resolve({ answers: item.questions.map(q => ({ id: q.id, selected: [], custom: '[已取消]' })) })
         }, { once: true })
       })
@@ -701,6 +737,7 @@ export function createQuestionProvider(
       return { toast: { type: 'success', content: `已回答，还有 ${remaining} 个问题` } }
     }
     pending.delete(ref.token)
+    restart?.forget(ref.token)
     item.resolve({
       answers: item.questions.map(q => {
         const settlement = item.settled.get(q.id)
@@ -715,11 +752,45 @@ export function createQuestionProvider(
     return { toast: { type: 'success', content: '回答已提交' } }
   }
 
+  /**
+   * 重启前发出、现在才被点的提问。
+   *
+   * 内存里那份待回答随进程死了，但磁盘上还留着原问题：把用户这一下变成一句
+   * 「重启前你问过 X，我答 Y」送回同一个会话，agent 就能接着做，而不是让人对着
+   * 一张点了没反应的卡发呆。
+   * @param ref - 控件名解出来的引用（token + 选项下标）。
+   * @param evt - 卡片事件，表单提交带 `formValue`。
+   * @returns 提示语；找不到落盘记录时 undefined（交给后面的处理器）。
+   */
+  const restoredAnswer = (ref: ControlRef, evt: CardActionEvent): CardActionResponse | undefined => {
+    const entry = restart?.find?.(ref.token)
+    if (entry === undefined) return undefined
+    const asked = entry.questions[ref.index]
+    const options = asked?.options ?? []
+    const typed = typedAnswer(evt.action.formValue)
+    const labels = (evt.action.formValue === undefined ? [] : Object.values(evt.action.formValue))
+      .flatMap(value => Array.isArray(value) ? value : [])
+      .filter((value): value is string => typeof value === 'string')
+      .map(value => /^o(\d+)$/.exec(value)?.[1])
+      .filter((value): value is string => value !== undefined)
+      .map(value => options[Number(value)]?.label)
+      .filter((value): value is string => value !== undefined)
+    let said = ''
+    if (ref.kind === 'o') said = options[ref.option ?? -1]?.label ?? ''
+    else if (ref.kind === 'c') said = [...labels, ...(typed === '' ? [] : [typed])].join('、')
+    else if (ref.kind === 't') said = typed
+    else if (ref.kind === 's') said = '跳过（按你的判断继续）'
+    if (said === '') return { toast: { type: 'info', content: '该问题已失效' } }
+    restart?.answer?.(entry, `（重启前你问过：${asked?.question ?? '一个问题'}）\n我的回答：${said}`, evt.operator?.openId ?? '')
+    restart?.forget(entry.token)
+    return { toast: { type: 'success', content: '已提交，按这个答案继续' } }
+  }
+
   const handleCardAction = (evt: CardActionEvent): CardActionResponse | undefined => {
     const ref = controlRef(evt.action.name)
     if (ref === undefined) return undefined
     const item = pending.get(ref.token)
-    if (item === undefined) return undefined
+    if (item === undefined) return restoredAnswer(ref, evt)
     return settle(evt, ref, item)
   }
 

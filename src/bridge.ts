@@ -115,6 +115,7 @@ import { createReactionTracker } from './reaction.ts'
 import type { ReactionTracker } from './reaction.ts'
 import { discoverModels } from './model-catalog.ts'
 import { createGoalWatch } from './goal-watch.ts'
+import { createRestartStore } from './restart-state.ts'
 import { createConsoleCardStore, panelActionValue, panelCard, panelSubmitted, panelSubmitAction, resolvePanelAction } from './panel.ts'
 import type { PanelActionValue } from './panel.ts'
 import type { PanelView } from './panel.ts'
@@ -1120,10 +1121,17 @@ export function installBridge(
     const where = syncCtx === undefined ? '' : `（本端：${syncCtx.form} · ${syncCtx.profile}）`
     return botName === undefined ? undefined : `「${botName}」${where}`
   }
+  // 重启对账用的状态：待回答的提问/审批、运行时禁用、在跑的轮次、卡片消息 id。
+  // 内存里那份丢了没关系，这里是为了让下次开机还能把它们接回来。
+  const restartStore = createRestartStore()
+  const restoredState = restartStore.load()
   // The live denied-tool set: seeded from config, then toggled at runtime via
   // /tools. Every chat agent's guard reads this same object, so a switch takes
   // effect on the next tool call without a restart.
-  const runtimeDeniedTools = new Set<string>(config.denyTools)
+  //
+  // 重启前的运行时禁用也要接回来：用户禁用某个工具后，重启又自己回来，是最容易
+  // 让人以为「设置没生效」的那类意外。
+  const runtimeDeniedTools = new Set<string>([...config.denyTools, ...restoredState.deniedTools])
   // Active schedules seen for this process, keyed by session id then schedule
   // id. Fed by schedule/change events as they stream in, and rebuilt from the
   // schedule plugin itself the first time a session is asked about (see
@@ -2168,6 +2176,17 @@ export function installBridge(
   const questions = createQuestionProvider(port, (sessionId) => {
     const binding = bySession.get(sessionId)
     return binding === undefined ? undefined : { chatId: binding.chatId }
+  }, {
+    // 待回答落盘：重启后还能按 token 找回来，把那一按变成一条新消息送回会话，
+    // 而不是让用户对着「该问题已失效」的提示发呆。
+    remember: question => restartStore.rememberQuestion(question),
+    forget: token => restartStore.forgetQuestion(token),
+    find: token => restartStore.load().questions.find(row => row.token === token),
+    answer: (entry, text, operatorId) => {
+      // 点按钮的人可能拿不到（旧事件没有 operator），退到第一个授权用户：
+      // 这条消息必须可归属，否则会绕过 allowlist 的判断。
+      void replayRestartAnswer(entry, text, operatorId === '' ? config.senderAllowlist[0] ?? '' : operatorId)
+    },
   })
   let disposeQuestions: (() => void) | undefined
   try {
@@ -3128,6 +3147,8 @@ export function installBridge(
       if (isCommandLine(msg.content)) {
         const sessionId = opened.handle.agent.session.id
         const presetBefore = sessionPresets.get(sessionId)
+        // `/tools` 前后的禁用集合快照：命令可能改它，改了就落盘。
+        const deniedBefore = [...runtimeDeniedTools].join('\u0000')
         // A slash command runs on the host, not on the model. When it
         // throws, the outer catch would report "cannot start session" —
         // which is not what happened and sent issue #2's reporter looking
@@ -3215,6 +3236,11 @@ export function installBridge(
         // the next acquire compose from the remembered choice.
         if (sessionPresets.get(sessionId) !== presetBefore) {
           compositions.delete(sessionId)
+        }
+        // `/tools deny|allow` 改的是这份内存集合，重启就没了。写完就落盘，
+        // 下次开机在创建 store 时并回来（见 runtimeDeniedTools 的初始化）。
+        if ([...runtimeDeniedTools].join('\u0000') !== deniedBefore) {
+          restartStore.rememberDeniedTools([...runtimeDeniedTools])
         }
         if (outcome.reply !== '') {
           await replay.send(binding.chatId, { markdown: outcome.reply }).catch(reportSendFailure)
@@ -3439,6 +3465,15 @@ export function installBridge(
             .catch(reportSendFailure)
         }, config.approvalReminderMs)
       }
+      // 重启后这张卡还能被点：先把「谁在等什么」落盘，答案再按新消息送回会话。
+      restartStore.rememberApproval({
+        id,
+        chatId: binding.chatId,
+        sessionId: binding.session.id,
+        ...sent.messageId === undefined ? {} : { messageId: sent.messageId },
+        title: request.toolName,
+        askedAt: new Date().toISOString(),
+      })
       pendingApprovals.set(id, {
         chatId: binding.chatId,
         chatType: binding.chatType,
@@ -3572,6 +3607,44 @@ export function installBridge(
    * @param senderId - open id the turn is attributed to.
    * @returns whether a turn was actually started.
    */
+  /**
+   * 把「重启后才提交的答案/审批」当成一条新消息送回同一个会话。
+   *
+   * 走普通入站路径：授权、设备退位、云端仲裁一个都不跳过——绕过它们伪造一次
+   * 执行，才是真正会出重复的写法。
+   * @param entry - 落盘的待回答条目（聊天与会话）。
+   * @param text - 用户这次给出的答复，已经是人话。
+   * @param senderId - 点按钮的人，作为这条消息的发起人。
+   */
+  async function replayRestartAnswer(
+    entry: { readonly chatId: string; readonly sessionId: string },
+    text: string,
+    senderId: string,
+  ): Promise<void> {
+    const msg: NormalizedMessage = {
+      messageId: `restored-${Date.now()}`,
+      chatId: chatOfSession(entry.sessionId) ?? entry.chatId,
+      chatType: 'p2p',
+      senderId,
+      senderType: 'user',
+      senderIsBot: false,
+      content: text,
+      rawContentType: 'text',
+      resources: [],
+      mentions: [],
+      mentionAll: false,
+      mentionedBot: true,
+      createTime: Date.now(),
+    }
+    try {
+      await handleMessage(msg)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      notify(`dsh-lark-bridge: replaying a restored answer failed: ${detail}`)
+      ctx.logger.warn('restored answer replay failed: %s', detail)
+    }
+  }
+
   async function dispatchOverdue(
     key: string,
     sessionId: string,
@@ -4312,6 +4385,17 @@ export function installBridge(
     // production traffic). The mirror also carried a dead guard: it deleted the
     // driving flag at `turn/end` before reading it, so that check never failed.
     // Contract: tests/cross-surface-delivery.spec.ts.
+    // 重启对账：一轮开始时记一笔、结束时销账。开机时还留着的条目，就是被重启
+    // 打断的那一轮——没有它，聊天只会突然安静，没人知道是「做完了」还是「死了」。
+    if (isStepStartEvent(event) && event.data.step === 1) {
+      restartStore.startTurn({
+        chatId: binding.chatId,
+        sessionId: session.id,
+        turn: event.data.turn,
+        startedAt: new Date().toISOString(),
+      })
+    }
+    if (isTurnEndEvent(event)) restartStore.endTurn(binding.chatId)
     if (isTurnEndEvent(event)) {
       // Close out one-shot children spawned by this turn, so the panel does not
       // leave stale「进行中」rows behind. `continuable` children outlive the
@@ -4692,6 +4776,23 @@ export function installBridge(
     const delay = Math.max(0, config.resumeGoalsBootDelaySeconds) * 1_000
     const timer = setTimeout(() => { void resumeWatchedGoals().catch(reportSendFailure) }, delay)
     // A boot timer must never hold the process open on its own.
+    ;(timer as unknown as { unref?: () => void }).unref?.()
+  }
+
+  // 上一个进程留下的「在跑的轮次」= 被重启打断的那一轮。等传输起来后逐条说一声，
+  // 然后销账：一条安静的聊天比一条说明更糟，人分不清是「做完了」还是「进程死了」。
+  if (restoredState.turns.length > 0) {
+    const delay = Math.max(0, config.resumeGoalsBootDelaySeconds) * 1_000
+    const timer = setTimeout(() => {
+      for (const turn of restoredState.turns) {
+        void replay
+          .send(turn.chatId, {
+            markdown: `⚠️ 上一轮（第 ${turn.turn} 轮）在重启时被中断了，那一轮之后的输出不会再有。\n需要接着做，回一句「继续」就行；不需要就当它已经结束。`,
+          })
+          .catch(reportSendFailure)
+          .finally(() => restartStore.endTurn(turn.chatId))
+      }
+    }, delay)
     ;(timer as unknown as { unref?: () => void }).unref?.()
   }
 
