@@ -106,6 +106,8 @@ function createFakeLadder(behavior: LadderBehavior = {}) {
   const calls: LadderCall[] = []
   const reports: string[] = []
   const disposals: string[] = []
+  /** Session id → the cwd the caller asked `create` for, when it asked. */
+  const createdIn = new Map<string, string>()
   const handles = new Map<string, HostAgentHandle>()
   /** Resume attempts per id, so a race can answer differently the second time. */
   const attempts = new Map<string, number>()
@@ -159,8 +161,11 @@ function createFakeLadder(behavior: LadderBehavior = {}) {
       }
       return handleFor(sessionId)
     },
-    async create(sessionId) {
+    async create(sessionId, cwd) {
       calls.push({ rung: 'create', sessionId })
+      // Recorded so a rotation can be proven to carry the chat's binding
+      // through to the host rather than letting the host pick a default.
+      if (cwd !== undefined) createdIn.set(sessionId, cwd)
       if (behavior.failCreate === true) throw new Error(`create rejected (fake): ${sessionId}`)
       // Creating under a duplicated id is refused before any log is touched:
       // the host cannot tell which copy is meant.
@@ -179,6 +184,7 @@ function createFakeLadder(behavior: LadderBehavior = {}) {
     calls,
     reports,
     disposals,
+    createdIn,
     /** Session ids handed to one rung, in call order. */
     asked: (rung: LadderCall['rung']): string[] =>
       calls.filter(call => call.rung === rung).map(call => call.sessionId),
@@ -595,6 +601,32 @@ describe('session rotation', () => {
 
     const again = await sessions.acquire(msg)
     expect(again.handle.agent.session.id).toBe(rotated.handle.agent.session.id)
+  })
+
+  /**
+   * `/new` is a preemptive command: it returns before the inbound path seeds
+   * the per-session directory map, so the ladder has nothing to fall back on.
+   * Before 2026-11-11 the binding therefore never reached the host and every
+   * rotation started in the deployment cwd — a chat bound to a project stayed
+   * on `D:\Desktop` however often `/new` was sent.
+   */
+  it('starts the rotated session in the directory the caller resolved', async () => {
+    const host = createFakeLadder()
+    const { store } = memoryStore()
+    const sessions = new ConversationSessions('chat', host.ladder, store)
+    const msg = fakeMessage({ chatId: 'oc_chat_rbind' })
+
+    const rotated = await sessions.rotate(msg, 'D:\\GithubRepository\\dsh-lark-bridge')
+    expect(host.createdIn.get(rotated.handle.agent.session.id)).toBe('D:\\GithubRepository\\dsh-lark-bridge')
+  })
+
+  it('leaves the directory to the host when no rotation directory is given', async () => {
+    const host = createFakeLadder()
+    const { store } = memoryStore()
+    const sessions = new ConversationSessions('chat', host.ladder, store)
+
+    const rotated = await sessions.rotate(fakeMessage({ chatId: 'oc_chat_rnobind' }))
+    expect(host.createdIn.has(rotated.handle.agent.session.id)).toBe(false)
   })
 
   it('resumes the rotated session after a restart (store outlives the process)', async () => {

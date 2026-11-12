@@ -55,11 +55,23 @@ export type ThinkIntent = {
 /**
  * `/think off` 的档位名。
  *
- * 这一档和其他档不同：它要求的是「请求里不要有 reasoning 字段」，而不是
+ * 这一档和其他档不同：它要求的是「选择里根本没有 reasoning 这一项」，而不是
  * 「把 off 这个名字查成某个 wire 值发出去」。宿主的查表结果取决于配置里
- * `reasoningEfforts.off` 写成 null 还是字符串，而 magpie 会把它写成
- * `"off": none`；`"none"` 不是任何厂商认的关闭值，上游只会当成没听懂。
- * 所以在 `agent/request` 上直接把它换成「字段缺席」，见 `install()`。
+ * `reasoningEfforts.off` 写成 null 还是字符串，而 magpie 会把它写成 `"none"`；
+ * `"none"` 不是任何厂商认的关闭值，上游只会当成没听懂。
+ *
+ * **实现位置在「选择」层，不在「请求」层（2026-11-11 修正）。**
+ * 早先的做法是在 `agent/request` 瀑布里把这个字段删掉。宿主 0.2.2 起在每一步
+ * 准备阶段固定 `selection`，随后硬校验瀑布的返回值必须与它完全一致（loop 的
+ * `proposed reasoning effort "adapter default" after step preparation fixed "off"`），
+ * 于是「准备阶段说是 off、请求阶段却把字段删了」直接把整轮打成 `UNKNOWN`——
+ * 用户切「关闭思考」就炸，切 low 却没事，因为 low 两边一致。
+ *
+ * 现在改成：落盘 `model/selection` 时不带 effort。宿主自己的
+ * `AgentModel.current()` 对「没有 effort 的选择」返回不含该字段的选择（其注释
+ * 说得明白：adapter 默认出来的 effort 会被省略，让后续请求重新取默认），于是
+ * 准备阶段和请求阶段都认为「不指定」，天然一致，请求里也就没有 reasoning 字段
+ * ——正是「关闭」要的效果。
  */
 export declare const EFFORT_OFF = "off";
 /** A recorded model selection, as the session log stores it. */
@@ -113,7 +125,7 @@ export declare function lastSelection(session: HostSession): ModelSelection | un
  */
 export declare function effortCatalog(llm: HostLlm | undefined, provider: string | undefined, model: string | undefined): Promise<EffortCatalog>;
 /**
- * The live per-session effort choices, and the request hook that applies them.
+ * The live per-session effort choices, and the route hook that applies them.
  *
  * One instance serves the whole bridge: every agent's `setup` installs a hook
  * that reads this table by session id, so a choice made in a chat applies to
@@ -129,14 +141,15 @@ export declare class EffortOverrides {
      * runtime, so saveSelection alone only ever reaches the next session.
      */
     private readonly bySession;
-    /** Advertised levels per route, so the capability lookup runs once per model. */
-    private readonly accepted;
-    private readonly ctx;
     /**
-     * @param ctx - the bridge's context, used to reach the llm runtime lazily —
-     *   a profile that mounts the llm row later still gets a correct answer.
+     * @param _ctx - 保留的桥上下文。
+     *
+     * 档位能力校验（原来在 `agent/request` 瀑布里做，问 `llm.resolveModelInfo`
+     * 这个模型认不认当前档位）随瀑布一起从这里撤掉了：那一步现在禁止改动任何
+     * 请求字段。校验改由命令层在切换前完成（`runThinkCommand` 已经比对 catalog），
+     * 这里留一个可选参数只是为了不牵动十几处调用点。
      */
-    constructor(ctx: Context);
+    constructor(_ctx?: Context);
     /**
      * The override in force for one session.
      * @param sessionId - the session to look up.
@@ -162,6 +175,13 @@ export declare class EffortOverrides {
     clear(session: HostSession): void;
     /**
      * Record one session's choice, durably when the host can append.
+     *
+     * `EFFORT_OFF` is stored in memory as the literal `'off'` — that is what
+     * `/think` prints back and what tells "the human asked for no thinking" apart
+     * from "nobody chose anything". What reaches the session log omits the field:
+     * the host then reads the selection as "unspecified" at step preparation and
+     * leaves the request without a reasoning field, which is the only encoding of
+     * "off" that survives the loop's consistency check. See {@link EFFORT_OFF}.
      * @param session - the session the choice belongs to.
      * @param selection - the provider/model it applies to, plus the effort
      *   (`undefined` clears the override and returns the session to the default).
@@ -178,19 +198,23 @@ export declare class EffortOverrides {
      */
     setEffort(session: HostSession, selection: ModelSelection): void;
     /**
-     * Install the request-side override on one agent's scope.
+     * Install the route override on one agent's scope.
+     *
+     * **只覆盖路由，绝不改 `reasoningEffort`。**
+     *
+     * 宿主 0.2.2 起在每一步准备阶段用 `agent.model.current()` 固定一次
+     * `selection`，随后硬校验 `agent/request` 瀑布的返回值必须与它逐字段相等
+     * （loop 的 `… after step preparation fixed …; use agent.model.select()
+     * before step preparation`）。所以任何在瀑布里改 effort 的写法都会让整轮
+     * 变成 `UNKNOWN` —— 2026-11-11 用户点「关闭思考」就是这么炸的。
+     *
+     * effort 现在完全通过落盘的 `model/selection` 事件生效（`set()` 会写），
+     * 宿主下一步准备阶段自己就读到了。这里剩下的路由覆盖与那条事件同源，
+     * 所以返回的值恒等于准备阶段固定下来的值，不会被判为不一致。
      * @param agentCtx - the agent's scoped context.
      * @param sessionId - the session this agent drives.
      */
     install(agentCtx: Context, sessionId: string): void;
-    /**
-     * Whether one route advertises an effort.
-     *
-     * Unknown routes pass: a provider that publishes no reasoning metadata may
-     * still accept the field, and refusing on silence would make the command
-     * useless on exactly the deployments that need it.
-     */
-    private accepts;
 }
 /**
  * Handle `/think [level|reset]`: show or change this session's reasoning effort.

@@ -22,12 +22,13 @@ import type { Context } from '@deepseek-ai/cordis';
  */
 export interface HostSession {
     /**
-     * The directory this session was CREATED in.
+     * The directory this session was CREATED in — its original project.
      *
-     * Fixed at creation — the host has no way to move a running session — which
-     * is exactly why the console shows it: after a workspace pick the chat is
-     * bound to the new directory while this session still runs in the old one,
-     * and the card has to say so instead of implying the move already happened.
+     * **This is NOT where the session currently runs.** `session.header.cwd` is
+     * immutable by design; the live directory is whatever `workingDirectory.get`
+     * reports, and it changes whenever something calls `workingDirectory.set`.
+     * Reading this field as "the current directory" is how the console and the
+     * CoT banner showed a stale path after a mid-conversation switch (2026-11-11).
      */
     readonly meta?: {
         readonly cwd?: string;
@@ -156,6 +157,46 @@ export interface HostAgent {
 export interface HostAgentHandle {
     readonly agent: HostAgent;
     dispose(): Promise<void>;
+}
+/**
+ * The host's owner of each Session's EFFECTIVE working directory.
+ *
+ * `@deepseek-ai/dsh-working-directory`: the immutable `session.header.cwd` is
+ * the original project, while this service is what every directory-based
+ * operation (fs tools, the AGENTS.md loader, the prompt's current-directory
+ * line) actually reads. `set` changes it for a LIVE session and appends a
+ * durable `working-directory/change` event, which is the mechanism behind
+ * "switching directories mid-conversation" — no `/new` required.
+ *
+ * Absent from a composition that does not load the plugin; callers must treat
+ * the field as optional and fall back to the header cwd.
+ */
+export interface HostWorkingDirectory {
+    /**
+     * Read the committed directory without filesystem I/O.
+     * Takes a `Session`, not an `Agent` — reading costs nothing and needs no
+     * liveness, unlike {@link set}, which appends and injects.
+     * @param session - the session to ask about.
+     * @returns its effective absolute directory.
+     */
+    get(session: HostSession): string;
+    /**
+     * Validate the current directory, restoring the original project when it
+     * disappeared. Also what the AGENTS.md loader calls per prompt assembly.
+     * @param agent - the live agent owning the session.
+     * @param signal - cancellation for filesystem inspection.
+     * @returns the existing directory.
+     */
+    ensure(agent: HostAgent, signal?: AbortSignal): Promise<string>;
+    /**
+     * Change one live session's directory.
+     * @param agent - the live agent owning the session.
+     * @param path - absolute path, or one relative to its current directory.
+     * @param signal - cancellation before the durable change.
+     * @returns the canonical absolute directory, committed before fulfillment.
+     * @throws when the path is not an existing directory.
+     */
+    set(agent: HostAgent, path: string, signal?: AbortSignal): Promise<string>;
 }
 /** Per-agent provider/model routing accepted by {@link HostAgentRegistry.create}. */
 export interface HostAgentOptions {

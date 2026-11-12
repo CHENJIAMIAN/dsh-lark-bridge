@@ -198,6 +198,97 @@ function summariseResult(
 }
 
 /**
+ * Keep one code block's payload inside a single event's JSON budget.
+ *
+ * 一次事件的内容上限是 4096 个字符，而 JSON 里换行、引号都要转义——按字符数
+ * 估算会低估。这里直接量 **序列化之后** 的长度，超了就在行边界上截断：半行
+ * 代码比不显示更误导。
+ * @param code - the block's body.
+ * @param budget - how many encoded characters it may take.
+ * @returns the body, truncated at a line boundary when it had to be.
+ */
+function fitCode(code: string, budget = 3400): string {
+  const measure = (text: string): number => JSON.stringify(text).length
+  if (measure(code) <= budget) return code
+  const kept: string[] = []
+  let used = 0
+  for (const line of code.split('\n')) {
+    if (used + measure(line) + 2 > budget) break
+    kept.push(line)
+    used += measure(line) + 2
+  }
+  kept.push('…（内容过长，已截断，完整内容见会话记录）')
+  return kept.join('\n')
+}
+
+/**
+ * What a file-writing tool call actually changed, for the thinking area.
+ *
+ * 写文件、改文件的过程，「改了哪儿」才是读者要的信息：只回一句 `已写入` 等于
+ * 让人去翻会话记录。所以这里把改动本身渲染出来——改文件用 `- 旧行 / + 新行`
+ * 的 diff 形状，整份写入用 `+ 行`（没有旧内容可比时，全文就是这次改动）。
+ *
+ * 只认得出参数形状的工具才走这条路：`old_string/new_string`（edit 类）与
+ * `content`（write 类）。认不出来的返回 undefined，调用方照旧走结果摘要。
+ * @param name - the tool's name.
+ * @param argumentsJson - the call's arguments, as the host delivered them.
+ * @param maxChars - how much of the change the thinking area shows.
+ * @returns the change as a code block's body, or undefined when this is not a file change.
+ */
+export function renderToolChange(
+  name: string,
+  argumentsJson: string,
+  maxChars: number = DEFAULT_LIMITS.toolChangeChars,
+): string | undefined {
+  if (!/write|edit|patch|replace/i.test(name)) return undefined
+  let args: Record<string, unknown>
+  try {
+    const parsed: unknown = JSON.parse(argumentsJson)
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
+    args = parsed as Record<string, unknown>
+  } catch {
+    return undefined
+  }
+  const path = [args.file_path, args.filePath, args.path]
+    .find((value): value is string => typeof value === 'string' && value !== '')
+  const oldText = [args.old_string, args.oldStr, args.old_str]
+    .find((value): value is string => typeof value === 'string')
+  const newText = [args.new_string, args.newStr, args.new_str]
+    .find((value): value is string => typeof value === 'string')
+  const content = typeof args.content === 'string' ? args.content : undefined
+
+  let body: string[] | undefined
+  let label: string
+  if (oldText !== undefined && newText !== undefined) {
+    body = [
+      ...oldText.split('\n').map(line => `- ${line}`),
+      ...newText.split('\n').map(line => `+ ${line}`),
+    ]
+    label = '改动'
+  } else if (content !== undefined) {
+    body = content.split('\n').map(line => `+ ${line}`)
+    label = '写入全文'
+  } else {
+    return undefined
+  }
+
+  const header = `${path ?? name} · ${label} · ${body.length} 行`
+  const kept: string[] = []
+  let used = header.length
+  for (const line of body) {
+    // 一行一行地放，放不下就停在行边界上——半行被截断的代码比不显示更误导。
+    if (used + line.length + 1 > maxChars) break
+    kept.push(line)
+    used += line.length + 1
+  }
+  if (kept.length === 0) return `${header}\n…（改动太大，前 ${body.length} 行未显示，完整内容见会话记录）`
+  if (kept.length < body.length) {
+    kept.push(`…（还有 ${body.length - kept.length} 行，完整内容见会话记录）`)
+  }
+  return [header, ...kept].join('\n')
+}
+
+/**
  * How much of a mid-turn message the process shows before eliding it.
  *
  * A person who pastes a stack trace into a running turn meant it for the
@@ -292,6 +383,15 @@ interface LiveRun {
   /** Whether a reasoning block is open, so its deltas append to one area. */
   reasoningOpen: boolean
   /**
+   * How many narration blocks this turn has shown; the narration id's counter.
+   *
+   * 叙述（被后一条 assistant 消息取代的那句「我先看看…」）也挂在 messageId 上：
+   * 同一个 id 再发一次就是「编辑那一条」，于是整轮的叙述都被并到第一段、贴在
+   * 过程顶上。**不能用 `run.pending.length` 当序号**——队列是异步排空的，等它
+   * 到的时候几乎永远是 0，一条轮里所有叙述都会拿到同一个 id。
+   */
+  narrations: number
+  /**
    * The message id of the reasoning block that is open right now.
    *
    * Every block gets its own id, because the protocol hangs a reasoning
@@ -335,6 +435,13 @@ interface LiveRun {
    * measured here, at the two points the renderer already sees.
    */
   readonly callStarted: Map<string, number>
+  /**
+   * The change each in-flight file-writing call makes, keyed by call id.
+   *
+   * 写文件的「完整变更」只能在调用那一刻从参数里算出来：结果事件里只有工具自己
+   * 的一句回执（已写入）。所以调用时算好、结果时取用，一条轮里互不串味。
+   */
+  readonly callChanges: Map<string, string>
   /** The title of the most recent tool call, for the run's slowest-step line. */
   lastToolTitle: string
   /** The slowest call this run made, so the closing line can name it. */
@@ -491,6 +598,7 @@ export function createCotRenderer(
       pending: [],
       draining: Promise.resolve(),
       reasoningOpen: false,
+      narrations: 0,
       reasoningId: '',
       reasoningBlocks: 0,
       reasoningText: '',
@@ -501,6 +609,7 @@ export function createCotRenderer(
       toolCalls: 0,
       userMessages: 0,
       callStarted: new Map(),
+      callChanges: new Map(),
       lastToolTitle: '',
       slowest: undefined,
     }
@@ -567,7 +676,7 @@ export function createCotRenderer(
         // in the process, where the platform shows it as the agent's own words.
         if (superseded === undefined || !showProcess || !isAssistantMessageEvent(superseded)) return
         const run = ensure(event.data.turn)
-        const messageId = `text-${run.turn}-${run.pending.length}`
+        const messageId = `text-${run.turn}-${++run.narrations}`
         enqueue(
           run,
           cotEvent('TEXT_MESSAGE_START', { messageId, role: 'assistant' }),
@@ -679,6 +788,8 @@ export function createCotRenderer(
         run.toolCalls += 1
         const startedAt = Date.now()
         run.callStarted.set(toolCallId, startedAt)
+        const change = renderToolChange(event.data.name, event.data.arguments, limits.toolChangeChars)
+        if (change !== undefined) run.callChanges.set(toolCallId, change)
         closeReasoning(run)
         const title = subagentTitle(event.data.name, shown.title)
         run.lastToolTitle = title
@@ -721,6 +832,11 @@ export function createCotRenderer(
         // "did it work, and how long did that take". A failure keeps the same
         // shape, which is what makes two runs comparable.
         const took = elapsed === undefined || elapsed < 1000 ? '' : `⏱ ${duration(elapsed)} · `
+        // 文件改动优先：写/改文件的「结果」就是它改了哪儿，工具自己那句回执
+        // （`已写入`）在会话记录里查得到，不值得占掉这一格。
+        const change = run.callChanges.get(callId)
+        run.callChanges.delete(callId)
+        const shownText = change ?? summariseResult(text, limits.toolResultLines, limits.toolResultChars)
         enqueue(run, cotEvent('TOOL_CALL_RESULT', {
           messageId: `result-${callId}`,
           toolCallId: callId,
@@ -730,7 +846,7 @@ export function createCotRenderer(
           // rest is in the session log.
           content: {
             type: 'code',
-            code: `${took}${summariseResult(text, limits.toolResultLines, limits.toolResultChars)}`,
+            code: fitCode(`${change === undefined ? took : ''}${shownText}`),
           },
           ...event.data.error === undefined ? {} : { error: event.data.error.code },
         }))

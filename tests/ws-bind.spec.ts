@@ -30,6 +30,93 @@ describe('旋转 id 反解回基础 id', () => {
   })
 })
 
+/**
+ * 一个最小的 `workingDirectory` 替身，只记它被谁切到哪。
+ *
+ * 真宿主里 `set()` 会往会话日志追加 `working-directory/change` 并给模型注入
+ * 一条通知；桥只用它的返回值，所以这里只需要「切换成功返回规范化路径」和
+ * 「被拒绝时抛错」两种行为。
+ */
+function fakeWorkingDirectory(initial: string, options: { refuse?: boolean } = {}) {
+  const current = new Map<string, string>()
+  const sets: { sessionId: string; path: string }[] = []
+  return {
+    sets,
+    service: {
+      get: (session: { id: string }): string => current.get(session.id) ?? initial,
+      ensure: async (agent: { session: { id: string } }): Promise<string> =>
+        current.get(agent.session.id) ?? initial,
+      set: async (agent: { session: { id: string } }, path: string): Promise<string> => {
+        if (options.refuse === true) throw new Error('refused (fake)')
+        sets.push({ sessionId: agent.session.id, path })
+        current.set(agent.session.id, path)
+        return path
+      },
+    },
+  }
+}
+
+/** The markdown lines this harness sent so far. */
+function said(harness: Awaited<ReturnType<typeof mountChannel>>): string[] {
+  return harness.fake.sent.map(entry => (entry.input as { markdown?: string }).markdown ?? '')
+}
+
+describe('/ws use 对当前会话就地生效', () => {
+  it('宿主有 workingDirectory 时，切换后本会话立刻在新目录，不用 /new', async () => {
+    const project = resolve(mkdtempSync(join(tmpdir(), 'ws-live-proj-')))
+    const wd = fakeWorkingDirectory('D:\\Desktop')
+    const harness = await mountChannel({}, { workingDirectory: wd.service })
+    try {
+      const chatId = 'oc_ws_live'
+      await harness.fake.emitMessage(fakeMessage({ chatId, content: `/ws use ${project}` }))
+      await vi.waitFor(() => {
+        if (!said(harness).some(line => line.includes('已切到'))) throw new Error('切换回执还没到')
+      }, PATIENCE)
+
+      // 就地把活会话切过去，而不是只写绑定等 `/new`。
+      expect(wd.sets).toHaveLength(1)
+      expect(wd.sets[0]!.path).toBe(project)
+      // 没有开新会话：这正是「立即生效」的意思。
+      expect(harness.agents.created).toHaveLength(1)
+      expect(said(harness).join('\n')).not.toContain('发 `/new` 开新会话后生效')
+    } finally {
+      await harness.dispose()
+    }
+  })
+
+  it('宿主没有 workingDirectory 时，如实说只能等 /new', async () => {
+    const project = resolve(mkdtempSync(join(tmpdir(), 'ws-defer-proj-')))
+    const harness = await mountChannel()
+    try {
+      const chatId = 'oc_ws_defer'
+      await harness.fake.emitMessage(fakeMessage({ chatId, content: `/ws use ${project}` }))
+      await vi.waitFor(() => {
+        if (!said(harness).some(line => line.includes('已绑定'))) throw new Error('绑定回执还没到')
+      }, PATIENCE)
+      // 不能谎称切过去了。
+      expect(said(harness).join('\n')).toContain('当前目录未变')
+    } finally {
+      await harness.dispose()
+    }
+  })
+
+  it('切换被拒绝时不抛给用户，绑定照样成立', async () => {
+    const project = resolve(mkdtempSync(join(tmpdir(), 'ws-refuse-proj-')))
+    const wd = fakeWorkingDirectory('D:\\Desktop', { refuse: true })
+    const harness = await mountChannel({}, { workingDirectory: wd.service })
+    try {
+      const chatId = 'oc_ws_refuse'
+      await harness.fake.emitMessage(fakeMessage({ chatId, content: `/ws use ${project}` }))
+      await vi.waitFor(() => {
+        if (!said(harness).some(line => line.includes('已绑定'))) throw new Error('绑定回执还没到')
+      }, PATIENCE)
+      expect(said(harness).join('\n')).toContain('当前目录未变')
+    } finally {
+      await harness.dispose()
+    }
+  })
+})
+
 describe('/ws use 的绑定要活过 /new', () => {
   it('旋转出来的会话仍从绑定的目录开始', async () => {
     const project = resolve(mkdtempSync(join(tmpdir(), 'ws-bind-proj-')))
@@ -58,3 +145,4 @@ describe('/ws use 的绑定要活过 /new', () => {
     }
   })
 })
+

@@ -372,6 +372,13 @@ export interface LimitsConfig {
     toolResultChars?: number;
     /** Characters per kept tool-call argument value in the thinking area. */
     toolArgChars?: number;
+    /**
+     * Characters of a file change (write/edit) shown in the thinking area.
+     *
+     * 写文件/改文件要看得见**改了哪儿**，不能只给一句「已写入」。这条预算比普通
+     * 工具结果大得多，但仍要低于一次事件 4096 字符的上限。
+     */
+    toolChangeChars?: number;
     /** Characters of a mid-turn message shown in the thinking area. */
     userMessageChars?: number;
     /** Characters of a quoted message prepended to the model's own input. */
@@ -394,6 +401,7 @@ export interface Limits {
     readonly toolResultLines: number;
     readonly toolResultChars: number;
     readonly toolArgChars: number;
+    readonly toolChangeChars: number;
     readonly userMessageChars: number;
     readonly quoteChars: number;
     readonly jobTailChars: number;

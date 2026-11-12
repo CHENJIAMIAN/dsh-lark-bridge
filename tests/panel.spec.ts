@@ -152,23 +152,33 @@ describe('console action dispatch', () => {
     })
   })
 
-  it('says on the workspace section that the binding lands on the next /new', () => {
-    // 和 `bind_workspace` 同一行为：点了不会当场换目录，卡片上必须写明，
-    // 否则「点完没变化」会被读成桥坏了。
-    const text = JSON.stringify(panelCard(VIEW))
-    expect(text).toContain('绑定后发 /new')
+  it('says whether the binding switches this session now or only the next one', () => {
+    // 宿主组合了 workingDirectory 时点了就切；没组合才退回「发 /new」。
+    // 两种都不能只说「已绑定」——「点完没变化」会被读成桥坏了。
+    expect(JSON.stringify(panelCard({ ...VIEW, canSwitchLive: true }))).toContain('绑定后本会话立即切换')
+    expect(JSON.stringify(panelCard({ ...VIEW, canSwitchLive: false }))).toContain('绑定后发 /new')
   })
 
   it('names the session’s own directory, and the binding only when it differs', () => {
     // 2026-11-11：绑完工作区后，卡片那一行显示的是新目录，而当前会话还在旧
-    // 目录里跑——两个事实被合成了一行。现在标题是「本会话在哪」，绑定另起一行。
+    // 目录里跑——两个事实被合成了一行。现在标题是「本会话读了哪份项目指令」，
+    // 绑定另起一行。
     const same = JSON.stringify(panelCard({ ...VIEW, boundWorkspace: VIEW.currentWorkspace }))
     expect(same).toContain('D:\\\\Proj')
+    expect(same).toContain('**项目指令**')
     expect(same).not.toContain('已绑定')
 
     const differs = JSON.stringify(panelCard({ ...VIEW, currentWorkspace: 'D:\\Old', boundWorkspace: 'D:\\Proj' }))
     expect(differs).toContain('D:\\\\Old')
-    expect(differs).toContain('已绑定 D:\\\\Proj，发 /new 后新会话在此目录')
+    // 宿主支持就地切换却仍然不一致 = 这次切换没成功，要说出来而不是沉默。
+    expect(differs).toContain('已绑定 D:\\\\Proj，但本会话没能切过去')
+    // 宿主不支持就地切换：如实说只能等 /new。
+    expect(JSON.stringify(panelCard({
+      ...VIEW,
+      currentWorkspace: 'D:\\Old',
+      boundWorkspace: 'D:\\Proj',
+      canSwitchLive: false,
+    }))).toContain('已绑定 D:\\\\Proj，本会话仍在上面那个目录，发 /new 后生效')
   })
 
   it('refuses unknown sections and operations instead of doing nothing', () => {

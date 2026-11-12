@@ -68,11 +68,21 @@ export interface SessionLadder {
     resume(sessionId: string): Promise<HostAgentHandle>;
     /**
      * Create a fresh agent on this id.
+     *
+     * `cwd` is the directory the new session must start in, when the caller knows
+     * it. It is passed explicitly rather than looked up later because the create
+     * path is the only place that decides: `bridge.ts` used to resolve it from a
+     * map keyed by session id that only a normal message ever seeded, so `/new`
+     * — a preemptive command that returns before that seeding — always created
+     * its session in the deployment cwd. A chat bound to a project stayed on
+     * `D:\Desktop` no matter how often the operator sent `/new` (2026-11-11).
+     *
      * @param sessionId - the branded session id.
+     * @param cwd - the directory to start in, or undefined for the deployment cwd.
      * @returns the created handle.
      * @throws when the agent cannot be composed.
      */
-    create(sessionId: string): Promise<HostAgentHandle>;
+    create(sessionId: string, cwd?: string): Promise<HostAgentHandle>;
     /**
      * Report a failure that is handled rather than propagated. The line is
      * operator-facing and self-describing.
@@ -144,11 +154,15 @@ export declare class ConversationSessions {
      * be looked up by id — while this store rebinds the key to a newly created
      * session and, when it owns the old agent, takes that agent down.
      * @param msg - the message that asked for the rotation.
+     * @param cwd - the directory the fresh session must start in, as the caller
+     *   resolved it for this chat. Passed through to `ladder.create` because a
+     *   rotation is a preemptive command: it never walks the inbound path that
+     *   seeds the per-session directory map, so the ladder could not infer it.
      * @returns the fresh session, already bound to the conversation key.
      * @throws when this store is closed, or when creating the fresh session
      * fails — the previous binding then survives untouched.
      */
-    rotate(msg: NormalizedMessage): Promise<OpenedSession & {
+    rotate(msg: NormalizedMessage, cwd?: string): Promise<OpenedSession & {
         readonly persisted: boolean;
     }>;
     /**
@@ -174,6 +188,7 @@ export declare class ConversationSessions {
     /**
      * The body of {@link rotate}, serialized per conversation by its caller.
      * @param key - the conversation key to rotate.
+     * @param cwd - the directory the fresh session must start in.
      * @returns the fresh session plus whether the mapping reached disk.
      */
     private performRotate;

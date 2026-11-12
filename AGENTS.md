@@ -6,6 +6,59 @@
 `pnpm typecheck` 等于没改。提交前跑 `pnpm test`，它含一道文档门禁（README 里的
 测试数、命令表要与代码一致），数对不上会红。
 
+## 预命令不进普通入站路径
+
+`/new` `/clear` `/stop` `/ws use` 这些在 `handleMessage` 里**提前 return**，走不到
+后面那段给 `pendingSessionCwd` 赋值的代码。于是任何「让 ladder 自己去查目录」的
+写法对它们都等于没写——`ladder.create` 会静默退回部署 cwd。
+
+2026-11-11 的现场：群绑定在 `dsh-lark-bridge`，发多少次 `/new` 都还在 `D:\Desktop`，
+因为它靠 `pendingSessionCwd.get(...)` 取目录，而那张表只有普通消息才填。
+
+**规矩：预命令需要的一切上下文，在调用它的地方先取好、显式传进去**，别指望下层
+去查一个只有别的路径才写的表。`rotate(msg, cwd)` / `create(sessionId, cwd?)` 就是
+按这条长出来的。
+
+## 目录：`meta.cwd` 是出身，不是现状
+
+宿主**挪得动运行中的会话**。`ctx.get('workingDirectory').set(agent, dir)` 会追加一条
+durable 的 `working-directory/change`、给模型注入一条「目录变了」通知，而 AGENTS.md
+加载器（`dsh-agent-instructions`）每次组装提示词都重读 `workingDirectory.ensure()`。
+所以 `/ws use` 和面板的「切换工作区」现在都是**就地切换**，不再要求 `/new`。
+
+读目录一律走 `workingDirectoryOf(session)`：
+- `session.meta.cwd` 是**不可变**的原始项目目录，切过就是旧值——拿它当「当前目录」
+  会让 CoT banner 和控制台卡片显示错的路径（这一整轮 bug 就是从这句错注释长出来的）；
+- 服务缺席时（组合里没加载该插件）才退回 `meta.cwd`，并用 `canSwitchLive: false`
+  让卡片如实说「发 /new 生效」，不要谎称已经切换。
+
+`ctx.get('workingDirectory', false)` 用**非严格**取值：严格模式在 providing fiber
+不是 ACTIVE 时返回 undefined，能力完全正常的宿主会被读成「不支持」。
+
+## 思考强度只能改「选择」，不能改「请求」
+
+宿主 0.2.2 的 `agent-loop` 在每一步准备阶段用 `agent.model.current()` 把
+`selection` 固定下来，随后**硬校验** `agent/request` 瀑布的返回值必须与它逐字段
+相等：
+
+```
+proposed reasoning effort "adapter default" after step preparation fixed "off";
+use agent.model.select() before step preparation
+```
+
+所以在 `agent/request` 里改 `reasoningEffort`（或 provider/model）会让整轮
+`UNKNOWN`。2026-11-11 现场：用户把强度从 low 切到 off，只有 off 炸——因为 off
+当时是靠「在瀑布里删掉 reasoning 字段」实现的，准备阶段说 off、请求里却是
+adapter default，两边不一致。
+
+**规矩：档位只通过落盘的 `model/selection` 事件生效**（`effortOverrides.set()`
+已经在写），宿主下一步准备阶段自己就读到了。瀑布里只剩路由覆盖，而且它必须与
+那条事件同源。
+
+`off` 的正确编码是**选择里不带 `reasoningEffort`**（宿主支持「没有 effort 的
+选择」，其 `AgentModel.current()` 注释写明 adapter 默认的 effort 会被省略），
+不是把 `off` 这个名字交给适配器查表——magpie 会把该档渲染成 `"none"`，上游不认。
+
 ## 飞书卡片：必须让平台校验，不能只靠单元测试
 
 **单元测试只能证明"我写的字段我自己读得回来"，证明不了"飞书认不认这些字段"。**
@@ -64,6 +117,33 @@ token：`POST /open-apis/auth/v3/tenant_access_token/internal`，appId/appSecret
   提示行改用 `div` + `plain_text`（见 `panel.ts` 的 `hint()`），别再用 `note`。
   排查这类问题的正确姿势：把 `panelCard()` 的真实 JSON 直接 POST `cardkit/v1/cards` 读返回体，
   一次就能看到是哪个元素、哪个 tag 被拒。
+
+## 思考过程：一段思考 = 一个 messageId，各自 START/END
+
+飞书原生思考过程（`message_cot`）里，一段 `REASONING_MESSAGE_START …_CONTENT …_END`
+渲染在它的 **START 时刻**那个位置；工具调用夹在中间就是「思考 工具 思考」。
+
+所以**绝对不能整轮只用一个 reasoning messageId、只 START 一次**：后续所有思考都落到
+开头那一段上，读者看到的就是「思考全堆在上面、工具全在下面」。2026-11-12 我这么
+「优化」过一次，正好复现了这个现象。
+
+判断依据不是猜：往群里发一条合成 cot（`REASONING → TOOL_CALL → REASONING`，
+每段独立 id），让操作者看 ①②③ 是否按序 —— 按序即证明平台支持交错，问题只在本端
+事件序列。合成 cot 的脚本在 `D:\CodexWork\feishu-cot-probe\probe-many.ps1`
+（注意官方上限：**一次 append 最多 50 个事件**，超过回 `the max len is 50`）。
+
+## 写文件的过程要给出「改了什么」
+
+思考区里一个写文件的工具结果，如果只显示工具自己的回执（`Wrote 3 lines`），读者
+还得去翻会话记录才知道改了哪几行。所以 `renderToolChange()`（`src/cot.ts`）在**调用
+那一刻**从参数里算出变更：`old/new` 型渲染成 `- 旧行 / + 新行`，`content` 型渲染成
+`+ 行`，开头带路径与行数；结果事件优先用它，工具回执不再占这一格。
+
+两条硬约束：
+- **一次事件的 JSON 上限是 4096 字符**，换行和引号都要转义，按字符数估算会低估——
+  用 `fitCode()` 量序列化后的长度；
+- **只在行边界截断**，末尾写明「还有 N 行，完整内容见会话记录」。半行代码比不显示
+  更容易误导。
 
 ## 重启宿主
 

@@ -266,11 +266,21 @@ export interface SessionLadder {
   resume(sessionId: string): Promise<HostAgentHandle>
   /**
    * Create a fresh agent on this id.
+   *
+   * `cwd` is the directory the new session must start in, when the caller knows
+   * it. It is passed explicitly rather than looked up later because the create
+   * path is the only place that decides: `bridge.ts` used to resolve it from a
+   * map keyed by session id that only a normal message ever seeded, so `/new`
+   * — a preemptive command that returns before that seeding — always created
+   * its session in the deployment cwd. A chat bound to a project stayed on
+   * `D:\Desktop` no matter how often the operator sent `/new` (2026-11-11).
+   *
    * @param sessionId - the branded session id.
+   * @param cwd - the directory to start in, or undefined for the deployment cwd.
    * @returns the created handle.
    * @throws when the agent cannot be composed.
    */
-  create(sessionId: string): Promise<HostAgentHandle>
+  create(sessionId: string, cwd?: string): Promise<HostAgentHandle>
   /**
    * Report a failure that is handled rather than propagated. The line is
    * operator-facing and self-describing.
@@ -372,18 +382,25 @@ export class ConversationSessions {
    * be looked up by id — while this store rebinds the key to a newly created
    * session and, when it owns the old agent, takes that agent down.
    * @param msg - the message that asked for the rotation.
+   * @param cwd - the directory the fresh session must start in, as the caller
+   *   resolved it for this chat. Passed through to `ladder.create` because a
+   *   rotation is a preemptive command: it never walks the inbound path that
+   *   seeds the per-session directory map, so the ladder could not infer it.
    * @returns the fresh session, already bound to the conversation key.
    * @throws when this store is closed, or when creating the fresh session
    * fails — the previous binding then survives untouched.
    */
-  async rotate(msg: NormalizedMessage): Promise<OpenedSession & { readonly persisted: boolean }> {
+  async rotate(
+    msg: NormalizedMessage,
+    cwd?: string,
+  ): Promise<OpenedSession & { readonly persisted: boolean }> {
     if (this.closed) throw new Error('dsh-lark-bridge: sessions are closed')
     const key = conversationKey(this.scope, msg)
     // One rotation at a time per conversation: two overlapping /new calls
     // used to leave the store and the process disagreeing about the current
     // session (and leak the second agent).
     if (this.rotating.has(key)) throw new Error('上一次开新会话还在进行中，稍等片刻再发 /new。')
-    const task = this.performRotate(key)
+    const task = this.performRotate(key, cwd)
     this.rotating.set(key, task)
     try {
       return await task
@@ -434,14 +451,18 @@ export class ConversationSessions {
   /**
    * The body of {@link rotate}, serialized per conversation by its caller.
    * @param key - the conversation key to rotate.
+   * @param cwd - the directory the fresh session must start in.
    * @returns the fresh session plus whether the mapping reached disk.
    */
-  private async performRotate(key: string): Promise<OpenedSession & { readonly persisted: boolean }> {
+  private async performRotate(
+    key: string,
+    cwd?: string,
+  ): Promise<OpenedSession & { readonly persisted: boolean }> {
     if (this.closed) throw new Error('dsh-lark-bridge: sessions are closed')
     const newId = rotatedSessionId(sessionIdFor(key))
     // Create before rebinding: a failed create must leave the conversation on
     // its previous session rather than stranding it without one.
-    const handle = await this.ladder.create(newId)
+    const handle = await this.ladder.create(newId, cwd)
     if (this.closed) {
       // close() swept before this create settled; the fresh agent would be a
       // zombie nobody owns. Take it down and refuse the rotation.

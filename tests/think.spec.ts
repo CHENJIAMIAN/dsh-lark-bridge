@@ -193,13 +193,20 @@ describe('EffortOverrides', () => {
       await expect(run({ provider: 'p', model: 'm', reasoningEffort: 'high' })).resolves.toEqual({ provider: 'p', model: 'm', reasoningEffort: 'high' })
     })
 
-    it('rewrites the effort the request will send', async () => {
-      const overrides = new EffortOverrides(fakeCtx({
-        llm: { resolveModelInfo: async () => ({ reasoning: { efforts: [{ id: 'low' }, { id: 'max' }] } }) },
-      }))
+    // 2026-11-11 的现场：宿主 0.2.2 在每一步准备阶段用 `agent.model.current()`
+    // 固定一次 selection，随后硬校验 `agent/request` 瀑布的返回值必须与它逐字段
+    // 相等（`proposed reasoning effort "adapter default" after step preparation
+    // fixed "off"; use agent.model.select() before step preparation`）。
+    // 所以这个钩子**只允许改路由**：effort 由落盘的 `model/selection` 承载，
+    // 宿主下一步准备阶段自己就读到了。在这里改 effort 等于把整轮打成 UNKNOWN。
+    it('never rewrites the effort the step preparation already fixed', async () => {
+      const overrides = new EffortOverrides(fakeCtx())
       overrides.set(fakeSession(), { provider: 'p', model: 'm', reasoningEffort: 'low' })
       const run = hook(overrides, 'ses_1')
-      await expect(run({ provider: 'p', model: 'm', reasoningEffort: 'max' })).resolves.toEqual({ provider: 'p', model: 'm', reasoningEffort: 'low' })
+      // 准备阶段固定的是 max（本会话的选择还没走到这一步）；把它改成 low
+      // 正是 2026-11-11 那一轮的崩溃原因。
+      const result = await run({ provider: 'p', model: 'm', reasoningEffort: 'max' })
+      expect(result.reasoningEffort).toBe('max')
     })
 
     it('keeps the rest of the envelope (maxTokens and the route)', async () => {
@@ -207,63 +214,14 @@ describe('EffortOverrides', () => {
       overrides.set(fakeSession(), { provider: 'p', model: 'm', reasoningEffort: 'max' })
       const run = hook(overrides, 'ses_1')
       const result = await run({ provider: 'p', model: 'm', maxTokens: 4096 } as unknown as { provider: string; model: string })
-      expect(result).toMatchObject({ provider: 'p', model: 'm', maxTokens: 4096, reasoningEffort: 'max' })
+      expect(result).toMatchObject({ provider: 'p', model: 'm', maxTokens: 4096 })
     })
 
-    // `off` 不是普通的档位名：它要求「请求里没有 reasoning 字段」。
-    // 把 off 原样交给宿主等于让宿主去查 `reasoningEfforts.off` 的 wire 值，
-    // 而 magpie 会把它写成 "none"——上游不认，照样思考。见 think.ts 的注释。
-    it('drops the effort key entirely for off, rather than forwarding the name', async () => {
+    it('moves the route to the recorded choice', async () => {
       const overrides = new EffortOverrides(fakeCtx())
-      overrides.set(fakeSession(), { provider: 'p', model: 'm', reasoningEffort: 'off' })
+      overrides.set(fakeSession(), { provider: 'p', model: 'chosen' })
       const run = hook(overrides, 'ses_1')
-      const result = (await run({ provider: 'p', model: 'm', reasoningEffort: 'high' })) as Record<string, unknown>
-      expect(Object.hasOwn(result, 'reasoningEffort')).toBe(false)
-      expect(result).toMatchObject({ provider: 'p', model: 'm' })
-    })
-
-    it('drops the effort key for off even when the route never offered it', async () => {
-      // 路由没声明 off 也照删：accepts() 的作用是挡掉「这条路没有这一档」，
-      // 而「不发这个字段」对任何路由都成立，没有可被拒绝的前提。
-      const overrides = new EffortOverrides(fakeCtx({
-        llm: { resolveModelInfo: async () => ({ reasoning: { efforts: [{ id: 'low' }, { id: 'max' }] } }) },
-      }))
-      overrides.set(fakeSession(), { provider: 'p', model: 'm', reasoningEffort: 'off' })
-      const run = hook(overrides, 'ses_1')
-      const result = (await run({ provider: 'p', model: 'm', reasoningEffort: 'low' })) as Record<string, unknown>
-      expect(Object.hasOwn(result, 'reasoningEffort')).toBe(false)
-    })
-
-    it('leaves the request alone when the route does not offer the level', async () => {
-      // The case that matters: /model moved the session to a route that only
-      // takes `off`, while the session still remembers `max`. Failing every
-      // turn would be the alternative.
-      const overrides = new EffortOverrides(fakeCtx({
-        llm: { resolveModelInfo: async () => ({ reasoning: { efforts: [{ id: 'off' }] } }) },
-      }))
-      overrides.set(fakeSession(), { provider: 'p', model: 'm', reasoningEffort: 'max' })
-      const run = hook(overrides, 'ses_1')
-      // The route still switches; only the unsupported effort is dropped.
-      await expect(run({ provider: 'p', model: 'other' })).resolves.toEqual({ provider: 'p', model: 'm' })
-    })
-
-    it('drops the effort when the adapter declares no levels', async () => {
-      // Declaring nothing means having nothing. Treating silence as "accepts
-      // anything" shipped `max` to a route that answered
-      // UNSUPPORTED_REASONING_EFFORT and killed the whole turn.
-      const overrides = new EffortOverrides(fakeCtx({ llm: { resolveModelInfo: async () => ({}) } }))
-      overrides.set(fakeSession(), { provider: 'p', model: 'm', reasoningEffort: 'max' })
-      const run = hook(overrides, 'ses_1')
-      await expect(run({ provider: 'p', model: 'm' })).resolves.toEqual({ provider: 'p', model: 'm' })
-    })
-
-    it('applies the choice when the adapter cannot describe the route', async () => {
-      const overrides = new EffortOverrides(fakeCtx({
-        llm: { resolveModelInfo: async () => { throw new Error('no capability') } },
-      }))
-      overrides.set(fakeSession(), { provider: 'p', model: 'm', reasoningEffort: 'max' })
-      const run = hook(overrides, 'ses_1')
-      await expect(run({ provider: 'p', model: 'm' })).resolves.toEqual({ provider: 'p', model: 'm', reasoningEffort: 'max' })
+      await expect(run({ provider: 'p', model: 'm' })).resolves.toEqual({ provider: 'p', model: 'chosen' })
     })
 
     it('is scoped to one session', async () => {
@@ -271,6 +229,68 @@ describe('EffortOverrides', () => {
       overrides.set(fakeSession(), { provider: 'p', model: 'm', reasoningEffort: 'off' })
       const run = hook(overrides, 'ses_2')
       await expect(run({ provider: 'p', model: 'm' })).resolves.toEqual({ provider: 'p', model: 'm' })
+    })
+  })
+
+  describe('the recorded selection', () => {
+    /** A session that records what it was told to append. */
+    function recordingSession(): { session: HostSession; appended: { type: string; data?: unknown }[] } {
+      const appended: { type: string; data?: unknown }[] = []
+      const session = {
+        ...fakeSession(),
+        append: (type: string, data?: unknown) => { appended.push({ type, data }) },
+      } as unknown as HostSession
+      return { session, appended }
+    }
+
+    // `off` 不是普通的档位名：它要求「请求里没有 reasoning 字段」。
+    // 把 off 原样落盘等于让宿主去查 `reasoningEfforts.off` 的 wire 值，
+    // 而 magpie 会把它写成 "none"——上游不认，照样思考。见 think.ts 的注释。
+    it('records off as an absent effort, so the host sends no reasoning field', () => {
+      const { session, appended } = recordingSession()
+      const overrides = new EffortOverrides()
+      overrides.set(session, { provider: 'p', model: 'm', reasoningEffort: 'off' })
+      expect(appended).toHaveLength(1)
+      expect(appended[0]!.type).toBe('model/selection')
+      const data = appended[0]!.data as Record<string, unknown>
+      expect(Object.hasOwn(data, 'reasoningEffort')).toBe(false)
+      expect(data).toEqual({ provider: 'p', model: 'm' })
+      // 内存里保留 off：/think 与 CoT banner 靠它显示「已关闭」。
+      expect(overrides.get('ses_1')).toEqual({ provider: 'p', model: 'm', reasoningEffort: 'off' })
+    })
+
+    it('records a normal level verbatim', () => {
+      const { session, appended } = recordingSession()
+      const overrides = new EffortOverrides()
+      overrides.set(session, { provider: 'p', model: 'm', reasoningEffort: 'low' })
+      expect(appended[0]!.data).toEqual({ provider: 'p', model: 'm', reasoningEffort: 'low' })
+    })
+
+    it('reads a recorded level back into the table', () => {
+      const session = fakeSession([
+        { type: 'model/selection', data: { provider: 'p', model: 'm', reasoningEffort: 'high' } },
+      ])
+      const overrides = new EffortOverrides()
+      overrides.restore(session)
+      expect(overrides.get('ses_1')).toEqual({ provider: 'p', model: 'm', reasoningEffort: 'high' })
+    })
+
+    // 迁移：旧版本把 off 原样落盘，宿主会据此去查 wire 值（magpie 写成 "none"），
+    // 于是「关闭」实际发的是 "none"。restore 读到旧形状要改写成「无 effort」。
+    it('rewrites a legacy off record as an absent effort', () => {
+      const appended: { type: string; data?: unknown }[] = []
+      const session = {
+        ...fakeSession([
+          { type: 'model/selection', data: { provider: 'p', model: 'm', reasoningEffort: 'off' } },
+        ]),
+        append: (type: string, data?: unknown) => { appended.push({ type, data }) },
+      } as unknown as HostSession
+      const overrides = new EffortOverrides()
+      overrides.restore(session)
+      expect(appended).toHaveLength(1)
+      expect(Object.hasOwn(appended[0]!.data as object, 'reasoningEffort')).toBe(false)
+      // 内存里仍是 off，供显示。
+      expect(overrides.get('ses_1')).toEqual({ provider: 'p', model: 'm', reasoningEffort: 'off' })
     })
   })
 })

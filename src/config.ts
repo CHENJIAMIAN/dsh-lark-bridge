@@ -389,6 +389,13 @@ export interface LimitsConfig {
   toolResultChars?: number
   /** Characters per kept tool-call argument value in the thinking area. */
   toolArgChars?: number
+  /**
+   * Characters of a file change (write/edit) shown in the thinking area.
+   *
+   * 写文件/改文件要看得见**改了哪儿**，不能只给一句「已写入」。这条预算比普通
+   * 工具结果大得多，但仍要低于一次事件 4096 字符的上限。
+   */
+  toolChangeChars?: number
   /** Characters of a mid-turn message shown in the thinking area. */
   userMessageChars?: number
   /** Characters of a quoted message prepended to the model's own input. */
@@ -412,6 +419,7 @@ export interface Limits {
   readonly toolResultLines: number
   readonly toolResultChars: number
   readonly toolArgChars: number
+  readonly toolChangeChars: number
   readonly userMessageChars: number
   readonly quoteChars: number
   readonly jobTailChars: number
@@ -436,6 +444,7 @@ export const DEFAULT_LIMITS: Limits = {
   toolResultLines: 10,
   toolResultChars: 1600,
   toolArgChars: 400,
+  toolChangeChars: 3000,
   userMessageChars: 3000,
   quoteChars: 6000,
   jobTailChars: 2500,
@@ -458,6 +467,7 @@ export function resolveLimits(config: LimitsConfig | undefined): Limits {
     toolResultLines: config?.toolResultLines ?? DEFAULT_LIMITS.toolResultLines,
     toolResultChars: config?.toolResultChars ?? DEFAULT_LIMITS.toolResultChars,
     toolArgChars: config?.toolArgChars ?? DEFAULT_LIMITS.toolArgChars,
+    toolChangeChars: config?.toolChangeChars ?? DEFAULT_LIMITS.toolChangeChars,
     userMessageChars: config?.userMessageChars ?? DEFAULT_LIMITS.userMessageChars,
     quoteChars: config?.quoteChars ?? DEFAULT_LIMITS.quoteChars,
     jobTailChars: config?.jobTailChars ?? DEFAULT_LIMITS.jobTailChars,
@@ -597,6 +607,7 @@ export const Config: z<Config> = z.object({
     toolResultLines: z.number().min(1),
     toolResultChars: z.number().min(1),
     toolArgChars: z.number().min(1),
+    toolChangeChars: z.number().min(1),
     userMessageChars: z.number().min(1),
     quoteChars: z.number().min(1),
     jobTailChars: z.number().min(1),

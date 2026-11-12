@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { COT_BANNER_PREFIX, cotBannerText } from '../src/cot.ts'
+import { COT_BANNER_PREFIX, cotBannerText, renderToolChange } from '../src/cot.ts'
 import { fakeMessage, mountChannel } from './harness.ts'
 
 /** Every event written to the first thinking process, in order. */
@@ -422,6 +422,93 @@ describe('thinking process (CoT)', () => {
       expect(narration).toEqual(['先做整体探索。', '继续看核心文档。'])
     })
     await harness.dispose()
+  })
+
+  it('gives each narration its own id, so an earlier line is not edited into the first one', async () => {
+    const harness = await mountChannel()
+    const emit = await chat(harness)
+    // 叙述也挂在 messageId 上：同一个 id 再发一次就是「编辑那一条」，于是整轮的
+    // 叙述都被并到第一段、贴在过程顶上。旧代码用 `run.pending.length` 当序号，
+    // 可队列是异步排空的，到那一刻几乎永远是 0——一条轮里所有叙述共用一个 id。
+    emit('assistant/message', { turn: 1, message: { content: [{ type: 'text', text: '先做整体探索。' }] } })
+    emit('tool/call', { turn: 1, callId: 'c1', name: 'bash', arguments: '{}' })
+    emit('assistant/message', { turn: 1, message: { content: [{ type: 'text', text: '继续看核心文档。' }] } })
+    emit('tool/call', { turn: 1, callId: 'c2', name: 'bash', arguments: '{}' })
+    emit('assistant/message', { turn: 1, message: { content: [{ type: 'text', text: '分析完成，结论如下。' }] } })
+
+    await vi.waitFor(() => {
+      const narration = events(harness)
+        .filter((e) => e.type === 'TEXT_MESSAGE_CONTENT' && !String(e.content.messageId).startsWith(COT_BANNER_PREFIX))
+      expect(narration).toHaveLength(2)
+    })
+    const ids = events(harness)
+      .filter((e) => e.type === 'TEXT_MESSAGE_CONTENT' && !String(e.content.messageId).startsWith(COT_BANNER_PREFIX))
+      .map((e) => e.content.messageId as string)
+    expect(new Set(ids).size).toBe(2)
+    await harness.dispose()
+  })
+
+  it('shows what a file write changed, not just a "wrote it" receipt', async () => {
+    const harness = await mountChannel()
+    const emit = await chat(harness)
+    // 写文件的「结果」是它改了哪儿。工具自己那句回执（`Wrote 3 lines`）对读者
+    // 没有信息量——真正的变更在参数里，所以要在调用时算好、结果时顶上。
+    emit('tool/call', {
+      turn: 1,
+      callId: 'w1',
+      name: 'write',
+      arguments: JSON.stringify({ file_path: 'src/a.ts', content: 'const a = 1\nconst b = 2' }),
+    })
+    emit('tool/result', {
+      turn: 1,
+      message: { source: { callId: 'w1' }, content: [{ type: 'text', text: 'Wrote 2 lines', toolCallId: 'w1' }] },
+    })
+
+    await vi.waitFor(() => { expect(contentOf(harness, 'TOOL_CALL_RESULT')).toBeDefined() })
+    const code = (contentOf(harness, 'TOOL_CALL_RESULT') as { content: { code: string } }).content.code
+    expect(code).toContain('src/a.ts')
+    expect(code).toContain('+ const a = 1')
+    expect(code).toContain('+ const b = 2')
+    // 工具那句回执不再占掉这一格。
+    expect(code).not.toContain('Wrote 2 lines')
+    await harness.dispose()
+  })
+
+  it('renders an edit as a diff of the old and new lines', async () => {
+    const harness = await mountChannel()
+    const emit = await chat(harness)
+    emit('tool/call', {
+      turn: 1,
+      callId: 'e1',
+      name: 'edit',
+      arguments: JSON.stringify({ file_path: 'src/b.ts', old_string: 'const a = 1', new_string: 'const a = 2' }),
+    })
+    emit('tool/result', {
+      turn: 1,
+      message: { source: { callId: 'e1' }, content: [{ type: 'text', text: 'Edited 1 line', toolCallId: 'e1' }] },
+    })
+
+    await vi.waitFor(() => { expect(contentOf(harness, 'TOOL_CALL_RESULT')).toBeDefined() })
+    const code = (contentOf(harness, 'TOOL_CALL_RESULT') as { content: { code: string } }).content.code
+    expect(code).toContain('- const a = 1')
+    expect(code).toContain('+ const a = 2')
+    await harness.dispose()
+  })
+
+  it('clips a change at a line boundary when it is too large for one event', async () => {
+    // 一次事件的 JSON 内容上限是 4096 字符，换行/引号还要转义。超了必须在行边界
+    // 上截断并说明，不能把事件撑到被服务端拒绝、也不能留半行误导读者。
+    const content = Array.from({ length: 400 }, (_, i) => `const line${i} = ${i}`).join('\n')
+    const change = renderToolChange('write', JSON.stringify({ file_path: 'src/big.ts', content }), 3000)
+    expect(change).toBeDefined()
+    const code = change!
+    expect(code).toContain('src/big.ts')
+    expect(code).toContain('还有')
+    expect(JSON.stringify(code).length).toBeLessThan(4096)
+    // 每一行要么完整，要么是那句截断说明，不能出现半截代码。
+    for (const line of code.split('\n').slice(1)) {
+      expect(line === '' || line.startsWith('+ ') || line.startsWith('…（')).toBe(true)
+    }
   })
 
   it('closes the run, ending an open thinking block first', async () => {

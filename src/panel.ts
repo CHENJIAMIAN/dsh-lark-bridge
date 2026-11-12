@@ -74,10 +74,20 @@ export interface PanelView {
   /**
    * The chat's workspace binding — where the NEXT session starts.
    *
-   * Shown separately from {@link currentWorkspace} only when the two differ:
-   * after a pick the running session stays where it was until `/new`.
+   * Normally equal to {@link currentWorkspace}, because picking a workspace
+   * moves the running session in place. They differ only when that move could
+   * not happen (host without `workingDirectory`, or a refused switch), and then
+   * the card says so instead of implying the move already landed.
    */
   readonly boundWorkspace?: string
+  /**
+   * Whether picking a workspace also moves THIS session, or only the next one.
+   *
+   * False on a host that does not load `workingDirectory`; the hints then
+   * promise `/new` rather than an immediate switch, so the card never claims
+   * something the composition cannot do.
+   */
+  readonly canSwitchLive?: boolean
   /** Registered workspaces, as display paths. */
   readonly workspaces: readonly string[]
   /** Context usage, when the meter can read it. */
@@ -213,14 +223,22 @@ function workspaceSection(view: PanelView): PanelSectionRender {
   // The headline names the directory the CURRENT session runs in — a fact.
   // The binding is a different fact (`/new` lands there) and gets its own line,
   // so the card never claims this conversation has already moved.
+  //
+  // 标题写「项目指令」而不是只放路径：这个目录唯一实际的作用，是它的 AGENTS.md
+  // 被注入进这一轮。只写路径时读者会以为卡片在说「本轮工作区」，可它说的是
+  // 「本轮读了哪份规则」——2026-11-11 那次误解就是这么来的。
   const elements: object[] = [
-    { tag: 'div', text: { tag: 'lark_md', content: `**工作区**　\`${view.currentWorkspace}\`` } },
+    { tag: 'div', text: { tag: 'lark_md', content: `**项目指令**　\`${view.currentWorkspace}\`` } },
   ]
   const pending = view.boundWorkspace !== undefined && view.boundWorkspace !== view.currentWorkspace
     ? view.boundWorkspace
     : undefined
   if (pending !== undefined) {
-    elements.push(hint(`已绑定 ${pending}，发 /new 后新会话在此目录`))
+    elements.push(hint(
+      view.canSwitchLive === false
+        ? `已绑定 ${pending}，本会话仍在上面那个目录，发 /new 后生效`
+        : `已绑定 ${pending}，但本会话没能切过去——再点一次「绑定」重试，或发 /new 开新会话`,
+    ))
   }
   if (view.workspaces.length === 0) {
     elements.push(hint('还没有注册过其他工作区。用 /ws 注册一个。'))
@@ -256,9 +274,9 @@ function workspaceSection(view: PanelView): PanelSectionRender {
       },
     ],
   })
-  // 和 `bind_workspace` 一致：只写绑定，不替用户把当前对话切掉。不说清这一句，
-  // 点完看不出变化就会被当成「切了没反应」。
-  elements.push(hint('绑定后发 /new 开新会话生效'))
+  // 和 `/ws use` 一致：绑定之外还会把当前会话就地切过去（宿主组合了
+  // workingDirectory 时）。宿主没组合时才退回「发 /new 生效」。
+  elements.push(hint(view.canSwitchLive === false ? '绑定后发 /new 开新会话生效' : '绑定后本会话立即切换'))
   return { id: 'workspace', elements }
 }
 

@@ -53,10 +53,20 @@ export interface PanelView {
     /**
      * The chat's workspace binding — where the NEXT session starts.
      *
-     * Shown separately from {@link currentWorkspace} only when the two differ:
-     * after a pick the running session stays where it was until `/new`.
+     * Normally equal to {@link currentWorkspace}, because picking a workspace
+     * moves the running session in place. They differ only when that move could
+     * not happen (host without `workingDirectory`, or a refused switch), and then
+     * the card says so instead of implying the move already landed.
      */
     readonly boundWorkspace?: string;
+    /**
+     * Whether picking a workspace also moves THIS session, or only the next one.
+     *
+     * False on a host that does not load `workingDirectory`; the hints then
+     * promise `/new` rather than an immediate switch, so the card never claims
+     * something the composition cannot do.
+     */
+    readonly canSwitchLive?: boolean;
     /** Registered workspaces, as display paths. */
     readonly workspaces: readonly string[];
     /** Context usage, when the meter can read it. */

@@ -42,6 +42,21 @@ export interface CotPort {
  * @returns a short description of what the call was for.
  */
 export declare function summariseArguments(argumentsJson: string, maxValueChars?: number): string;
+/**
+ * What a file-writing tool call actually changed, for the thinking area.
+ *
+ * 写文件、改文件的过程，「改了哪儿」才是读者要的信息：只回一句 `已写入` 等于
+ * 让人去翻会话记录。所以这里把改动本身渲染出来——改文件用 `- 旧行 / + 新行`
+ * 的 diff 形状，整份写入用 `+ 行`（没有旧内容可比时，全文就是这次改动）。
+ *
+ * 只认得出参数形状的工具才走这条路：`old_string/new_string`（edit 类）与
+ * `content`（write 类）。认不出来的返回 undefined，调用方照旧走结果摘要。
+ * @param name - the tool's name.
+ * @param argumentsJson - the call's arguments, as the host delivered them.
+ * @param maxChars - how much of the change the thinking area shows.
+ * @returns the change as a code block's body, or undefined when this is not a file change.
+ */
+export declare function renderToolChange(name: string, argumentsJson: string, maxChars?: number): string | undefined;
 /** Options for {@link createCotRenderer}. */
 export interface CotRendererOptions {
     /** Whether the agent's reasoning and tool calls appear at all. */

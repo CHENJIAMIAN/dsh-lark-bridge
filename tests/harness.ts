@@ -583,6 +583,13 @@ export async function mountChannel(
     tools?: object
     /** The `workspaceRegistry` chat sessions are accounted under. */
     workspaces?: object
+    /**
+     * The `workingDirectory` service — the host's owner of each session's
+     * EFFECTIVE directory. Omitted ⇒ the composition behaves like one without
+     * the plugin, and switching a workspace must fall back to "on the next
+     * `/new`" rather than claiming an in-place move.
+     */
+    workingDirectory?: object
     /** The `commands` runtime slash lines dispatch through. */
     commands?: object
     /** The `attachments` store chat images are committed to. */
@@ -643,6 +650,7 @@ export async function mountChannel(
   if (services.presets !== undefined) ctx.provide('agentPresets', services.presets)
   if (services.tools !== undefined) ctx.provide('tools', services.tools)
   if (services.workspaces !== undefined) ctx.provide('workspaceRegistry', services.workspaces)
+  if (services.workingDirectory !== undefined) ctx.provide('workingDirectory', services.workingDirectory)
   if (services.commands !== undefined) ctx.provide('commands', services.commands)
   if (services.attachments !== undefined) ctx.provide('attachments', services.attachments)
   if (services.jobs !== undefined) ctx.provide('jobs', services.jobs)
