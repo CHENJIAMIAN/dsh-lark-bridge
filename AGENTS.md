@@ -118,6 +118,28 @@ token：`POST /open-apis/auth/v3/tenant_access_token/internal`，appId/appSecret
   排查这类问题的正确姿势：把 `panelCard()` 的真实 JSON 直接 POST `cardkit/v1/cards` 读返回体，
   一次就能看到是哪个元素、哪个 tag 被拒。
 
+## 思考过程的能力边界：租户级灰度，别当公开 API 用
+
+接口 `/open-apis/im/v1/message_cot` 是**租户级灰度能力**，主要在 ByteDance 租户可用
+（第三方实现 `@open-aiden/dsh-lark-bridge` 原话：当前使用「ByteDance 租户接口」，
+其他租户可能直接用不了）。判断依据是 2026-11-12 的一轮核查：
+
+- 开放平台公开文档**查不到**：`/document/server-docs/im-v1/message_cot/*` 各路径全 404，
+  `site:open.feishu.cn` 与 larkoffice 国际站均无命中；
+- 官方 SDK `@larksuiteoapi/node-sdk` **不收录**方法，所以 `runtime.ts` 只能拿
+  `rawClient` 直接打 REST —— 同类情况的还有 slash 命令面板接口；
+- 但 GitHub 上至少四个互不相关的项目在用（botmux、csgclaw、Kinasha/open-aiden、
+  本仓），说明接口真实且成熟，不是漏洞。
+
+由此得到的硬结论：**换租户、换应用、换客户端都可能突然不可用**，所以创建 COT 失败
+必须降级为普通回复，不能连带把答案也吞掉。客户端门槛（第三方口径，未从官方证实）：
+桌面端 7.70+、移动端 7.74+。
+
+事件名（`REASONING_*` / `TOOL_CALL_*` / `TEXT_MESSAGE_*` / `RUN_*`）沿用第三方开放协议
+**AG-UI**（docs.ag-ui.com，非飞书官方），字段语义以 AG-UI spec 为准；但飞书侧的限制
+（一次最多 50 条、单条 4096 字符、`messageId` 归属与渲染位置）**以实测为准**，spec
+不保证飞书实现完全一致。
+
 ## 思考过程：一段思考 = 一个 messageId，各自 START/END
 
 飞书原生思考过程（`message_cot`）里，一段 `REASONING_MESSAGE_START …_CONTENT …_END`
@@ -144,6 +166,23 @@ token：`POST /open-apis/auth/v3/tenant_access_token/internal`，appId/appSecret
   用 `fitCode()` 量序列化后的长度；
 - **只在行边界截断**，末尾写明「还有 N 行，完整内容见会话记录」。半行代码比不显示
   更容易误导。
+
+## 问询卡：原文优先，别按字数截
+
+提问正文、选项 label、选项说明一律**原文送达**，不做按字数的截断（2026-11-12 运营方：
+「不要做限制，飞书支持多长就搞多长，维护原文非常重要」）。旧实现有
+`OPTION_LABEL_MAX_CHARS = 40` / `QUESTION_DETAIL_MAX_CHARS = 400`，读者看到的是被砍
+成「…」的半句话，而且会误以为是模型输出的。
+
+唯一的截断是**整卡预算**（`fitCardPayload`，`src/questions.ts`）：
+
+- 上限不是文档写的 30KB。**实测 `im/v1/messages` 的 `interactive` content 是 150KB**：
+  149.3KB 接受，151.3KB 起回 `230025 the length of the message content reaches its limit`。
+  实现取 140KB 留余量。
+- 超限时从最长的文本开始收，短按钮词（「跳过」「确认选择」）永不牺牲；
+- 每一处用**二分**求还能留多少字。拿字节差当字符数砍会出事——中文一字 3 字节，
+  超 100KB 按差砍就是把整段削没；二分期间也必须始终基于原文重试，否则最窄那轮
+  试探会把结果带到终点、截断说明也会丢。这两点当天各踩了一次。
 
 ## 重启宿主
 

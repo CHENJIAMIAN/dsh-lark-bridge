@@ -129,6 +129,70 @@ describe('user-questions provider', () => {
     await promise
   })
 
+  it('sends option text verbatim, with no per-field cut', async () => {
+    const port = fakePort()
+    const { provider } = createQuestionProvider(port, () => ({ chatId: 'oc_chat_1' }))
+    const controller = new AbortController()
+    // 2026-11-12 运营方要求：不要按字数截，飞书能放多长就放多长。
+    // 这两句在旧实现里会被砍到 40 字并加上我们自己的「…」。
+    const longLabel = '从三处查：原始材质本身就不能等价、色彩空间（颜色图漏了 sRGB 解码会发灰）、以及导出时是否丢了贴图'
+    const longDescription = '从源头往下分层查，不要一上来就调灯光'
+    const longQuestion = '面试官：你怎么保证你说的「目视验收」不是两次都是瞎看？'
+
+    const promise = provider.ask({
+      questions: [{ id: 'q1', question: longQuestion, options: [{ label: longLabel, description: longDescription }] }],
+      agent: { session: { id: 'ses_1' } },
+      signal: controller.signal,
+    })
+
+    expect(port.sent).toHaveLength(1)
+    const card = cardOf(port)
+    const texts = walk(card).map(node => node.text?.content ?? '')
+    // 整句都在，且没有出现本端截断留下的单字省略号。
+    expect(texts).toContain(`${longLabel} —— ${longDescription}`)
+    expect(texts).toContain(longQuestion)
+    expect(texts.some(text => text.endsWith('…'))).toBe(false)
+    expect(buttons(card).map(button => button.text?.content)).toContain(longLabel)
+
+    await tick()
+    controller.abort()
+    await promise
+  })
+
+  it('shrinks the whole card only when it would blow the 150KB message limit', async () => {
+    const port = fakePort()
+    const { provider } = createQuestionProvider(port, () => ({ chatId: 'oc_chat_1' }))
+    const controller = new AbortController()
+    // 单条 90k 字的上下文（约 270KB）超过卡片实测 150KB 上限：这时才让位，并留下说明。
+    const huge = '很长很长的上下文。'.repeat(20000)
+
+    const promise = provider.ask({
+      questions: [{ id: 'q1', question: '这一条真的放不下？', detail: huge, options: [{ label: '跳过方式', description: '看说明' }] }],
+      agent: { session: { id: 'ses_1' } },
+      signal: controller.signal,
+    })
+
+    expect(port.sent).toHaveLength(1)
+    const card = cardOf(port)
+    const bytes = Buffer.byteLength(JSON.stringify(card), 'utf8')
+    // 实测上限 150KB（149.3 接受 / 151.3 拒绝），实现留 10KB 余量。
+    expect(bytes).toBeLessThanOrEqual(140 * 1024)
+    const texts = walk(card).map(node => node.text?.content ?? '')
+    expect(texts.some(text => text.includes('超出飞书单卡上限'))).toBe(true)
+    // 收窄是「按比例削」，不是「一刀削到只剩说明」：60k 字的原文砍完仍应留下
+    // 成千上万字（中文一字 3 字节，按字节差直接当字符数砍会整段消失——踩过）。
+    const shrunk = texts.find(text => text.includes('超出飞书单卡上限'))!
+    expect(shrunk.length).toBeGreaterThan(30000)
+    // 短词不能被牺牲：按钮上的「跳过」「提交文字」必须原样。
+    const labels = buttons(card).map(button => button.text?.content ?? '')
+    expect(labels).toContain('跳过')
+    expect(labels).toContain('提交文字')
+
+    await tick()
+    controller.abort()
+    await promise
+  })
+
   it('answers a question when its option button is clicked', async () => {
     const port = fakePort()
     const { provider, handleCardAction } = createQuestionProvider(port, () => ({ chatId: 'oc_chat_1' }))
