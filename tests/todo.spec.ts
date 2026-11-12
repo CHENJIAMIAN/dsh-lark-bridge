@@ -104,4 +104,19 @@ describe('todo renderer', () => {
     expect(port.sent).toHaveLength(1)
     expect(headerTitle(port.sent[0]!.card)).toContain('1/1')
   })
+
+  it('updates the card a previous process left instead of posting a second one', async () => {
+    const port = fakePort()
+    const renderer = createTodoRenderer(port as never, () => {}, {
+      restored: new Map([['ses_1', { chatId: 'oc_chat_1', messageId: 'om_restored' }]]),
+    })
+
+    await renderer.handle('ses_1', 'oc_chat_1', [
+      { content: '第一步', status: 'completed' },
+      { content: '第二步', status: 'in_progress' },
+    ])
+
+    expect(port.sent).toHaveLength(0)
+    expect(port.updated[0]?.messageId).toBe('om_restored')
+  })
 })
