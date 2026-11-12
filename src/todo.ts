@@ -97,6 +97,14 @@ function todoCard(todos: readonly HostTodoItem[]): object {
 interface PendingTodoCard {
   readonly chatId: string
   messageId: string
+  /** 重启前留下的卡：更新不了就重发一张，别让待办停住。 */
+  restored?: boolean
+}
+
+/** 跨重启的接管钩子，与目标卡同一套形状。 */
+export interface TodoRendererOptions {
+  readonly restored?: ReadonlyMap<string, { readonly chatId: string; readonly messageId: string }>
+  readonly onCard?: (sessionId: string, chatId: string, messageId: string) => void
 }
 
 /**
@@ -109,11 +117,15 @@ interface PendingTodoCard {
 export function createTodoRenderer(
   port: TodoPort,
   reportSendFailure: (error: unknown) => void,
+  options: TodoRendererOptions = {},
 ): {
   handle(sessionId: string, chatId: string, todos: readonly HostTodoItem[]): Promise<void>
   dispose(): void
 } {
   const cards = new Map<string, PendingTodoCard>()
+  for (const [sessionId, entry] of options.restored ?? []) {
+    cards.set(sessionId, { chatId: entry.chatId, messageId: entry.messageId, restored: true })
+  }
 
   const sendOrUpdate = async (sessionId: string, chatId: string, todos: readonly HostTodoItem[]): Promise<void> => {
     const existing = cards.get(sessionId)
@@ -122,6 +134,7 @@ export function createTodoRenderer(
       try {
         const sent = await port.send(chatId, { card })
         cards.set(sessionId, { chatId, messageId: sent.messageId })
+        options.onCard?.(sessionId, chatId, sent.messageId)
       } catch (error) {
         // A failed first send leaves no card to update; the next snapshot
         // retries the send rather than losing the progress surface.
@@ -134,6 +147,7 @@ export function createTodoRenderer(
       try {
         const sent = await port.send(chatId, { card })
         cards.set(sessionId, { chatId, messageId: sent.messageId })
+        options.onCard?.(sessionId, chatId, sent.messageId)
       } catch (error) {
         reportSendFailure(error)
       }
@@ -142,6 +156,17 @@ export function createTodoRenderer(
     try {
       await port.updateCard(existing.messageId, card)
     } catch (error) {
+      if (existing.restored === true) {
+        cards.delete(sessionId)
+        try {
+          const sent = await port.send(chatId, { card })
+          cards.set(sessionId, { chatId, messageId: sent.messageId })
+          options.onCard?.(sessionId, chatId, sent.messageId)
+        } catch (retry) {
+          reportSendFailure(retry)
+        }
+        return
+      }
       reportSendFailure(error)
     }
   }

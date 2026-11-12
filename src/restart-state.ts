@@ -60,9 +60,11 @@ export interface RestartTurn {
 /** A card the bridge is still updating; after a boot it can be taken over again. */
 export interface RestartCard {
   readonly chatId: string
-  /** `console`, `goal`, `todo`, `team`, `subagent`, `workflow`. */
+  /** `console`, `goal`, `todo`, `team`, `subagent`, `workflow`, `stream`. */
   readonly kind: string
   readonly messageId: string
+  /** 会话级卡片（目标/待办）按会话认领；聊天级卡片可以不带。 */
+  readonly sessionId?: string
   readonly updatedAt: string
 }
 

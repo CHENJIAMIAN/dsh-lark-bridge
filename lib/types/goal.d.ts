@@ -45,6 +45,16 @@ export interface GoalActionValue {
  * @returns the typed payload, or undefined for foreign card actions.
  */
 export declare function goalActionValue(value: unknown): GoalActionValue | undefined;
+/** 跨重启的接管钩子：给出上次那张卡的 id，并回报新卡。 */
+export interface GoalRendererOptions {
+    /** 上次进程留下的卡片，按会话 id。 */
+    readonly restored?: ReadonlyMap<string, {
+        readonly chatId: string;
+        readonly messageId: string;
+    }>;
+    /** 发出或换掉了卡片时回报，供调用方落盘。 */
+    readonly onCard?: (sessionId: string, chatId: string, messageId: string) => void;
+}
 /**
  * The bridge's goal renderer: first snapshot sends a card, later snapshots
  * update it in place, and a clear (operation `clear`) leaves the last card
@@ -52,7 +62,7 @@ export declare function goalActionValue(value: unknown): GoalActionValue | undef
  * @param port - the transport used to send and update cards.
  * @returns the renderer and its failure report hook.
  */
-export declare function createGoalRenderer(port: GoalPort, reportSendFailure: (error: unknown) => void): {
+export declare function createGoalRenderer(port: GoalPort, reportSendFailure: (error: unknown) => void, options?: GoalRendererOptions): {
     handle(sessionId: string, chatId: string, change: HostGoalChange): Promise<void>;
     dispose(): void;
 };

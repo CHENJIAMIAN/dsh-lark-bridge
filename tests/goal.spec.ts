@@ -131,4 +131,40 @@ describe('goal renderer', () => {
     expect(texts).toContain('▶️ 继续')
     expect(texts).not.toContain('⏸️ 暂停')
   })
+
+  it('takes over the card a previous process left, instead of sending a second one', async () => {
+    const port = fakePort()
+    const reported: { sessionId: string; chatId: string; messageId: string }[] = []
+    const renderer = createGoalRenderer(port as never, () => {}, {
+      restored: new Map([['ses_1', { chatId: 'oc_chat_1', messageId: 'om_restored' }]]),
+      onCard: (sessionId, chatId, messageId) => { reported.push({ sessionId, chatId, messageId }) },
+    })
+
+    await renderer.handle('ses_1', 'oc_chat_1', {
+      operation: 'update',
+      goal: { objective: '接着做', phase: 'active', maxGoalRounds: 10 },
+    })
+
+    // 认回来的卡就地更新，不能凭空多一张。
+    expect(port.sent).toHaveLength(0)
+    expect(port.updated[0]?.messageId).toBe('om_restored')
+  })
+
+  it('re-sends when the restored card can no longer be updated', async () => {
+    const port = fakePort()
+    port.updateCard = async () => { throw new Error('message not found') }
+    const reported: string[] = []
+    const renderer = createGoalRenderer(port as never, () => {}, {
+      restored: new Map([['ses_1', { chatId: 'oc_chat_1', messageId: 'om_gone' }]]),
+      onCard: (_sessionId, _chatId, messageId) => { reported.push(messageId) },
+    })
+
+    await renderer.handle('ses_1', 'oc_chat_1', {
+      operation: 'update',
+      goal: { objective: '重新贴出来', phase: 'active', maxGoalRounds: 10 },
+    })
+
+    expect(port.sent).toHaveLength(1)
+    expect(reported).toEqual(['om_1'])
+  })
 })

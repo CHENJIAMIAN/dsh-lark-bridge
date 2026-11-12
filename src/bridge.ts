@@ -2145,10 +2145,32 @@ export function installBridge(
    * session, updated in place. This is the chat equivalent of the Web UI's
    * sidebar todo projection.
    */
-  const todos = createTodoRenderer(port, reportSendFailure)
+  //
+  // 重启后认回上次那张卡：否则同一轮待办会多发一张、旧卡永远停住。
+  const restoredCards = (kind: string) => new Map(
+    restoredState.cards
+      .filter(card => card.kind === kind && card.sessionId !== undefined)
+      .map(card => [card.sessionId as string, { chatId: card.chatId, messageId: card.messageId }]),
+  )
+  const rememberCard = (kind: string, sessionId: string | undefined, chatId: string, messageId: string): void => {
+    restartStore.rememberCard({
+      chatId,
+      kind,
+      messageId,
+      ...sessionId === undefined ? {} : { sessionId },
+      updatedAt: new Date().toISOString(),
+    })
+  }
+  const todos = createTodoRenderer(port, reportSendFailure, {
+    restored: restoredCards('todo'),
+    onCard: (sessionId, chatId, messageId) => rememberCard('todo', sessionId, chatId, messageId),
+  })
 
   /** Live goal cards: `goal/change` snapshots render as one card per session. */
-  const goals = createGoalRenderer(port, reportSendFailure)
+  const goals = createGoalRenderer(port, reportSendFailure, {
+    restored: restoredCards('goal'),
+    onCard: (sessionId, chatId, messageId) => rememberCard('goal', sessionId, chatId, messageId),
+  })
 
   /**
    * The conversations whose goal must be re-armed after a restart.
@@ -3705,6 +3727,11 @@ export function installBridge(
    * with it, so this map decides what to recall after the new card is sent.
    */
   const consoleMessages = new Map<string, string>()
+  // 重启前那张控制台卡还在聊天里：认回它的 id，下一次 /console 才能「发新卡 + 撤回旧卡」，
+  // 而不是在聊天里堆第二张。
+  for (const card of restoredState.cards) {
+    if (card.kind === 'console') consoleMessages.set(card.chatId, card.messageId)
+  }
 
   /**
    * Put the console in front of a chat.
@@ -4784,6 +4811,33 @@ export function installBridge(
   if (restoredState.turns.length > 0) {
     const delay = Math.max(0, config.resumeGoalsBootDelaySeconds) * 1_000
     const timer = setTimeout(() => {
+      // 流式卡写到一半断了：补一句落在同一聊天里，读者才知道那张卡不会再有下文。
+      for (const card of restoredState.cards) {
+        if (card.kind !== 'stream') continue
+        void replay
+          .send(card.chatId, {
+            markdown: '⚠️ 上面那张正文卡写到一半就断了（进程重启），后面的内容不会再有——完整过程见会话记录。',
+          })
+          .catch(reportSendFailure)
+          .finally(() => restartStore.forgetCard(card.chatId, 'stream'))
+      }
+      // 运行级卡片（团队 / 子代理 / 工作流）故意不接回来：那次运行已经被重启杀掉了。
+      // 但也不能让它们看起来还在跑——每个聊天说一句，然后销账。
+      const stoppedChats = new Set(
+        restoredState.cards
+          .filter(card => card.kind === 'team' || card.kind === 'subagent' || card.kind === 'workflow')
+          .map(card => card.chatId),
+      )
+      for (const chatId of stoppedChats) {
+        void replay
+          .send(chatId, {
+            markdown: 'ℹ️ 上面那张进度卡停在重启那一刻（那次运行已经结束），后续进度会出现在新卡里。',
+          })
+          .catch(reportSendFailure)
+          .finally(() => {
+            for (const kind of ['team', 'subagent', 'workflow']) restartStore.forgetCard(chatId, kind)
+          })
+      }
       for (const turn of restoredState.turns) {
         void replay
           .send(turn.chatId, {

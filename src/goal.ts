@@ -114,6 +114,16 @@ function goalCard(goal: HostGoal, sessionId: string): object {
 interface PendingGoalCard {
   readonly chatId: string
   messageId: string
+  /** 这张卡是重启前留下的：更新失败就当它没了，重新发一张。 */
+  restored?: boolean
+}
+
+/** 跨重启的接管钩子：给出上次那张卡的 id，并回报新卡。 */
+export interface GoalRendererOptions {
+  /** 上次进程留下的卡片，按会话 id。 */
+  readonly restored?: ReadonlyMap<string, { readonly chatId: string; readonly messageId: string }>
+  /** 发出或换掉了卡片时回报，供调用方落盘。 */
+  readonly onCard?: (sessionId: string, chatId: string, messageId: string) => void
 }
 
 /**
@@ -126,11 +136,16 @@ interface PendingGoalCard {
 export function createGoalRenderer(
   port: GoalPort,
   reportSendFailure: (error: unknown) => void,
+  options: GoalRendererOptions = {},
 ): {
   handle(sessionId: string, chatId: string, change: HostGoalChange): Promise<void>
   dispose(): void
 } {
   const cards = new Map<string, PendingGoalCard>()
+  // 重启后先认回上次那张卡：不然同一轮目标会凭空多出一张重复卡，旧卡永远停住。
+  for (const [sessionId, entry] of options.restored ?? []) {
+    cards.set(sessionId, { chatId: entry.chatId, messageId: entry.messageId, restored: true })
+  }
 
   const sendOrUpdate = async (sessionId: string, chatId: string, goal: HostGoal): Promise<void> => {
     const existing = cards.get(sessionId)
@@ -139,6 +154,7 @@ export function createGoalRenderer(
       try {
         const sent = await port.send(chatId, { card })
         cards.set(sessionId, { chatId, messageId: sent.messageId })
+        options.onCard?.(sessionId, chatId, sent.messageId)
       } catch (error) {
         reportSendFailure(error)
       }
@@ -147,6 +163,19 @@ export function createGoalRenderer(
     try {
       await port.updateCard(existing.messageId, card)
     } catch (error) {
+      // 认回来的旧卡更新不了（消息被删、被撤回、或跨了两天的会话）：重新发一张，
+      // 别让目标从此停在一张不动的卡上。
+      if (existing.restored === true) {
+        cards.delete(sessionId)
+        try {
+          const sent = await port.send(chatId, { card })
+          cards.set(sessionId, { chatId, messageId: sent.messageId })
+          options.onCard?.(sessionId, chatId, sent.messageId)
+        } catch (retry) {
+          reportSendFailure(retry)
+        }
+        return
+      }
       reportSendFailure(error)
     }
   }

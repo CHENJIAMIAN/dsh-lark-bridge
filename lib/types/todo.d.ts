@@ -25,6 +25,14 @@ export interface HostTodoItem {
 export interface HostTodoWrite {
     readonly todos: readonly HostTodoItem[];
 }
+/** 跨重启的接管钩子，与目标卡同一套形状。 */
+export interface TodoRendererOptions {
+    readonly restored?: ReadonlyMap<string, {
+        readonly chatId: string;
+        readonly messageId: string;
+    }>;
+    readonly onCard?: (sessionId: string, chatId: string, messageId: string) => void;
+}
 /**
  * The bridge's todo renderer: first snapshot sends a card, later snapshots
  * update it in place, and a session with no pending rows leaves the card with
@@ -32,7 +40,7 @@ export interface HostTodoWrite {
  * @param port - the transport used to send and update cards.
  * @returns the renderer and its failure report hook.
  */
-export declare function createTodoRenderer(port: TodoPort, reportSendFailure: (error: unknown) => void): {
+export declare function createTodoRenderer(port: TodoPort, reportSendFailure: (error: unknown) => void, options?: TodoRendererOptions): {
     handle(sessionId: string, chatId: string, todos: readonly HostTodoItem[]): Promise<void>;
     dispose(): void;
 };
