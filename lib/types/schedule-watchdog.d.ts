@@ -64,9 +64,11 @@ export declare const DEFAULT_OVERDUE_WINDOW_MS: number;
 /**
  * How late an occurrence may be before it counts as missed.
  *
- * The driver sometimes fires an instant a few seconds late; announcing that as
- * "漏发了 … 已经晚了 0 分钟" is noise, and on 2026-11-10 it was the whole
- * complaint. Anything inside this margin counts as on time.
+ * 调度器本来就会晚几十秒到一两分钟才真正触发（它靠后续事件追赶，不是到点就发）。
+ * 把这点延误叫「漏发」是噪音——2026-11-10 那条「已经晚了 0 分钟」的卡片就是这事。
+ *
+ * 默认 **5 分钟**：运营方 2026-11-13 要求「晚了 5 分钟才提醒」——2 分钟的容差把
+ * 一次正常的晚触发报成了漏发。可用 `overdueToleranceMinutes` 调整。
  */
 export declare const OVERDUE_TOLERANCE_MS: number;
 /**
@@ -88,9 +90,10 @@ export declare const OVERDUE_TOLERANCE_MS: number;
  * @param tasks - rows keyed by id, as stored.
  * @param now - current time in epoch ms.
  * @param windowMs - how far back to look.
+ * @param toleranceMs - how late still counts as on time.
  * @returns the overdue occurrences, oldest first.
  */
-export declare function overdueTasks(tasks: Readonly<Record<string, StoredScheduleTask>>, now: number, windowMs?: number): OverdueTask[];
+export declare function overdueTasks(tasks: Readonly<Record<string, StoredScheduleTask>>, now: number, windowMs?: number, toleranceMs?: number): OverdueTask[];
 /**
  * The chat one bound session id belongs to.
  *

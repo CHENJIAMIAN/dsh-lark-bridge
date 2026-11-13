@@ -129,4 +129,13 @@ describe('overdue schedule detection', () => {
   it('falls back to the raw string for an unparseable instant', () => {
     expect(localDue('not a date')).toBe('not a date')
   })
+
+  it('waits five minutes before calling a late firing missed', () => {
+    // 2026-11-13 现场：调度器晚了两分钟就被报成漏发，运营方要求改成 5 分钟。
+    expect(overdueTasks({ k: daily(3) }, NOW)).toEqual([])
+    expect(overdueTasks({ k: daily(4) }, NOW)).toEqual([])
+    expect(overdueTasks({ k: daily(6) }, NOW)).toHaveLength(1)
+    // 容差也是可调的：给 0 就按「到点没发就算漏」判。
+    expect(overdueTasks({ k: daily(1) }, NOW, DEFAULT_OVERDUE_WINDOW_MS, 0)).toHaveLength(1)
+  })
 })

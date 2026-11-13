@@ -302,6 +302,14 @@ export interface Config {
    */
   overdueScheduleWindowHours?: number
   /**
+   * 晚多少分钟才算「漏发」。
+   *
+   * 调度器靠后续事件追赶，本来就会晚一两分钟才触发；容差太小时，一次正常的
+   * 晚触发会被报成漏发（2026-11-13 的现场：晚了 2 分钟就弹提醒）。
+   * 默认 5 分钟。
+   */
+  overdueToleranceMinutes?: number
+  /**
    * Dispatch a missed occurrence instead of only offering to.
    *
    * With this off, a miss posts a card and waits for a human to press 「现在执行」.
@@ -532,6 +540,8 @@ export interface ResolvedConfig {
   notifyOverdueSchedules: boolean
   /** How far back a missed occurrence is still surfaced (hours). */
   overdueScheduleWindowHours: number
+  /** 晚多少分钟才算「漏发」。 */
+  overdueToleranceMinutes: number
   /** Dispatch a missed occurrence instead of only offering to. */
   autoDispatchOverdueSchedules: boolean
   /** Shell command behind `/restart`; '' (default) keeps the command off. */
@@ -590,6 +600,7 @@ export const Config: z<Config> = z.object({
   resumeGoalsBootDelaySeconds: z.number().step(1).min(0).max(600).default(8),
   notifyOverdueSchedules: z.boolean().default(true),
   overdueScheduleWindowHours: z.number().step(1).min(1).max(168).default(24),
+  overdueToleranceMinutes: z.number().step(1).min(0).max(1440).default(5),
   autoDispatchOverdueSchedules: z.boolean().default(false),
   restartCommand: z.string().default(''),
   approvalReminderMs: z.number().min(0).default(0),
@@ -670,6 +681,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     resumeGoalsBootDelaySeconds: config.resumeGoalsBootDelaySeconds ?? 8,
     notifyOverdueSchedules: config.notifyOverdueSchedules ?? true,
     overdueScheduleWindowHours: config.overdueScheduleWindowHours ?? 24,
+    overdueToleranceMinutes: config.overdueToleranceMinutes ?? 5,
     autoDispatchOverdueSchedules: config.autoDispatchOverdueSchedules ?? false,
     restartCommand: config.restartCommand ?? '',
     approvalReminderMs: config.approvalReminderMs ?? 0,

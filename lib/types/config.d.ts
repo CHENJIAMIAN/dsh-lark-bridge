@@ -286,6 +286,14 @@ export interface Config {
      */
     overdueScheduleWindowHours?: number;
     /**
+     * 晚多少分钟才算「漏发」。
+     *
+     * 调度器靠后续事件追赶，本来就会晚一两分钟才触发；容差太小时，一次正常的
+     * 晚触发会被报成漏发（2026-11-13 的现场：晚了 2 分钟就弹提醒）。
+     * 默认 5 分钟。
+     */
+    overdueToleranceMinutes?: number;
+    /**
      * Dispatch a missed occurrence instead of only offering to.
      *
      * With this off, a miss posts a card and waits for a human to press 「现在执行」.
@@ -481,6 +489,8 @@ export interface ResolvedConfig {
     notifyOverdueSchedules: boolean;
     /** How far back a missed occurrence is still surfaced (hours). */
     overdueScheduleWindowHours: number;
+    /** 晚多少分钟才算「漏发」。 */
+    overdueToleranceMinutes: number;
     /** Dispatch a missed occurrence instead of only offering to. */
     autoDispatchOverdueSchedules: boolean;
     /** Shell command behind `/restart`; '' (default) keeps the command off. */
