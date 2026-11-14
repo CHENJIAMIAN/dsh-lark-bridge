@@ -617,26 +617,6 @@ export function createQuestionProvider(
     })
   }
 
-  /**
-   * Replace a question's card with its current state.
-   *
-   * Failure here is not worth failing the answer over: the answer is already
-   * recorded, and an unchanged card only costs the receipt.
-   * @param question - the pending request being re-rendered.
-   * @param token - its token.
-   * @param done - whether every question is settled.
-   */
-  const refresh = async (question: PendingQuestion, token: string, done: boolean): Promise<void> => {
-    if (question.messageId === undefined || port.updateCard === undefined) return
-    try {
-      await port.updateCard(
-        question.messageId,
-        questionCard(question.questions, token, question.settled, done),
-      )
-    } catch {
-      // The card keeps its last state; the answer is unaffected.
-    }
-  }
 
   const provider = {
     async ask(request: HostUserQuestionRequest): Promise<HostQuestionAnswer> {
@@ -732,9 +712,19 @@ export function createQuestionProvider(
 
     const done = item.settled.size === item.questions.length
     const remaining = item.questions.length - item.settled.size
-    void refresh(item, ref.token, done)
+    // 卡片跟着这次回调响应一起回去，客户端当场重绘。
+    //
+    // 这是这张卡还能继续点的前提：飞书在表单提交后会把整张卡片锁住，直到服务端
+    // 响应里给出新卡片。只回 toast、另起一条 `im.message.patch` 更新的话，patch
+    // 到达之前用户点任何按钮都没反应——2026-11-14 现场「选了第一个，第二第三个
+    // 就点不动了」就是这么来的（单问题卡不受影响，因为它本来就该整张结束）。
+    const answered = questionCard(item.questions, ref.token, item.settled, done)
+
     if (!done) {
-      return { toast: { type: 'success', content: `已回答，还有 ${remaining} 个问题` } }
+      return {
+        toast: { type: 'success', content: `已回答，还有 ${remaining} 个问题` },
+        card: { type: 'raw', data: answered },
+      }
     }
     pending.delete(ref.token)
     restart?.forget(ref.token)
@@ -749,7 +739,10 @@ export function createQuestionProvider(
         }
       }),
     })
-    return { toast: { type: 'success', content: '回答已提交' } }
+    return {
+      toast: { type: 'success', content: '回答已提交' },
+      card: { type: 'raw', data: answered },
+    }
   }
 
   /**

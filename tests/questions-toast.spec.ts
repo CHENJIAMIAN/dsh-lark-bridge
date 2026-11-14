@@ -73,13 +73,16 @@ describe('question card click response', () => {
     // Exactly what the SDK documents (`dist/index.d.mts`):
     // `{ toast: { type: 'success' | 'info' | 'error' | 'warning' | 'loading',
     //            content: string } }`.
-    expect(response).toEqual({ toast: { type: 'success', content: '回答已提交' } })
+    // 响应里除了 toast 还带重绘后的卡片（见 settle：飞书提交后整张卡会锁住，
+    // 必须由这次响应把新卡送回去）。toast 本身仍是那个对象形态。
+    expect((response as { toast: unknown }).toast)
+      .toEqual({ type: 'success', content: '回答已提交' })
     // Spelled out separately: the failing shape this guards against is a
     // STRING toast, which the platform drops silently.
     expect(typeof response.toast).toBe('object')
-    expect(JSON.parse(JSON.stringify(response))).toEqual({
-      toast: { type: 'success', content: '回答已提交' },
-    })
+    const serialized = JSON.parse(JSON.stringify(response)) as { toast: unknown; card?: { type: string } }
+    expect(serialized.toast).toEqual({ type: 'success', content: '回答已提交' })
+    expect(serialized.card?.type).toBe('raw')
 
     // Settle the pending ask so the test leaks no promise.
     await promise

@@ -233,9 +233,15 @@ describe('user-questions provider', () => {
     // can only be delivered once that turn of the microtask queue is done.
     await tick()
 
-    const response = handleCardAction(submit(`q${token}o0_1`))
+    const response = handleCardAction(submit(`q${token}o0_1`)) as {
+      toast?: { content?: string }
+      card?: { type: string; data: CardNode }
+    }
 
-    expect(response).toEqual({ toast: { type: 'success', content: '回答已提交' } })
+    expect(response.toast).toEqual({ type: 'success', content: '回答已提交' })
+    // 卡片跟着同一次回调响应回去：客户端当场重绘，不靠第二条 patch。
+    expect(response.card?.type).toBe('raw')
+    expect(response.card?.data.header?.title?.content).toBe('已回答')
     await expect(promise).resolves.toEqual({ answers: [{ id: 'q1', selected: ['B 方案'] }] })
   })
 
@@ -340,8 +346,14 @@ describe('user-questions provider', () => {
     // can only be delivered once that turn of the microtask queue is done.
     await tick()
 
-    expect(handleCardAction(submit(`q${token}o1_0`)))
-      .toEqual({ toast: { type: 'success', content: '已回答，还有 1 个问题' } })
+    const first = handleCardAction(submit(`q${token}o1_0`)) as {
+      toast?: { content?: string }
+      card?: { type: string; data: CardNode }
+    }
+    expect(first.toast).toEqual({ type: 'success', content: '已回答，还有 1 个问题' })
+    // 关键：这一下必须把「第二问仍然能点」的卡片一起送回去，否则卡片会被锁死。
+    expect(first.card?.type).toBe('raw')
+    expect(forms(first.card!.data)).toHaveLength(1)
     await tick()
     expect(resolved).toBe(false)
 
@@ -370,23 +382,22 @@ describe('user-questions provider', () => {
     // can only be delivered once that turn of the microtask queue is done.
     await tick()
 
-    handleCardAction(submit(`q${token}o0_0`))
+    const first = handleCardAction(submit(`q${token}o0_0`)) as { card?: { data: CardNode } }
     await tick()
 
-    expect(port.updated).toHaveLength(1)
-    expect(port.updated[0]!.messageId).toBe('om_1')
-    const partial = port.updated[0]!.card as CardNode
+    // 卡片在响应里，不再另发一次 patch：那第二条请求慢的那几秒，整张卡是锁死的。
+    expect(port.updated).toHaveLength(0)
+    const partial = first.card!.data
     // The answered question became a line of record; the other form survives.
     expect(forms(partial)).toHaveLength(1)
     expect(forms(partial)[0]!.name).toBe(`q${token}f1`)
     expect(walk(partial).some(node => (node.text?.content ?? '').includes('✅ 第一个？'))).toBe(true)
 
-    handleCardAction(submit(`q${token}o1_0`))
+    const last = handleCardAction(submit(`q${token}o1_0`)) as { card?: { data: CardNode } }
     await tick()
 
     // The final card is a receipt with no live form left.
-    expect(port.updated).toHaveLength(2)
-    const final = port.updated[1]!.card as CardNode
+    const final = last.card!.data
     expect(forms(final)).toHaveLength(0)
     expect(final.header?.title?.content).toBe('已回答')
 
